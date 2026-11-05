@@ -1,0 +1,231 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAppCreator() {
+      return isSignedIn() &&
+             'email' in request.auth.token &&
+             'email_verified' in request.auth.token &&
+             request.auth.token.email_verified == true &&
+             request.auth.token.email == 'tmcrainbow093@gmail.com';
+    }
+
+    function isValidHunterSession(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.level is int && data.level >= 1 && data.level <= 999 &&
+             data.rank is string && data.rank.size() >= 1 && data.rank.size() <= 80 &&
+             data.currentXp is int && data.currentXp >= 0 && data.currentXp <= 10000000 &&
+             data.nextLevelXp is int && data.nextLevelXp >= 100 && data.nextLevelXp <= 10000000 &&
+             data.progressPercent is number && data.progressPercent >= 0 && data.progressPercent <= 100 &&
+             data.hpPercent is number && data.hpPercent >= 0 && data.hpPercent <= 100 &&
+             data.streakDays is int && data.streakDays >= 0 && data.streakDays <= 10000 &&
+             data.caloriesLogged is int && data.caloriesLogged >= 0 && data.caloriesLogged <= 50000 &&
+             data.caloriesTarget is int && data.caloriesTarget >= 500 && data.caloriesTarget <= 50000 &&
+             data.proteinG is number && data.proteinG >= 0 && data.proteinG <= 2000 &&
+             data.carbsG is number && data.carbsG >= 0 && data.carbsG <= 5000 &&
+             data.fatsG is number && data.fatsG >= 0 && data.fatsG <= 2000 &&
+             data.fiberG is number && data.fiberG >= 0 && data.fiberG <= 500 &&
+             data.omega3Mg is number && data.omega3Mg >= 0 && data.omega3Mg <= 50000 &&
+             data.waterLiters is number && data.waterLiters >= 0 && data.waterLiters <= 50 &&
+             data.targetLiters is number && data.targetLiters >= 0.5 && data.targetLiters <= 50 &&
+             data.workoutCompleted is bool &&
+             data.tacticalBriefing is string && data.tacticalBriefing.size() >= 1 && data.tacticalBriefing.size() <= 2000 &&
+             data.stateJson is string && data.stateJson.size() >= 2 && data.stateJson.size() <= 25000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTacticalLog(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.commandText is string && data.commandText.size() >= 1 && data.commandText.size() <= 500 &&
+             data.briefingResponse is string && data.briefingResponse.size() >= 1 && data.briefingResponse.size() <= 2000 &&
+             data.xpDelta is int && data.xpDelta >= -10000 && data.xpDelta <= 100000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidJournalEntry(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.entryType is string && (data.entryType == 'PHOTO_PROGRESS' || data.entryType == 'BIOMETRIC_UPDATE') &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.caption is string && data.caption.size() >= 1 && data.caption.size() <= 2000 &&
+             data.poseTag is string && data.poseTag.size() >= 1 && data.poseTag.size() <= 80 &&
+             data.photoBase64 is string && data.photoBase64.size() <= 250000 &&
+             data.weightKg is number && data.weightKg >= 20 && data.weightKg <= 400 &&
+             data.heightCm is number && data.heightCm >= 80 && data.heightCm <= 260 &&
+             data.age is int && data.age >= 10 && data.age <= 120 &&
+             data.bmi is number && data.bmi >= 5 && data.bmi <= 120 &&
+             data.bodyFatPercent is number && data.bodyFatPercent >= 1 && data.bodyFatPercent <= 80 &&
+             data.muscleMassPercent is number && data.muscleMassPercent >= 10 && data.muscleMassPercent <= 95 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidFeedbackEntry(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.hunterName is string && data.hunterName.size() >= 1 && data.hunterName.size() <= 80 &&
+             data.category is string && (
+               data.category == 'FEATURE_REQUEST' ||
+               data.category == 'BUG_REPORT' ||
+               data.category == 'UI_UX' ||
+               data.category == 'GENERAL'
+             ) &&
+             data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+             data.message is string && data.message.size() >= 1 && data.message.size() <= 1500 &&
+             data.status is string && (
+               data.status == 'OPEN' ||
+               data.status == 'IN_REVIEW' ||
+               data.status == 'IMPLEMENTED'
+             ) &&
+             data.visibility is string && data.visibility == 'PUBLIC' &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /users/{userId}/sessions/{sessionId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(sessionId);
+      allow list: if isSignedIn() && request.auth.uid == userId && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       isValidId(sessionId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'level', 'rank', 'currentXp', 'nextLevelXp',
+                         'progressPercent', 'hpPercent', 'streakDays',
+                         'caloriesLogged', 'caloriesTarget', 'proteinG', 'carbsG',
+                         'fatsG', 'fiberG', 'omega3Mg', 'waterLiters', 'targetLiters',
+                         'workoutCompleted', 'tacticalBriefing', 'stateJson',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'level', 'rank', 'currentXp', 'nextLevelXp',
+                         'progressPercent', 'hpPercent', 'streakDays',
+                         'caloriesLogged', 'caloriesTarget', 'proteinG', 'carbsG',
+                         'fatsG', 'fiberG', 'omega3Mg', 'waterLiters', 'targetLiters',
+                         'workoutCompleted', 'tacticalBriefing', 'stateJson',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidHunterSession(incoming());
+
+      allow update: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       isValidId(sessionId) &&
+                       isValidHunterSession(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'level', 'rank', 'currentXp', 'nextLevelXp',
+                         'progressPercent', 'hpPercent', 'streakDays',
+                         'caloriesLogged', 'caloriesTarget', 'proteinG', 'carbsG',
+                         'fatsG', 'fiberG', 'omega3Mg', 'waterLiters', 'targetLiters',
+                         'workoutCompleted', 'tacticalBriefing', 'stateJson',
+                         'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(sessionId);
+    }
+
+    match /users/{userId}/logs/{logId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(logId);
+      allow list: if isSignedIn() && request.auth.uid == userId && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       isValidId(logId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'commandText', 'briefingResponse', 'xpDelta', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'commandText', 'briefingResponse', 'xpDelta', 'createdAt'
+                       ]) &&
+                       isValidTacticalLog(incoming());
+
+      allow update: if false;
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(logId);
+    }
+
+    match /users/{userId}/journal/{entryId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(entryId);
+      allow list: if isSignedIn() && request.auth.uid == userId && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       isValidId(entryId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'entryType', 'title', 'caption', 'poseTag',
+                         'photoBase64', 'weightKg', 'heightCm', 'age',
+                         'bmi', 'bodyFatPercent', 'muscleMassPercent', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'entryType', 'title', 'caption', 'poseTag',
+                         'photoBase64', 'weightKg', 'heightCm', 'age',
+                         'bmi', 'bodyFatPercent', 'muscleMassPercent', 'createdAt'
+                       ]) &&
+                       isValidJournalEntry(incoming());
+
+      allow update: if false;
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(entryId);
+    }
+
+    match /feedback/{feedbackId} {
+      allow get: if isSignedIn() &&
+                    isValidId(feedbackId) &&
+                    (existing().userId == request.auth.uid || existing().visibility == 'PUBLIC' || isAppCreator());
+
+      allow list: if isSignedIn() &&
+                     (existing().userId == request.auth.uid || existing().visibility == 'PUBLIC' || isAppCreator());
+
+      allow create: if isSignedIn() &&
+                       isValidId(feedbackId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().status == 'OPEN' &&
+                       incoming().keys().hasAll([
+                         'userId', 'hunterName', 'category', 'rating',
+                         'message', 'status', 'visibility', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'hunterName', 'category', 'rating',
+                         'message', 'status', 'visibility', 'createdAt'
+                       ]) &&
+                       isValidFeedbackEntry(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(feedbackId) &&
+                       isValidFeedbackEntry(incoming()) &&
+                       (existing().userId == request.auth.uid || isAppCreator()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().hunterName == existing().hunterName &&
+                       incoming().category == existing().category &&
+                       incoming().rating == existing().rating &&
+                       incoming().message == existing().message &&
+                       incoming().visibility == existing().visibility &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+
+      allow delete: if isSignedIn() &&
+                       isValidId(feedbackId) &&
+                       (existing().userId == request.auth.uid || isAppCreator());
+    }
+  }
+}

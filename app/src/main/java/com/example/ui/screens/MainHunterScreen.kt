@@ -1,0 +1,2569 @@
+package com.example.ui.screens
+
+import androidx.activity.compose.BackHandler
+import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ShowChart
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.credentials.CredentialManager
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.R
+import com.example.data.model.*
+import com.example.data.repository.HunterRepository
+import com.example.ui.auth.signOutHunter
+import com.example.ui.theme.*
+import com.example.ui.viewmodel.AiSyncState
+import com.example.ui.viewmodel.DataLoadState
+import com.example.ui.viewmodel.FoodEntryRecord
+import com.example.ui.viewmodel.HunterViewModel
+import com.example.ui.viewmodel.PikaCoachTip
+import com.example.ui.viewmodel.PikaCoachUiState
+import com.example.ui.viewmodel.WaterEntryRecord
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlin.math.roundToInt
+
+private val PikaVoltYellow = Color(0xFFFFDE00)
+private val PikaVoltAmber = Color(0xFFD97706)
+private val PikaCheekCrimson = Color(0xFFEF233C)
+private val PikaCrimsonDeep = Color(0xFFD90429)
+private val PikaSlateBlue = Color(0xFF1E6076)
+private val PikaDeepIndigo = Color(0xFF4F46E5)
+private val HunterDoneGreen = Color(0xFF10B981)
+
+data class TutorialStep(
+    val title: String,
+    val subtitle: String,
+    val badge: String,
+    @DrawableRes val drawableRes: Int,
+    val icon: ImageVector,
+    val accentColor: Color
+)
+
+@Composable
+fun PikachuMascotBadge(
+    @DrawableRes drawableRes: Int = R.drawable.pika_logo_hi,
+    modifier: Modifier = Modifier
+) {
+    Image(
+        painter = painterResource(id = drawableRes),
+        contentDescription = "Pikachu Mascot",
+        modifier = modifier.clip(CircleShape),
+        contentScale = ContentScale.Crop
+    )
+}
+
+@Composable
+fun PikachuTutorialDialog(
+    trainerName: String = "Trainer",
+    onReopenOnboarding: () -> Unit = {},
+    onDismiss: () -> Unit
+) {
+    val isDark = AppThemeIsDark
+    val steps = listOf(
+        TutorialStep(
+            title = "Pika-Pika! Hi, $trainerName!",
+            subtitle = "Welcome to PikaFit! Pikachu is your personal strength, nutrition, and progressive overload companion.",
+            badge = "STEP 1 // PIKAFIT COMPANION",
+            drawableRes = R.drawable.pika_logo_hi,
+            icon = Icons.Filled.Bolt,
+            accentColor = if (isDark) PikaVoltYellow else PikaCheekCrimson
+        ),
+        TutorialStep(
+            title = "Daily Productive Overload",
+            subtitle = "Opening the app alone won't keep your streak. Log your workout sets or caloric meals to verify your day with 100,000 Volts of discipline!",
+            badge = "STEP 2 // WORKOUT & DIET",
+            drawableRes = R.drawable.pika_orange_wave,
+            icon = Icons.Filled.FitnessCenter,
+            accentColor = PikaCheekCrimson
+        ),
+        TutorialStep(
+            title = "Telemetry & Biometric Journal",
+            subtitle = "Track lean mass, BMI, body fat percentage, and progress photos over time across Pikachu-themed charts and archives.",
+            badge = "STEP 3 // ARCHIVE & CHARTS",
+            drawableRes = R.drawable.pika_pokeball_bg,
+            icon = Icons.Filled.MenuBook,
+            accentColor = PikaVoltAmber
+        )
+    )
+
+    var currentStep by remember { mutableIntStateOf(0) }
+    val step = steps[currentStep]
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.68f))
+            .clickable(onClick = onDismiss)
+            .padding(22.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 460.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .border(2.5.dp, step.accentColor, RoundedCornerShape(28.dp))
+                .clickable(enabled = false) {},
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        color = step.accentColor.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.5.dp, step.accentColor)
+                    ) {
+                        Text(
+                            text = step.badge,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp
+                            ),
+                            color = step.accentColor
+                        )
+                    }
+
+                    TextButton(
+                        onClick = onDismiss,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text(
+                            text = "SKIP",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Box(
+                    modifier = Modifier
+                        .size(124.dp)
+                        .clip(CircleShape)
+                        .background(step.accentColor.copy(alpha = 0.15f))
+                        .border(3.dp, step.accentColor, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    PikachuMascotBadge(
+                        drawableRes = step.drawableRes,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = step.title,
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 24.sp
+                    ),
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = step.subtitle,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp),
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 23.sp
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    steps.indices.forEach { index ->
+                        Box(
+                            modifier = Modifier
+                                .height(9.dp)
+                                .width(if (index == currentStep) 30.dp else 10.dp)
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(
+                                    if (index == currentStep) step.accentColor else BorderSubtle
+                                )
+                                .clickable { currentStep = index }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(22.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (currentStep > 0) {
+                        OutlinedButton(
+                            onClick = { currentStep-- },
+                            modifier = Modifier
+                                .weight(0.4f)
+                                .height(54.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text(
+                                text = "BACK",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                                color = TextPrimary
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (currentStep < steps.size - 1) {
+                                currentStep++
+                            } else {
+                                onDismiss()
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(54.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = step.accentColor,
+                            contentColor = if (step.accentColor == PikaVoltYellow) Color(0xFF0F172A) else Color.White
+                        )
+                    ) {
+                        Text(
+                            text = if (currentStep == steps.size - 1) "START TRAINING (PIKA!)" else "NEXT (${currentStep + 1}/${steps.size})",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 17.sp
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(Icons.Filled.ChevronRight, contentDescription = null)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                TextButton(onClick = {
+                    onDismiss()
+                    onReopenOnboarding()
+                }) {
+                    Text(
+                        text = "Redo Trainer Setup Questions →",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        color = if (isDark) PikaVoltYellow else PikaCheekCrimson
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PikaCoachPopupDialog(
+    tip: PikaCoachTip,
+    isDark: Boolean,
+    onDismiss: () -> Unit,
+    onPrimaryAction: () -> Unit,
+    onRefreshTip: () -> Unit
+) {
+    val surfaceBg = if (isDark) Color(0xFF141B2D) else Color.White
+    val borderColor = when (tip.coachMood) {
+        "ALERT_INACTIVE" -> PikaCheekCrimson
+        "PROUD" -> HunterDoneGreen
+        else -> PikaVoltYellow
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.68f))
+            .clickable(onClick = onDismiss)
+            .padding(22.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 440.dp)
+                .clickable(enabled = false) {}
+                .testTag("pika_coach_popup_dialog"),
+            shape = RoundedCornerShape(28.dp),
+            color = surfaceBg,
+            border = BorderStroke(2.5.dp, borderColor),
+            shadowElevation = 20.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        color = borderColor.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, borderColor)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AutoAwesome,
+                                contentDescription = null,
+                                tint = borderColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "GEMINI PIKA-COACH TIP",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.8.sp
+                                ),
+                                color = if (isDark) Color.White else Color(0xFF0F172A)
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Close Pika-Coach Tip",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Box(
+                    modifier = Modifier
+                        .size(86.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF6792A4))
+                        .border(3.dp, PikaVoltYellow, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(
+                            id = if (tip.coachMood == "ALERT_INACTIVE") R.drawable.pika_orange_wave else R.drawable.pika_logo_hi
+                        ),
+                        contentDescription = "Pika-Coach Mascot",
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = tip.headline,
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    ),
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = tip.advice,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = PikaVoltYellow.copy(alpha = if (isDark) 0.14f else 0.22f),
+                    border = BorderStroke(1.dp, PikaVoltYellow.copy(alpha = 0.7f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Bolt,
+                            contentDescription = null,
+                            tint = if (isDark) PikaVoltYellow else PikaVoltAmber,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "NEXT MICRO-ACTION",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                color = if (isDark) PikaVoltYellow else PikaVoltAmber
+                            )
+                            Text(
+                                text = tip.actionLabel,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = TextPrimary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onRefreshTip,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.5.dp, borderColor)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Refresh,
+                            contentDescription = "New Gemini Tip",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("New Tip", fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = {
+                            onDismiss()
+                            onPrimaryAction()
+                        },
+                        modifier = Modifier
+                            .weight(1.25f)
+                            .height(48.dp)
+                            .testTag("pika_coach_action_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PikaCheekCrimson,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text("Let's Go, Pika!", fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PikaCoachDashboardCard(
+    pikaCoachState: PikaCoachUiState,
+    isDark: Boolean,
+    onRefreshTip: () -> Unit,
+    onOpenPopup: () -> Unit
+) {
+    val cardBg = if (isDark) Color(0xFF141B2D).copy(alpha = 0.88f) else Color.White.copy(alpha = 0.92f)
+    val accentColor = if (isDark) PikaVoltYellow else PikaCheekCrimson
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("pika_coach_dashboard_card")
+            .clip(RoundedCornerShape(22.dp))
+            .border(2.dp, accentColor.copy(alpha = 0.85f), RoundedCornerShape(22.dp))
+            .clickable { onOpenPopup() },
+        colors = CardDefaults.cardColors(containerColor = cardBg)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF6792A4))
+                    .border(2.dp, PikaVoltYellow, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.pika_logo_hi),
+                    contentDescription = "Pika-Coach",
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.AutoAwesome,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "PIKA-COACH AI TIP • TAP FOR POPUP",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.6.sp
+                        ),
+                        color = accentColor
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                val displayedTip = when (pikaCoachState) {
+                    is PikaCoachUiState.Ready -> pikaCoachState.tip
+                    is PikaCoachUiState.Loading -> pikaCoachState.previewTip
+                    is PikaCoachUiState.Error -> pikaCoachState.fallbackTip
+                    is PikaCoachUiState.Idle -> null
+                }
+
+                if (displayedTip == null) {
+                    Text(
+                        text = "Pika-Coach is analyzing your daily progress & activity...",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = TextSecondary
+                    )
+                } else {
+                    Text(
+                        text = displayedTip.headline,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        ),
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = displayedTip.advice,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 13.5.sp,
+                            lineHeight = 19.sp
+                        ),
+                        color = TextSecondary,
+                        maxLines = 2
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onRefreshTip,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = 0.15f))
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = "Refresh Gemini Pika-Coach Tip",
+                    tint = accentColor,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun EmbeddedDashboard(
+    state: HunterSystemState,
+    pikaCoachState: PikaCoachUiState = PikaCoachUiState.Idle,
+    isDark: Boolean,
+    onToggleTheme: () -> Unit,
+    onOpenTutorial: () -> Unit = {},
+    onOpenOnboarding: () -> Unit = {},
+    onRefreshPikaCoach: () -> Unit = {},
+    onOpenPikaCoachPopup: () -> Unit = {},
+    onAddWorkoutClick: () -> Unit,
+    onAddTaskClick: () -> Unit,
+    onQuickCalories: (Int, Double) -> Unit = { _, _ -> },
+    onQuickWater: (Double) -> Unit = {},
+    onUndoFood: () -> Unit = {},
+    onUndoWater: () -> Unit = {}
+) {
+    // Glassmorphic card surfaces so the Pikachu background wallpaper shines through clearly
+    val cardBg = if (isDark) {
+        Color(0xFF141B2D).copy(alpha = 0.80f)
+    } else {
+        Color.White.copy(alpha = 0.84f)
+    }
+    val borderColor = if (isDark) {
+        Color(0xFF334155).copy(alpha = 0.85f)
+    } else {
+        Color(0xFFCBD5E1).copy(alpha = 0.95f)
+    }
+    val headingTealOrWhite = if (isDark) Color(0xFFF8FAFC) else PikaSlateBlue
+    val primaryDynamic = TextPrimary
+    val secondaryDynamic = TextSecondary
+    val accentGold = if (isDark) PikaVoltYellow else PikaVoltAmber
+
+    val bio = state.biometrics
+    val vit = state.statBreakdown.vitality
+    val stam = state.statBreakdown.stamina
+
+    val calFraction = (vit.caloriesLogged.toFloat() / vit.caloriesTarget.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+    val waterFraction = (stam.waterLiters.toFloat() / stam.targetLiters.coerceAtLeast(0.5).toFloat()).coerceIn(0f, 1f)
+    val weightGoalFraction = when (bio.fitnessGoal) {
+        "WEIGHT_LOSS" -> 0.68f
+        "WEIGHT_GAIN" -> 0.74f
+        else -> 0.80f
+    }
+
+    var selectedGoalHorizon by rememberSaveable { mutableIntStateOf(0) } // 0 = Daily, 1 = Weekly, 2 = Monthly
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 14.dp)
+        ) {
+            // 1. REFERENCE TOP HEADER: "Good Morning,\n[Name]" + Waving Pikachu Avatar + "Today"
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Good Morning,\n${bio.hunterName}",
+                        style = MaterialTheme.typography.displayMedium.copy(
+                            fontSize = 31.sp,
+                            lineHeight = 37.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        ),
+                        color = headingTealOrWhite
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "${bio.goalDisplayLabel} • ${bio.experienceDisplayLabel} • ${bio.weightKg} kg",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = if (isDark) PikaVoltYellow else PikaCheekCrimson
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(58.dp)
+                            .shadow(6.dp, CircleShape)
+                            .clip(CircleShape)
+                            .background(Color(0xFF6792A4))
+                            .border(2.5.dp, PikaVoltYellow, CircleShape)
+                            .clickable { onOpenTutorial() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        PikachuMascotBadge(
+                            drawableRes = R.drawable.pika_logo_hi,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            }
+
+            // "Today" Sub-header row with Edit Setup action (Matches middle screen of reference image)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Today",
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontSize = 23.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    ),
+                    color = headingTealOrWhite
+                )
+
+                Surface(
+                    modifier = Modifier.clickable { onOpenOnboarding() },
+                    shape = RoundedCornerShape(50),
+                    color = cardBg,
+                    border = BorderStroke(1.5.dp, borderColor)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = "Edit Trainer Profile",
+                            tint = PikaCheekCrimson,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Edit Trainer Info",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            ),
+                            color = primaryDynamic
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // GEMINI-POWERED PIKA-COACH CONTEXT-AWARE BANNER
+            PikaCoachDashboardCard(
+                pikaCoachState = pikaCoachState,
+                isDark = isDark,
+                onRefreshTip = onRefreshPikaCoach,
+                onOpenPopup = onOpenPikaCoachPopup
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 2. HERO CRIMSON RED ROUNDED DONUT CARD (Directly inspired by Middle Screen in Reference Image)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 16.dp,
+                        shape = RoundedCornerShape(28.dp),
+                        spotColor = PikaCheekCrimson.copy(alpha = 0.55f)
+                    )
+                    .clip(RoundedCornerShape(28.dp)),
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFFF7253B),
+                                    PikaCheekCrimson,
+                                    PikaCrimsonDeep
+                                )
+                            )
+                        )
+                        .padding(22.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Left: Crisp White Donut Progress Ring with large bold center numbers
+                            Box(
+                                modifier = Modifier.size(134.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Canvas(modifier = Modifier.fillMaxSize()) {
+                                    val strokeWidth = 11.dp.toPx()
+                                    // Subtle translucent white track
+                                    drawArc(
+                                        color = Color.White.copy(alpha = 0.26f),
+                                        startAngle = -90f,
+                                        sweepAngle = 360f,
+                                        useCenter = false,
+                                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                                    )
+                                    // Crisp solid white progress arc (shows minimum 8% arc when 0 so ring cap is visible)
+                                    val displaySweep = (360f * calFraction).coerceAtLeast(24f)
+                                    drawArc(
+                                        color = Color.White,
+                                        startAngle = -90f,
+                                        sweepAngle = displaySweep,
+                                        useCenter = false,
+                                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                                    )
+                                }
+
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = "${vit.caloriesLogged}",
+                                        style = MaterialTheme.typography.displayMedium.copy(
+                                            fontSize = 29.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = "Kcal",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = Color.White.copy(alpha = 0.90f)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(18.dp))
+
+                            // Right: Bold White "Walk & Energy", Goal, and Sub-metrics (Water & Protein)
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Energy & Walk",
+                                        style = MaterialTheme.typography.headlineMedium.copy(
+                                            fontSize = 22.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = Color.White
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Goal: ${vit.caloriesTarget} kcal",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = Color.White.copy(alpha = 0.92f)
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "${stam.waterLiters}L / ${stam.targetLiters}L",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Water",
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium
+                                            ),
+                                            color = Color.White.copy(alpha = 0.85f)
+                                        )
+                                    }
+
+                                    Column {
+                                        Text(
+                                            text = "${vit.proteinG.toInt()}g",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Protein",
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium
+                                            ),
+                                            color = Color.White.copy(alpha = 0.85f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Quick Action Pills inside the Crimson Hero Card
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { onQuickCalories(350, 28.0) },
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color.White.copy(alpha = 0.22f),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.55f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Restaurant,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "+350 kcal",
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = Color.White
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { onQuickWater(0.5) },
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color.White.copy(alpha = 0.22f),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.55f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Filled.WaterDrop,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "+0.5L Water",
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+
+                        if (vit.caloriesLogged > 0 || stam.waterLiters > 0.0) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("dashboard_undo_food_button")
+                                        .clickable(enabled = vit.caloriesLogged > 0) { onUndoFood() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color.Black.copy(alpha = if (vit.caloriesLogged > 0) 0.26f else 0.10f),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        Color.White.copy(alpha = if (vit.caloriesLogged > 0) 0.55f else 0.20f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.Undo,
+                                            contentDescription = "Undo Food Entry",
+                                            tint = Color.White.copy(alpha = if (vit.caloriesLogged > 0) 1f else 0.45f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Undo Food",
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            color = Color.White.copy(alpha = if (vit.caloriesLogged > 0) 1f else 0.45f)
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("dashboard_undo_water_button")
+                                        .clickable(enabled = stam.waterLiters > 0.0) { onUndoWater() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color.Black.copy(alpha = if (stam.waterLiters > 0.0) 0.26f else 0.10f),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        Color.White.copy(alpha = if (stam.waterLiters > 0.0) 0.55f else 0.20f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.Undo,
+                                            contentDescription = "Undo Water Entry",
+                                            tint = Color.White.copy(alpha = if (stam.waterLiters > 0.0) 1f else 0.45f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Undo Water",
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            color = Color.White.copy(alpha = if (stam.waterLiters > 0.0) 1f else 0.45f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            // 3. "YOUR GOALS" (Daily • Weekly • Monthly) SLIDER CARD (Matches 3rd Screen in Reference Image)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(26.dp))
+                    .border(1.5.dp, borderColor, RoundedCornerShape(26.dp)),
+                colors = CardDefaults.cardColors(containerColor = cardBg)
+            ) {
+                Column(modifier = Modifier.padding(22.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "YOUR GOALS",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.sp
+                            ),
+                            color = headingTealOrWhite
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = if (state.playerStatus.checkedInToday) {
+                                HunterDoneGreen.copy(alpha = 0.18f)
+                            } else {
+                                PikaCheekCrimson.copy(alpha = 0.15f)
+                            }
+                        ) {
+                            Text(
+                                text = if (state.playerStatus.checkedInToday) "✓ Streak Active" else "Log to Check In",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                ),
+                                color = if (state.playerStatus.checkedInToday) HunterDoneGreen else PikaCheekCrimson
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Daily  •  Weekly  •  Monthly selector row
+                    val horizons = listOf("Daily", "Weekly", "Monthly")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        horizons.forEachIndexed { idx, label ->
+                            val isSelected = selectedGoalHorizon == idx
+                            Text(
+                                text = label,
+                                modifier = Modifier.clickable { selectedGoalHorizon = idx },
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = 19.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
+                                ),
+                                color = if (isSelected) headingTealOrWhite else secondaryDynamic
+                            )
+                            if (idx < horizons.lastIndex) {
+                                Text(
+                                    text = "•",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
+                                    color = secondaryDynamic
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    val horizonMultiplier = when (selectedGoalHorizon) {
+                        1 -> 7
+                        2 -> 30
+                        else -> 1
+                    }
+
+                    // Goal Bar 1: Weight Goal (Crimson Red Track + Dot)
+                    ReferenceGoalProgressRow(
+                        label = bio.goalDisplayLabel,
+                        valueText = "${bio.weightKg} kg • BMI ${bio.bmi}",
+                        progress = weightGoalFraction,
+                        barColor = PikaCheekCrimson,
+                        textColor = primaryDynamic,
+                        subTextColor = secondaryDynamic
+                    )
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Goal Bar 2: Calories / Steps per day (Amber Gold Track + Dot)
+                    ReferenceGoalProgressRow(
+                        label = if (selectedGoalHorizon == 0) "Calories & steps per day" else "Calories target (${horizons[selectedGoalHorizon]})",
+                        valueText = "${vit.caloriesLogged * horizonMultiplier} / ${vit.caloriesTarget * horizonMultiplier} kcal",
+                        progress = calFraction.coerceAtLeast(0.12f),
+                        barColor = Color(0xFFF59E0B),
+                        textColor = primaryDynamic,
+                        subTextColor = secondaryDynamic
+                    )
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Goal Bar 3: Drinking water (Deep Indigo/Purple Track + Dot)
+                    ReferenceGoalProgressRow(
+                        label = "Drinking water",
+                        valueText = "${(stam.waterLiters * horizonMultiplier * 10.0).roundToInt() / 10.0}L / ${(stam.targetLiters * horizonMultiplier * 10.0).roundToInt() / 10.0}L",
+                        progress = waterFraction.coerceAtLeast(0.15f),
+                        barColor = PikaDeepIndigo,
+                        textColor = primaryDynamic,
+                        subTextColor = secondaryDynamic
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            // 4. BOTTOM DUAL-WAVE PROGRESS CURVE CARD (Directly inspired by Bottom of Middle Screen in Reference Image)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(26.dp))
+                    .border(1.5.dp, borderColor, RoundedCornerShape(26.dp)),
+                colors = CardDefaults.cardColors(containerColor = cardBg)
+            ) {
+                Column(modifier = Modifier.padding(top = 22.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 22.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "AVG. ${vit.caloriesTarget} KCAL GOAL",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                ),
+                                color = headingTealOrWhite
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = if (state.playerStatus.checkedInToday) "You did great today, Pika!" else "Log workout or meal to power up!",
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = secondaryDynamic
+                            )
+                        }
+
+                        Text(
+                            text = "${state.playerStatus.streakDays}D : LVL ${state.playerStatus.level}",
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontSize = 23.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            ),
+                            color = PikaCheekCrimson
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Smooth Dual-Wave Bezier Canvas (Crimson Red Wave + Slate-Blue Wave + Peak Indicator Dot)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(138.dp)
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val w = size.width
+                            val h = size.height
+
+                            // Secondary Slate-Blue Wave Path + Soft Area Fill
+                            val blueLinePath = Path().apply {
+                                moveTo(0f, h * 0.80f)
+                                cubicTo(w * 0.14f, h * 0.56f, w * 0.24f, h * 0.90f, w * 0.38f, h * 0.68f)
+                                cubicTo(w * 0.52f, h * 0.48f, w * 0.64f, h * 0.82f, w * 0.78f, h * 0.58f)
+                                cubicTo(w * 0.88f, h * 0.44f, w * 0.95f, h * 0.64f, w, h * 0.48f)
+                            }
+                            val blueFillPath = Path().apply {
+                                addPath(blueLinePath)
+                                lineTo(w, h)
+                                lineTo(0f, h)
+                                close()
+                            }
+                            drawPath(
+                                path = blueFillPath,
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color(0xFF38BDF8).copy(alpha = 0.22f),
+                                        Color(0xFF1E6076).copy(alpha = 0.04f)
+                                    )
+                                )
+                            )
+                            drawPath(
+                                path = blueLinePath,
+                                color = if (isDark) Color(0xFF38BDF8) else PikaSlateBlue,
+                                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                            )
+
+                            // Primary Crimson Red Wave Path Ending in Red Peak Indicator Dot
+                            val peakX = w * 0.85f
+                            val peakY = h * 0.18f
+                            val redLinePath = Path().apply {
+                                moveTo(0f, h * 0.86f)
+                                cubicTo(w * 0.15f, h * 0.74f, w * 0.25f, h * 0.56f, w * 0.36f, h * 0.64f)
+                                cubicTo(w * 0.46f, h * 0.70f, w * 0.52f, h * 0.28f, w * 0.63f, h * 0.36f)
+                                cubicTo(w * 0.72f, h * 0.44f, w * 0.78f, h * 0.36f, peakX, peakY)
+                            }
+                            drawPath(
+                                path = redLinePath,
+                                color = PikaCheekCrimson,
+                                style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round)
+                            )
+
+                            // Outer glow + solid red circle at the peak (matches middle phone in reference image)
+                            drawCircle(
+                                color = PikaCheekCrimson.copy(alpha = 0.28f),
+                                radius = 9.dp.toPx(),
+                                center = Offset(peakX, peakY)
+                            )
+                            drawCircle(
+                                color = PikaCheekCrimson,
+                                radius = 5.dp.toPx(),
+                                center = Offset(peakX, peakY)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            // 5. PIKACHU WORKOUTS & WALLPAPER SHOWCASE BANNER
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "PikaFit Workouts",
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    ),
+                    color = headingTealOrWhite
+                )
+                TextButton(onClick = onAddWorkoutClick) {
+                    Text(
+                        text = "+ Log Set",
+                        color = PikaCheekCrimson,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    )
+                }
+            }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .border(1.5.dp, PikaVoltYellow.copy(alpha = 0.75f), RoundedCornerShape(24.dp))
+                    .clickable { onAddWorkoutClick() },
+                colors = CardDefaults.cardColors(containerColor = cardBg)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        PikachuMascotBadge(
+                            drawableRes = R.drawable.pika_orange_wave,
+                            modifier = Modifier
+                                .size(62.dp)
+                                .border(2.5.dp, PikaVoltYellow, CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = "Thunderbolt Overload Session",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                ),
+                                color = primaryDynamic
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${state.statBreakdown.strength.exercisesLogged.size} exercises logged today • Tap to add sets",
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                color = secondaryDynamic
+                            )
+                        }
+                    }
+                    Icon(
+                        Icons.Filled.Bolt,
+                        contentDescription = null,
+                        tint = accentGold,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            // 6. DAILY TRAINER QUESTS
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Daily Trainer Quests",
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    ),
+                    color = headingTealOrWhite
+                )
+                TextButton(onClick = onAddTaskClick) {
+                    Text(
+                        text = "Open Log →",
+                        color = PikaCheekCrimson,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                state.questLog.forEach { quest ->
+                    val isDone = quest.status == "COMPLETED"
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(cardBg)
+                            .border(1.5.dp, borderColor, RoundedCornerShape(18.dp))
+                            .clickable { onAddTaskClick() }
+                            .padding(horizontal = 18.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isDone) HunterDoneGreen else Color.Transparent)
+                                    .border(
+                                        2.dp,
+                                        if (isDone) HunterDoneGreen else secondaryDynamic,
+                                        RoundedCornerShape(8.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isDone) {
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                text = quest.questName,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textDecoration = if (isDone) TextDecoration.LineThrough else null
+                                ),
+                                color = if (isDone) secondaryDynamic else primaryDynamic
+                            )
+                        }
+                        Text(
+                            text = "+${quest.xpAwarded} XP",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            ),
+                            color = PikaCheekCrimson
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(88.dp))
+        }
+
+        FloatingActionButton(
+            onClick = onAddWorkoutClick,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 24.dp),
+            containerColor = PikaCheekCrimson,
+            contentColor = Color.White,
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            Icon(
+                Icons.Filled.Add,
+                contentDescription = "Log Meal or Workout",
+                modifier = Modifier.size(28.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReferenceGoalProgressRow(
+    label: String,
+    valueText: String,
+    progress: Float,
+    barColor: Color,
+    textColor: Color,
+    subTextColor: Color
+) {
+    val clamped = progress.coerceIn(0.08f, 1f)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = textColor
+            )
+            Text(
+                text = valueText,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold
+                ),
+                color = subTextColor
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(14.dp)
+        ) {
+            val w = size.width
+            val cy = size.height / 2f
+            val trackStroke = 4.dp.toPx()
+            val activeStroke = 5.dp.toPx()
+
+            // Background full track line
+            drawLine(
+                color = barColor.copy(alpha = 0.20f),
+                start = Offset(0f, cy),
+                end = Offset(w, cy),
+                strokeWidth = trackStroke,
+                cap = StrokeCap.Round
+            )
+
+            // Active progress bar line
+            val endX = (w * clamped).coerceIn(8.dp.toPx(), w - 8.dp.toPx())
+            drawLine(
+                color = barColor,
+                start = Offset(0f, cy),
+                end = Offset(endX, cy),
+                strokeWidth = activeStroke,
+                cap = StrokeCap.Round
+            )
+
+            // Circular thumb dot at the end of the progress bar (matching 3rd screen in reference image)
+            drawCircle(
+                color = barColor.copy(alpha = 0.28f),
+                radius = 9.dp.toPx(),
+                center = Offset(endX, cy)
+            )
+            drawCircle(
+                color = barColor,
+                radius = 5.5.dp.toPx(),
+                center = Offset(endX, cy)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainHunterScreen(
+    currentUserId: String,
+    isDark: Boolean = true,
+    onToggleTheme: () -> Unit = {},
+    onSignedOut: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember { CredentialManager.create(context) }
+
+    val viewModel: HunterViewModel = viewModel(
+        key = currentUserId,
+        factory = viewModelFactory {
+            initializer {
+                val app = checkNotNull(this[androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])
+                val databaseId = app.getString(R.string.firestore_database_id)
+                val db = FirebaseFirestore.getInstance(databaseId)
+                HunterViewModel(HunterRepository(db, app, currentUserId), currentUserId)
+            }
+        }
+    )
+
+    val state by viewModel.systemState.collectAsStateWithLifecycle()
+    val isSessionLoaded by viewModel.isSessionLoaded.collectAsStateWithLifecycle()
+    val pikaCoachState by viewModel.pikaCoachState.collectAsStateWithLifecycle()
+    val nutritionChatMessages by viewModel.nutritionChatMessages.collectAsStateWithLifecycle()
+    val isNutritionChatLoading by viewModel.isNutritionChatLoading.collectAsStateWithLifecycle()
+    val foodHistory by viewModel.foodHistory.collectAsStateWithLifecycle()
+    val waterHistory by viewModel.waterHistory.collectAsStateWithLifecycle()
+    val aiSyncState by viewModel.aiSyncState.collectAsStateWithLifecycle()
+    val logsState by viewModel.logsState.collectAsStateWithLifecycle()
+    val journalState by viewModel.journalState.collectAsStateWithLifecycle()
+    val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
+
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var settingsFocusSection by rememberSaveable { mutableIntStateOf(0) }
+    var showTutorial by rememberSaveable { mutableStateOf(false) }
+    var forceShowOnboarding by rememberSaveable { mutableStateOf(false) }
+
+    // Cycling Pikachu wallpaper override (0 = Page Default, 1 = Hi Pikachu, 2 = Pokéball Pikachu, 3 = Orange Wave Pikachu)
+    var wallpaperMode by rememberSaveable { mutableIntStateOf(0) }
+
+    // Wait until Firestore/per-UID onboarding status has been resolved so returning Google accounts
+    // never flash or repeat the "Hey Trainer" onboarding screen.
+    if (!isSessionLoaded) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                PikachuMascotBadge(
+                    drawableRes = R.drawable.pika_logo_hi,
+                    modifier = Modifier
+                        .size(84.dp)
+                        .border(3.dp, PikaVoltYellow, CircleShape)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                CircularProgressIndicator(color = PikaVoltYellow)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Syncing Trainer Profile...",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                    color = TextPrimary
+                )
+            }
+        }
+        return
+    }
+
+    // Show the step-by-step "Hey Trainer" Onboarding screen ONLY ONCE per Google account
+    // (or if manually opened via "Edit Trainer Info" / "Redo Setup").
+    if (!state.biometrics.onboardingCompleted || forceShowOnboarding) {
+        PikaFitOnboardingScreen(
+            initialBiometrics = state.biometrics,
+            isDark = isDark,
+            onCompleteOnboarding = { name, age, sex, heightCm, weightKg, goal, experience ->
+                viewModel.completeTrainerOnboarding(
+                    trainerName = name,
+                    age = age,
+                    biologicalSex = sex,
+                    heightCm = heightCm,
+                    weightKg = weightKg,
+                    fitnessGoal = goal,
+                    experienceLevel = experience
+                )
+                forceShowOnboarding = false
+            }
+        )
+        return
+    }
+
+    // Context-aware Gemini Pika-Coach Popup state on the Dashboard
+    val popupTipPair: Pair<PikaCoachTip, Boolean>? = when (val cs = pikaCoachState) {
+        is PikaCoachUiState.Ready -> Pair(cs.tip, cs.showPopup)
+        is PikaCoachUiState.Error -> Pair(cs.fallbackTip, cs.showPopup)
+        else -> null
+    }
+
+    if (selectedTab != 0) {
+        BackHandler { selectedTab = 0 }
+    }
+
+    val activeWallpaperRes = when (wallpaperMode) {
+        1 -> R.drawable.pika_logo_hi
+        2 -> R.drawable.pika_pokeball_bg
+        3 -> R.drawable.pika_orange_wave
+        else -> when (selectedTab) {
+            0 -> R.drawable.pika_logo_hi
+            1 -> R.drawable.pika_pokeball_bg
+            2 -> R.drawable.pika_orange_wave
+            3 -> R.drawable.pika_pokeball_bg
+            else -> R.drawable.pika_logo_hi
+        }
+    }
+
+    val topBarAccent = if (isDark) PikaVoltYellow else PikaCheekCrimson
+
+    // Render the entire Scaffold INSIDE PikachuWallpaperBackground so the Pikachu wallpaper
+    // is visible edge-to-edge behind the TopAppBar, content, and NavigationBar!
+    PikachuWallpaperBackground(
+        wallpaperRes = activeWallpaperRes,
+        isDark = isDark,
+        wallpaperAlpha = if (isDark) 0.52f else 0.56f,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets.safeDrawing,
+            topBar = {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        titleContentColor = TextPrimary
+                    ),
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF6792A4))
+                                    .border(2.dp, PikaVoltYellow, CircleShape)
+                                    .clickable { showTutorial = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                PikachuMascotBadge(
+                                    drawableRes = R.drawable.pika_logo_hi,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "PikaFit • ${state.biometrics.hunterName}",
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    ),
+                                    color = TextPrimary
+                                )
+                                val streakLabel = if (state.playerStatus.checkedInToday) {
+                                    "${state.playerStatus.streakDays}D Streak"
+                                } else {
+                                    "${state.playerStatus.streakDays}D (Log to verify)"
+                                }
+                                Text(
+                                    text = "Lvl ${state.playerStatus.level} (${state.playerStatus.rank}) • $streakLabel",
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = if (state.playerStatus.checkedInToday) HunterDoneGreen else topBarAccent
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        // Button to cycle Pikachu background wallpapers across all pages
+                        IconButton(
+                            onClick = { wallpaperMode = (wallpaperMode + 1) % 4 },
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Wallpaper,
+                                contentDescription = "Cycle Pikachu Wallpaper",
+                                tint = topBarAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onToggleTheme,
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Icon(
+                                imageVector = if (isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                                contentDescription = "Toggle Light/Dark Theme",
+                                tint = topBarAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // Sign Out Button so user can switch Google accounts and test one-time onboarding
+                        IconButton(
+                            onClick = {
+                                signOutHunter(
+                                    credentialManager = credentialManager,
+                                    onSignOutComplete = onSignedOut,
+                                    scope = scope
+                                )
+                            },
+                            modifier = Modifier
+                                .padding(end = 6.dp)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(PikaCheekCrimson.copy(alpha = 0.16f))
+                                .testTag("sign_out_top_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = "Sign Out of Google Account",
+                                tint = PikaCheekCrimson,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                )
+            },
+            bottomBar = {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                    contentColor = TextPrimary,
+                    windowInsets = WindowInsets.navigationBars
+                ) {
+                    val tabs = listOf(
+                        Triple(0, "Home", Icons.Filled.Bolt),
+                        Triple(1, "Charts", Icons.AutoMirrored.Filled.ShowChart),
+                        Triple(2, "Workout", Icons.Filled.FitnessCenter),
+                        Triple(3, "Journal", Icons.Filled.Person),
+                        Triple(4, "Settings", Icons.Filled.Settings)
+                    )
+                    tabs.forEach { (idx, label, icon) ->
+                        NavigationBarItem(
+                            selected = selectedTab == idx,
+                            onClick = { selectedTab = idx },
+                            icon = { Icon(imageVector = icon, contentDescription = label, modifier = Modifier.size(24.dp)) },
+                            label = {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        fontSize = 13.sp,
+                                        fontWeight = if (selectedTab == idx) FontWeight.ExtraBold else FontWeight.SemiBold
+                                    )
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = if (isDark) PikaVoltYellow else PikaCheekCrimson,
+                                selectedTextColor = if (isDark) PikaVoltYellow else PikaCheekCrimson,
+                                indicatorColor = (if (isDark) PikaVoltYellow else PikaCheekCrimson).copy(alpha = 0.18f),
+                                unselectedIconColor = TextSecondary,
+                                unselectedTextColor = TextSecondary
+                            )
+                        )
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Column(modifier = Modifier.fillMaxSize().widthIn(max = 640.dp)) {
+                    AiSyncStatusBanner(aiSyncState = aiSyncState, onDismiss = viewModel::dismissAiSyncBanner)
+
+                    when (selectedTab) {
+                        0 -> EmbeddedDashboard(
+                            state = state,
+                            pikaCoachState = pikaCoachState,
+                            isDark = isDark,
+                            onToggleTheme = onToggleTheme,
+                            onOpenTutorial = { showTutorial = true },
+                            onOpenOnboarding = { forceShowOnboarding = true },
+                            onRefreshPikaCoach = { viewModel.generatePikaCoachTip(showAsPopup = true) },
+                            onOpenPikaCoachPopup = viewModel::reopenPikaCoachPopup,
+                            onAddWorkoutClick = { selectedTab = 2 },
+                            onAddTaskClick = { selectedTab = 2 },
+                            onQuickCalories = viewModel::quickAdjustCalories,
+                            onQuickWater = viewModel::quickAddWater,
+                            onUndoFood = { viewModel.undoLastFoodEntry() },
+                            onUndoWater = { viewModel.undoLastWaterEntry() }
+                        )
+                        1 -> BiometricChartsScreen(
+                            state = state,
+                            journalState = journalState,
+                            nutritionChatMessages = nutritionChatMessages,
+                            isNutritionChatLoading = isNutritionChatLoading,
+                            onSendNutritionMessage = viewModel::sendNutritionChatMessage,
+                            onClearNutritionChat = viewModel::clearNutritionChat,
+                            onLogBiometricPoint = viewModel::logBiometricPointToFirestore,
+                            onLogFoodItem = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
+                            onLogExerciseSet = viewModel::addExerciseSet,
+                            onUndoFood = { viewModel.undoLastFoodEntry() },
+                            onUndoWater = { viewModel.undoLastWaterEntry() }
+                        )
+                        2 -> StatsBreakdownTab(
+                            state = state,
+                            foodHistory = foodHistory,
+                            waterHistory = waterHistory,
+                            onQuickCalories = viewModel::quickAdjustCalories,
+                            onLogFoodItem = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
+                            onQuickWater = viewModel::quickAddWater,
+                            onUndoFood = viewModel::undoLastFoodEntry,
+                            onUndoWater = viewModel::undoLastWaterEntry,
+                            onAddExercise = viewModel::addExerciseSet,
+                            onToggleQuest = viewModel::toggleQuestStatus
+                        )
+                        3 -> ProfileAndJournalTab(
+                            state = state,
+                            journalState = journalState,
+                            onSaveBiometrics = viewModel::updateProfileAndBiometrics,
+                            onLogProgressPhoto = viewModel::logProgressPhotoToJournal,
+                            onDeleteJournalEntry = viewModel::deleteJournalEntry
+                        )
+                        4 -> SettingsAndFeedbackScreen(
+                            state = state,
+                            feedbackState = feedbackState,
+                            currentUserId = currentUserId,
+                            initialFocusSection = settingsFocusSection,
+                            onBack = { selectedTab = 0 },
+                            onSaveProfileAndTargets = viewModel::updateSettingsProfileAndTargets,
+                            onResetProgress = { clearJournal ->
+                                viewModel.resetHunterProgress(clearJournal)
+                                forceShowOnboarding = true
+                            },
+                            onSubmitFeedback = viewModel::submitPublicFeedback,
+                            onUpdateFeedbackStatus = viewModel::updateFeedbackStatus,
+                            onDeleteFeedback = viewModel::deleteFeedback
+                        )
+                        else -> TacticalAiConsoleTab(
+                            state = state,
+                            aiSyncState = aiSyncState,
+                            logsState = logsState,
+                            onTransmitCommand = viewModel::submitTacticalCommand
+                        )
+                    }
+                }
+            }
+        }
+
+        if (popupTipPair != null && popupTipPair.second && selectedTab == 0) {
+            val activeTip = popupTipPair.first
+            PikaCoachPopupDialog(
+                tip = activeTip,
+                isDark = isDark,
+                onDismiss = viewModel::dismissPikaCoachPopup,
+                onPrimaryAction = {
+                    when (activeTip.actionType) {
+                        "LOG_FOOD" -> viewModel.quickAdjustCalories(350, 28.0)
+                        "LOG_WATER" -> viewModel.quickAddWater(0.5)
+                        "LOG_WORKOUT" -> selectedTab = 2
+                        else -> {}
+                    }
+                },
+                onRefreshTip = {
+                    viewModel.generatePikaCoachTip(showAsPopup = true)
+                }
+            )
+        }
+
+        if (showTutorial) {
+            PikachuTutorialDialog(
+                trainerName = state.biometrics.hunterName,
+                onReopenOnboarding = { forceShowOnboarding = true },
+                onDismiss = { showTutorial = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AiSyncStatusBanner(aiSyncState: AiSyncState, onDismiss: () -> Unit) {
+    val isDark = AppThemeIsDark
+    val chargingAccent = if (isDark) PikaVoltYellow else PikaVoltAmber
+    AnimatedVisibility(visible = aiSyncState !is AiSyncState.Idle) {
+        val (bgColor, borderColor, text) = when (aiSyncState) {
+            is AiSyncState.Analyzing -> Triple(chargingAccent.copy(alpha = 0.16f), chargingAccent, "PIKAFIT AI CHARGING: \"${aiSyncState.command}\"...")
+            is AiSyncState.Success -> Triple(HunterDoneGreen.copy(alpha = 0.18f), HunterDoneGreen, aiSyncState.message)
+            is AiSyncState.Error -> Triple(PikaCheekCrimson.copy(alpha = 0.18f), PikaCheekCrimson, aiSyncState.message)
+            AiSyncState.Idle -> Triple(Color.Transparent, Color.Transparent, "")
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(bgColor)
+                .border(1.5.dp, borderColor, RoundedCornerShape(14.dp))
+                .clickable { onDismiss() }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                if (aiSyncState is AiSyncState.Analyzing) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = chargingAccent, strokeWidth = 2.5.dp)
+                } else {
+                    Icon(imageVector = Icons.Filled.Bolt, contentDescription = null, tint = borderColor, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(text = text, style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp), color = TextPrimary)
+            }
+            Text(
+                text = "DISMISS",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                color = borderColor,
+                modifier = Modifier.padding(start = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun StatsBreakdownTab(
+    state: HunterSystemState,
+    foodHistory: List<FoodEntryRecord> = emptyList(),
+    waterHistory: List<WaterEntryRecord> = emptyList(),
+    onQuickCalories: (Int, Double) -> Unit,
+    onLogFoodItem: (String, Int, Double) -> Unit,
+    onQuickWater: (Double) -> Unit,
+    onUndoFood: (String?) -> Unit = {},
+    onUndoWater: (String?) -> Unit = {},
+    onAddExercise: (String, Int, String, Boolean) -> Unit,
+    onToggleQuest: (Int) -> Unit
+) {
+    val vit = state.statBreakdown.vitality
+    val stam = state.statBreakdown.stamina
+    val str = state.statBreakdown.strength
+    val isDark = AppThemeIsDark
+    val cardBg = if (isDark) Color(0xFF141B2D).copy(alpha = 0.82f) else Color.White.copy(alpha = 0.86f)
+
+    var foodName by rememberSaveable { mutableStateOf("") }
+    var foodKcal by rememberSaveable { mutableStateOf("600") }
+    var foodProtein by rememberSaveable { mutableStateOf("45") }
+    var exName by rememberSaveable { mutableStateOf("") }
+    var exSets by rememberSaveable { mutableStateOf("3") }
+    var exReps by rememberSaveable { mutableStateOf("12") }
+    var overloadHit by rememberSaveable { mutableStateOf(true) }
+
+    val canUndoFood = vit.caloriesLogged > 0 || vit.proteinG > 0.0 || foodHistory.isNotEmpty()
+    val canUndoWater = stam.waterLiters > 0.0 || waterHistory.isNotEmpty()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(18.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = BorderStroke(1.5.dp, BorderSubtle)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            PikachuMascotBadge(
+                                drawableRes = R.drawable.pika_pokeball_bg,
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .border(2.dp, PikaVoltYellow, CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Food & Water Input",
+                                    style = MaterialTheme.typography.headlineSmall.copy(
+                                        fontSize = 21.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    ),
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Log meals & hydration or undo mistaken entries",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Calories: ${vit.caloriesLogged} / ${vit.caloriesTarget} kcal • Protein: ${vit.proteinG.toInt()}g",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { (vit.caloriesLogged.toFloat() / vit.caloriesTarget.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(5.dp)),
+                        color = PikaCheekCrimson
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Water Hydration: ${stam.waterLiters}L / ${stam.targetLiters}L",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { (stam.waterLiters.toFloat() / stam.targetLiters.coerceAtLeast(0.5).toFloat()).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(5.dp)),
+                        color = PikaDeepIndigo
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { onQuickCalories(300, 25.0) },
+                            modifier = Modifier.weight(1f).testTag("quick_add_300_kcal")
+                        ) {
+                            Text("+300 kcal", fontWeight = FontWeight.Bold, color = TextPrimary)
+                        }
+                        OutlinedButton(
+                            onClick = { onQuickCalories(500, 35.0) },
+                            modifier = Modifier.weight(1f).testTag("quick_add_500_kcal")
+                        ) {
+                            Text("+500 kcal", fontWeight = FontWeight.Bold, color = PikaCheekCrimson)
+                        }
+                        OutlinedButton(
+                            onClick = { onQuickWater(0.5) },
+                            modifier = Modifier.weight(1f).testTag("quick_add_water_05l")
+                        ) {
+                            Text("+0.5L 💧", fontWeight = FontWeight.Bold, color = TextPrimary)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // UNDO FOOD & WATER LOGGING ROW
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        val lastFoodCals = foodHistory.lastOrNull()?.calories ?: vit.caloriesLogged.coerceAtMost(350)
+                        OutlinedButton(
+                            onClick = { onUndoFood(null) },
+                            enabled = canUndoFood,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("undo_food_entry_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(
+                                1.5.dp,
+                                if (canUndoFood) PikaCheekCrimson else BorderSubtle
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (canUndoFood) PikaCheekCrimson.copy(alpha = 0.12f) else Color.Transparent,
+                                contentColor = if (canUndoFood) PikaCheekCrimson else TextSecondary
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Undo,
+                                contentDescription = "Undo Food Entry",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (canUndoFood) "Undo Food (-${lastFoodCals})" else "Undo Food",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            )
+                        }
+
+                        val lastWaterLiters = waterHistory.lastOrNull()?.litersDelta ?: 0.5
+                        OutlinedButton(
+                            onClick = { onUndoWater(null) },
+                            enabled = canUndoWater,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("undo_water_entry_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(
+                                1.5.dp,
+                                if (canUndoWater) PikaDeepIndigo else BorderSubtle
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (canUndoWater) PikaDeepIndigo.copy(alpha = 0.14f) else Color.Transparent,
+                                contentColor = if (canUndoWater) (if (isDark) Color(0xFF818CF8) else PikaDeepIndigo) else TextSecondary
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Undo,
+                                contentDescription = "Undo Water Entry",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (canUndoWater) "Undo Water (-${lastWaterLiters}L)" else "Undo Water",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            )
+                        }
+                    }
+
+                    // Individual recent Food & Water entries with per-entry Undo/Remove button
+                    if (foodHistory.isNotEmpty() || waterHistory.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                            border = BorderStroke(1.dp, BorderSubtle)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "RECENT FOOD & WATER ENTRIES (TAP UNDO TO REMOVE)",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 0.7.sp
+                                    ),
+                                    color = TextSecondary
+                                )
+
+                                foodHistory.takeLast(4).reversed().forEach { entry ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(PikaCheekCrimson.copy(alpha = 0.10f))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "🍽 ${entry.mealName}",
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 14.sp
+                                                ),
+                                                color = TextPrimary
+                                            )
+                                            Text(
+                                                text = "+${entry.calories} kcal • +${entry.proteinG.toInt()}g protein",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                                                color = TextSecondary
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = { onUndoFood(entry.id) },
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.Undo,
+                                                contentDescription = "Remove ${entry.mealName}",
+                                                tint = PikaCheekCrimson,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Undo",
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+                                                color = PikaCheekCrimson
+                                            )
+                                        }
+                                    }
+                                }
+
+                                waterHistory.takeLast(3).reversed().forEach { entry ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(PikaDeepIndigo.copy(alpha = 0.12f))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(
+                                                text = "💧 ${entry.label}",
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 14.sp
+                                                ),
+                                                color = TextPrimary
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = { onUndoWater(entry.id) },
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.Undo,
+                                                contentDescription = "Remove ${entry.label}",
+                                                tint = if (isDark) Color(0xFF818CF8) else PikaDeepIndigo,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Undo",
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+                                                color = if (isDark) Color(0xFF818CF8) else PikaDeepIndigo
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    OutlinedTextField(
+                        value = foodName,
+                        onValueChange = { foodName = it },
+                        label = { Text("Meal Name", fontSize = 15.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = foodKcal,
+                            onValueChange = { foodKcal = it },
+                            label = { Text("Calories", fontSize = 15.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = foodProtein,
+                            onValueChange = { foodProtein = it },
+                            label = { Text("Protein (g)", fontSize = 15.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Button(
+                        onClick = {
+                            val cals = foodKcal.toIntOrNull()?.coerceIn(10, 10000) ?: 500
+                            val pro = foodProtein.toDoubleOrNull()?.coerceIn(0.0, 500.0) ?: 35.0
+                            onLogFoodItem(foodName.ifBlank { "Energy Ration" }, cals, pro)
+                            foodName = ""
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PikaVoltYellow,
+                            contentColor = Color(0xFF0F172A)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(
+                            text = "Log Meal & Update Streak ⚡",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = BorderStroke(1.5.dp, BorderSubtle)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        PikachuMascotBadge(
+                            drawableRes = R.drawable.pika_orange_wave,
+                            modifier = Modifier
+                                .size(46.dp)
+                                .border(2.dp, PikaCheekCrimson, CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Workout Overload",
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontSize = 21.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            ),
+                            color = TextPrimary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    if (str.exercisesLogged.isNotEmpty()) {
+                        str.exercisesLogged.forEach { ex ->
+                            Text(
+                                text = "• ${ex.exerciseName}: ${ex.setsCompleted} sets × ${ex.repsPerSet} reps",
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = TextSecondary,
+                                modifier = Modifier.padding(vertical = 3.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+                    OutlinedTextField(
+                        value = exName,
+                        onValueChange = { exName = it },
+                        label = { Text("Exercise Name", fontSize = 15.sp) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = exSets,
+                            onValueChange = { exSets = it },
+                            label = { Text("Sets", fontSize = 15.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = exReps,
+                            onValueChange = { exReps = it },
+                            label = { Text("Reps", fontSize = 15.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Button(
+                        onClick = {
+                            if (exName.isNotBlank()) {
+                                onAddExercise(exName, exSets.toIntOrNull() ?: 3, exReps, overloadHit)
+                                exName = ""
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PikaCheekCrimson,
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(
+                            text = "Log Exercise Set & Check In ⚡",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TacticalAiConsoleTab(
+    state: HunterSystemState,
+    aiSyncState: AiSyncState,
+    logsState: DataLoadState<List<TacticalLog>>,
+    onTransmitCommand: (String) -> Unit
+) {
+    var commandInput by rememberSaveable { mutableStateOf("") }
+    val isBusy = aiSyncState is AiSyncState.Analyzing
+
+    Column(modifier = Modifier.fillMaxSize().padding(18.dp)) {
+        Text(
+            text = "PikaFit AI Assistant",
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold
+            ),
+            color = TextPrimary
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = commandInput,
+                onValueChange = { commandInput = it },
+                placeholder = { Text("e.g. \"Ate 2000 kcal and did 3x10 squats\"") },
+                enabled = !isBusy,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = {
+                    if (commandInput.isNotBlank()) {
+                        onTransmitCommand(commandInput)
+                        commandInput = ""
+                    }
+                },
+                enabled = !isBusy && commandInput.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = PikaVoltYellow, contentColor = Color(0xFF0F172A))
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+            }
+        }
+    }
+}

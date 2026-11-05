@@ -1,0 +1,6 @@
+{
+  "name": "PikaFit",
+  "description": "Pikachu-themed RPG fitness, nutrition, biometric telemetry, and progressive overload companion.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

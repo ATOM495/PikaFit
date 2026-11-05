@@ -1,0 +1,307 @@
+{
+  "entities": {
+    "HunterSession": {
+      "title": "HunterSession",
+      "description": "Represents a hunter's daily tactical RPG fitness, nutrition, biometric profile, and progression session.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The authenticated UID of the hunter who owns this session."
+        },
+        "level": {
+          "type": "integer",
+          "description": "Current hunter level."
+        },
+        "rank": {
+          "type": "string",
+          "description": "Hunter rank designation (e.g., E-Rank Hunter, D-Rank Hunter)."
+        },
+        "currentXp": {
+          "type": "integer",
+          "description": "Current accumulated experience points."
+        },
+        "nextLevelXp": {
+          "type": "integer",
+          "description": "XP threshold required to advance to the next level."
+        },
+        "progressPercent": {
+          "type": "number",
+          "description": "Percentage progress toward the next level."
+        },
+        "hpPercent": {
+          "type": "number",
+          "description": "Current hunter HP percentage."
+        },
+        "streakDays": {
+          "type": "integer",
+          "description": "Consecutive daily streak count."
+        },
+        "caloriesLogged": {
+          "type": "integer",
+          "description": "Total kilocalories logged today."
+        },
+        "caloriesTarget": {
+          "type": "integer",
+          "description": "Daily target kilocalories."
+        },
+        "proteinG": {
+          "type": "number",
+          "description": "Grams of protein logged."
+        },
+        "carbsG": {
+          "type": "number",
+          "description": "Grams of carbohydrates logged."
+        },
+        "fatsG": {
+          "type": "number",
+          "description": "Grams of dietary fat logged."
+        },
+        "fiberG": {
+          "type": "number",
+          "description": "Grams of dietary fiber logged."
+        },
+        "omega3Mg": {
+          "type": "number",
+          "description": "Milligrams of omega-3 fatty acids logged."
+        },
+        "waterLiters": {
+          "type": "number",
+          "description": "Liters of water consumed today."
+        },
+        "targetLiters": {
+          "type": "number",
+          "description": "Daily target water intake in liters."
+        },
+        "workoutCompleted": {
+          "type": "boolean",
+          "description": "Whether the daily strength routine was completed."
+        },
+        "tacticalBriefing": {
+          "type": "string",
+          "description": "2-3 sentences of motivating, actionable tactical feedback."
+        },
+        "stateJson": {
+          "type": "string",
+          "description": "Serialized tactical snapshot containing quests, achievements, buffs, debuffs, exercises, suggested actions, and hunter biometric profile."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "level",
+        "rank",
+        "currentXp",
+        "nextLevelXp",
+        "progressPercent",
+        "hpPercent",
+        "streakDays",
+        "caloriesLogged",
+        "caloriesTarget",
+        "proteinG",
+        "carbsG",
+        "fatsG",
+        "fiberG",
+        "omega3Mg",
+        "waterLiters",
+        "targetLiters",
+        "workoutCompleted",
+        "tacticalBriefing",
+        "stateJson",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TacticalLog": {
+      "title": "TacticalLog",
+      "description": "An action or AI command entry logged by the hunter.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The authenticated UID of the hunter."
+        },
+        "commandText": {
+          "type": "string",
+          "description": "The user's logged input (e.g., 'i had 2000 kcal')."
+        },
+        "briefingResponse": {
+          "type": "string",
+          "description": "The system's tactical briefing for this entry."
+        },
+        "xpDelta": {
+          "type": "integer",
+          "description": "XP awarded from this tactical entry."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of entry creation (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "commandText",
+        "briefingResponse",
+        "xpDelta",
+        "createdAt"
+      ]
+    },
+    "JournalEntry": {
+      "title": "JournalEntry",
+      "description": "A personal progress journal entry automatically created when the hunter updates their biometric profile or uploads a progress photo.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The authenticated UID of the hunter."
+        },
+        "entryType": {
+          "type": "string",
+          "enum": ["PHOTO_PROGRESS", "BIOMETRIC_UPDATE"],
+          "description": "Type of journal entry."
+        },
+        "title": {
+          "type": "string",
+          "description": "Headline of the journal entry."
+        },
+        "caption": {
+          "type": "string",
+          "description": "Detailed notes, caption, or biometric summary."
+        },
+        "poseTag": {
+          "type": "string",
+          "description": "Physique pose or category tag (e.g., Front Relaxed, Back Lat Spread, Biometric Sync)."
+        },
+        "photoBase64": {
+          "type": "string",
+          "description": "Optional compressed Base64 JPEG image data for progress photos (empty string if biometric-only entry)."
+        },
+        "weightKg": {
+          "type": "number",
+          "description": "Recorded body weight in kilograms at time of entry."
+        },
+        "heightCm": {
+          "type": "number",
+          "description": "Recorded height in centimeters at time of entry."
+        },
+        "age": {
+          "type": "integer",
+          "description": "Recorded age in years at time of entry."
+        },
+        "bmi": {
+          "type": "number",
+          "description": "Calculated Body Mass Index (BMI) at time of entry."
+        },
+        "bodyFatPercent": {
+          "type": "number",
+          "description": "Calculated body fat percentage at time of entry."
+        },
+        "muscleMassPercent": {
+          "type": "number",
+          "description": "Calculated skeletal muscle mass percentage at time of entry."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of journal entry creation (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "entryType",
+        "title",
+        "caption",
+        "poseTag",
+        "photoBase64",
+        "weightKg",
+        "heightCm",
+        "age",
+        "bmi",
+        "bodyFatPercent",
+        "muscleMassPercent",
+        "createdAt"
+      ]
+    },
+    "FeedbackEntry": {
+      "title": "FeedbackEntry",
+      "description": "Public app feedback submitted by hunters that the app creator receives and tracks for product improvements.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The authenticated UID of the user submitting the feedback."
+        },
+        "hunterName": {
+          "type": "string",
+          "description": "Display codename of the hunter submitting feedback (non-PII)."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["FEATURE_REQUEST", "BUG_REPORT", "UI_UX", "GENERAL"],
+          "description": "Feedback category."
+        },
+        "rating": {
+          "type": "integer",
+          "description": "Star rating from 1 to 5."
+        },
+        "message": {
+          "type": "string",
+          "description": "Detailed feedback or feature suggestion from the public."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["OPEN", "IN_REVIEW", "IMPLEMENTED"],
+          "description": "Triage status managed by the app creator."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["PUBLIC"],
+          "description": "Visibility scope for community feedback board queries."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of feedback submission (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "hunterName",
+        "category",
+        "rating",
+        "message",
+        "status",
+        "visibility",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/sessions/{sessionId}": {
+      "schema": "HunterSession",
+      "description": "Stores the hunter's active and historical daily status sessions."
+    },
+    "/users/{userId}/logs/{logId}": {
+      "schema": "TacticalLog",
+      "description": "Stores chronological tactical command logs and AI briefings for the hunter."
+    },
+    "/users/{userId}/journal/{entryId}": {
+      "schema": "JournalEntry",
+      "description": "Stores chronological personal journal entries with progress photos and biometric snapshots."
+    },
+    "/feedback/{feedbackId}": {
+      "schema": "FeedbackEntry",
+      "description": "Stores public app feedback received by the app creator for product updates."
+    }
+  }
+}
