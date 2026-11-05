@@ -18,10 +18,14 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
 
-    - name: Grant Execute Permission to Gradle
-      run: chmod +x gradlew
+    - name: Ensure Gradle Wrapper Exists
+      run: |
+        if [ ! -f gradlew ]; then
+          echo "gradlew not found. Generating wrapper..."
+          gradle wrapper
+        fi
+        chmod +x gradlew
 
     - name: Build Debug APK
       run: ./gradlew assembleDebug --no-daemon --stacktrace
