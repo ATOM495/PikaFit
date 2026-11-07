@@ -38,10 +38,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -81,14 +85,20 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.data.model.AchievementItem
 import com.example.data.model.HunterBiometrics
 import com.example.data.model.HunterSystemState
 import com.example.data.model.JournalEntry
+import com.example.data.model.PlayerStatus
+import com.example.data.model.TrainerRankProgression
+import com.example.data.model.TrainerRankTier
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.HunterCrimson
 import com.example.ui.theme.HunterCyan
@@ -123,6 +133,19 @@ fun ProfileAndJournalTab(
         biologicalSex: String,
         avatarBase64: String?
     ) -> Unit,
+    onSaveBiometricsWithGoal: (
+        hunterName: String,
+        hunterTitle: String,
+        weightKg: Double,
+        heightCm: Double,
+        age: Int,
+        biologicalSex: String,
+        avatarBase64: String?,
+        targetWeightKg: Double,
+        targetPhysique: String
+    ) -> Unit = { name, title, w, h, a, sex, avatar, _, _ ->
+        onSaveBiometrics(name, title, w, h, a, sex, avatar)
+    },
     onLogProgressPhoto: (
         title: String,
         caption: String,
@@ -130,31 +153,52 @@ fun ProfileAndJournalTab(
         photoBase64: String,
         setAsAvatar: Boolean
     ) -> Unit,
-    onDeleteJournalEntry: (String) -> Unit
+    onDeleteJournalEntry: (String) -> Unit,
+    onOpenAchievementsInSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val savedBio = state.biometrics
 
-    // Editable Profile & Biometrics state
-    var hunterName by rememberSaveable(savedBio.hunterName) { mutableStateOf(savedBio.hunterName) }
-    var hunterTitle by rememberSaveable(savedBio.hunterTitle) { mutableStateOf(savedBio.hunterTitle) }
-    var weightInput by rememberSaveable(savedBio.weightKg) { mutableStateOf(savedBio.weightKg.toString()) }
-    var heightInput by rememberSaveable(savedBio.heightCm) { mutableStateOf(savedBio.heightCm.toString()) }
-    var ageInput by rememberSaveable(savedBio.age) { mutableStateOf(savedBio.age.toString()) }
+    val currentTier = state.playerStatus.currentTier
+    val autoAssignedTitle = "${currentTier.classTitle} • ${currentTier.pokemonName}"
+
+    // Editable Profile & Biometrics state (empty strings by default; placeholders show current values)
+    var hunterName by rememberSaveable { mutableStateOf("") }
+    var weightInput by rememberSaveable { mutableStateOf("") }
+    var heightInput by rememberSaveable { mutableStateOf("") }
+    var ageInput by rememberSaveable { mutableStateOf("") }
+    var targetWeightInput by rememberSaveable { mutableStateOf("") }
+    var targetPhysiqueInput by rememberSaveable(savedBio.targetPhysique) { mutableStateOf(savedBio.targetPhysique) }
     var sexInput by rememberSaveable(savedBio.biologicalSex) { mutableStateOf(savedBio.biologicalSex) }
     var avatarBase64 by rememberSaveable(savedBio.avatarBase64) { mutableStateOf(savedBio.avatarBase64) }
 
-    // Live preview calculation based on current text fields
-    val liveBio = remember(hunterName, hunterTitle, weightInput, heightInput, ageInput, sexInput, avatarBase64) {
+    // Live preview calculation based on current text fields (falls back to savedBio when input is blank)
+    val liveBio = remember(
+        hunterName,
+        autoAssignedTitle,
+        weightInput,
+        heightInput,
+        ageInput,
+        targetWeightInput,
+        targetPhysiqueInput,
+        sexInput,
+        avatarBase64,
+        savedBio
+    ) {
         HunterBiometrics(
             hunterName = hunterName.ifBlank { savedBio.hunterName },
-            hunterTitle = hunterTitle.ifBlank { savedBio.hunterTitle },
+            hunterTitle = autoAssignedTitle,
             avatarBase64 = avatarBase64,
             weightKg = weightInput.toDoubleOrNull()?.coerceIn(25.0, 350.0) ?: savedBio.weightKg,
             heightCm = heightInput.toDoubleOrNull()?.coerceIn(100.0, 250.0) ?: savedBio.heightCm,
             age = ageInput.toIntOrNull()?.coerceIn(10, 120) ?: savedBio.age,
-            biologicalSex = sexInput
+            biologicalSex = sexInput,
+            fitnessGoal = savedBio.fitnessGoal,
+            experienceLevel = savedBio.experienceLevel,
+            onboardingCompleted = savedBio.onboardingCompleted,
+            targetWeightKg = targetWeightInput.toDoubleOrNull()?.coerceIn(25.0, 350.0) ?: savedBio.targetWeightKg,
+            targetPhysique = targetPhysiqueInput.ifBlank { savedBio.targetPhysique }
         )
     }
 
@@ -174,14 +218,16 @@ fun ProfileAndJournalTab(
                 val encoded = encodeUriToBase64(context, uri, maxDim = 220, quality = 70)
                 if (encoded.isNotBlank()) {
                     avatarBase64 = encoded
-                    onSaveBiometrics(
+                    onSaveBiometricsWithGoal(
                         liveBio.hunterName,
                         liveBio.hunterTitle,
                         liveBio.weightKg,
                         liveBio.heightCm,
                         liveBio.age,
                         liveBio.biologicalSex,
-                        encoded
+                        encoded,
+                        liveBio.targetWeightKg,
+                        liveBio.targetPhysique
                     )
                 }
             }
@@ -223,39 +269,45 @@ fun ProfileAndJournalTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Hunter Identity & Editable Biometrics Card
+        // 1. Compact Hunter Profile, Target Weight & Physique Goal Card
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(
                         Brush.linearGradient(
                             colors = listOf(ObsidianCardElevated, ObsidianCard)
                         )
                     )
-                    .border(1.5.dp, HunterCyan.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
-                    .padding(18.dp)
+                    .border(1.2.dp, HunterCyan.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                    .padding(12.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = Icons.Filled.Edit,
                             contentDescription = null,
                             tint = HunterCyan,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = stringResource(R.string.profile_biometrics_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = HunterCyan
+                            style = MaterialTheme.typography.titleSmall,
+                            color = HunterCyan,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Surface(
                         color = HunterGold.copy(alpha = 0.16f),
                         shape = RoundedCornerShape(50),
@@ -263,23 +315,24 @@ fun ProfileAndJournalTab(
                     ) {
                         Text(
                             text = "AUTO-JOURNALS",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelSmall,
                             color = HunterGold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Avatar + Codename Row
+                // Compact Avatar + Codename + App-Assigned Class Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(78.dp)
+                            .size(56.dp)
                             .clip(CircleShape)
                             .background(ObsidianBg)
                             .border(2.dp, HunterCyan, CircleShape)
@@ -300,29 +353,23 @@ fun ProfileAndJournalTab(
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Filled.Person,
-                                    contentDescription = "Upload Avatar",
-                                    tint = HunterCyan,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                                Text(
-                                    text = "EDIT",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = HunterCyan
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Filled.Person,
+                                contentDescription = "Upload Avatar",
+                                tint = HunterCyan,
+                                modifier = Modifier.size(26.dp)
+                            )
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
 
                     Column(modifier = Modifier.weight(1f)) {
                         OutlinedTextField(
                             value = hunterName,
                             onValueChange = { hunterName = it },
-                            label = { Text("Hunter Codename") },
+                            label = { Text("Hunter Codename", fontSize = 11.sp, maxLines = 1) },
+                            placeholder = { Text(savedBio.hunterName, fontSize = 12.sp) },
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -334,36 +381,60 @@ fun ProfileAndJournalTab(
                                 unfocusedTextColor = TextPrimary
                             )
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = hunterTitle,
-                            onValueChange = { hunterTitle = it },
-                            label = { Text("Class / Title") },
-                            singleLine = true,
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Compact App-Assigned Class Badge
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ObsidianBg)
+                            .border(1.dp, HunterGold.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                            .clickable { onOpenAchievementsInSettings() }
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                            .testTag("auto_assigned_hunter_title"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Image(
+                            painter = painterResource(id = currentTier.pokemonDrawableRes),
+                            contentDescription = currentTier.pokemonName,
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("input_hunter_title"),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = HunterCyan,
-                                unfocusedBorderColor = BorderSubtle,
-                                focusedTextColor = TextPrimary,
-                                unfocusedTextColor = TextPrimary
-                            )
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(6.dp))
                         )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text(
+                                text = currentTier.classTitle,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = HunterGold,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "${state.playerStatus.currentXp} XP",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = HunterEmerald,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Weight, Height, Age Inputs
+                // 4-Column Compact Row: Current Weight, Target Weight, Height, Age
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     OutlinedTextField(
                         value = weightInput,
                         onValueChange = { weightInput = it },
-                        label = { Text("Weight (kg)") },
+                        label = { Text("Weight (kg)", fontSize = 10.sp, maxLines = 1) },
+                        placeholder = { Text("${savedBio.weightKg}", fontSize = 12.sp) },
                         singleLine = true,
                         modifier = Modifier
                             .weight(1f)
@@ -376,9 +447,26 @@ fun ProfileAndJournalTab(
                         )
                     )
                     OutlinedTextField(
+                        value = targetWeightInput,
+                        onValueChange = { targetWeightInput = it },
+                        label = { Text("Target (kg)", fontSize = 10.sp, maxLines = 1) },
+                        placeholder = { Text("${savedBio.targetWeightKg}", fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("input_target_weight_kg"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = HunterGold,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                    OutlinedTextField(
                         value = heightInput,
                         onValueChange = { heightInput = it },
-                        label = { Text("Height (cm)") },
+                        label = { Text("Height (cm)", fontSize = 10.sp, maxLines = 1) },
+                        placeholder = { Text("${savedBio.heightCm.toInt()}", fontSize = 12.sp) },
                         singleLine = true,
                         modifier = Modifier
                             .weight(1f)
@@ -393,10 +481,11 @@ fun ProfileAndJournalTab(
                     OutlinedTextField(
                         value = ageInput,
                         onValueChange = { ageInput = it },
-                        label = { Text("Age (yrs)") },
+                        label = { Text("Age", fontSize = 10.sp, maxLines = 1) },
+                        placeholder = { Text("${savedBio.age}", fontSize = 12.sp) },
                         singleLine = true,
                         modifier = Modifier
-                            .weight(0.85f)
+                            .weight(0.75f)
                             .testTag("input_age_years"),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = HunterCyan,
@@ -407,71 +496,146 @@ fun ProfileAndJournalTab(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Biological Sex Selector for accurate Body Fat / Bone / Muscle formulas
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                // TARGET WEIGHT & TARGET PHYSIQUE GOAL SELECTOR IN JOURNAL
+                Surface(
+                    color = ObsidianBg,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, HunterGold.copy(alpha = 0.55f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("journal_target_goal_card")
                 ) {
-                    Text(
-                        text = "METABOLIC FORMULA REFERENCE",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("MALE", "FEMALE").forEach { option ->
-                            FilterChip(
-                                selected = sexInput.uppercase() == option,
-                                onClick = { sexInput = option },
-                                label = { Text(option, style = MaterialTheme.typography.labelMedium) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = HunterCyan.copy(alpha = 0.22f),
-                                    selectedLabelColor = HunterCyan,
-                                    containerColor = ObsidianBg,
-                                    labelColor = TextSecondary
-                                ),
-                                modifier = Modifier.testTag("sex_chip_$option")
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "🎯 GOAL: ${liveBio.weightKg} KG → ${liveBio.targetWeightKg} KG",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = HunterGold,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                            Text(
+                                text = liveBio.targetWeightSummaryLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = HunterEmerald,
+                                maxLines = 1
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = "TARGET PHYSIQUE GOAL: ${liveBio.targetPhysique.uppercase()}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = HunterCyan,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            HunterBiometrics.PHYSIQUE_OPTIONS.forEach { physiqueOption ->
+                                val selected = liveBio.targetPhysique.equals(physiqueOption, ignoreCase = true)
+                                Surface(
+                                    color = if (selected) HunterGold.copy(alpha = 0.22f) else ObsidianCardElevated,
+                                    shape = RoundedCornerShape(50),
+                                    border = BorderStroke(1.dp, if (selected) HunterGold else BorderSubtle),
+                                    modifier = Modifier
+                                        .clickable { targetPhysiqueInput = physiqueOption }
+                                        .testTag("physique_chip_${physiqueOption.lowercase().replace(" ", "_")}")
+                                ) {
+                                    Text(
+                                        text = physiqueOption,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (selected) HunterGold else TextSecondary,
+                                        fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                Button(
-                    onClick = {
-                        onSaveBiometrics(
-                            liveBio.hunterName,
-                            liveBio.hunterTitle,
-                            liveBio.weightKg,
-                            liveBio.heightCm,
-                            liveBio.age,
-                            liveBio.biologicalSex,
-                            avatarBase64.ifBlank { null }
-                        )
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = HunterCyan,
-                        contentColor = ObsidianBg
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("save_biometrics_button")
+                // Compact Sex Selector + Save Button on the same row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "SAVE BIOMETRICS & LOG TO PERSONAL JOURNAL (+50 XP)",
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                    listOf("MALE", "FEMALE").forEach { option ->
+                        FilterChip(
+                            selected = sexInput.uppercase() == option,
+                            onClick = { sexInput = option },
+                            label = { Text(option, style = MaterialTheme.typography.labelSmall) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = HunterCyan.copy(alpha = 0.22f),
+                                selectedLabelColor = HunterCyan,
+                                containerColor = ObsidianBg,
+                                labelColor = TextSecondary
+                            ),
+                            modifier = Modifier.testTag("sex_chip_$option")
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            onSaveBiometricsWithGoal(
+                                liveBio.hunterName,
+                                liveBio.hunterTitle,
+                                liveBio.weightKg,
+                                liveBio.heightCm,
+                                liveBio.age,
+                                liveBio.biologicalSex,
+                                avatarBase64.ifBlank { null },
+                                liveBio.targetWeightKg,
+                                liveBio.targetPhysique
+                            )
+                            hunterName = ""
+                            weightInput = ""
+                            targetWeightInput = ""
+                            heightInput = ""
+                            ageInput = ""
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = HunterCyan,
+                            contentColor = ObsidianBg
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .testTag("save_biometrics_button")
+                    ) {
+                        Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "SAVE GOAL & BIO (+50 XP)",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }
 
-        // 2. Live Body Composition Telemetry Matrix (BMI, Bone Mass, Water Mass, Fat %, Muscle Mass %, Lean Mass %, BMR)
+        // 2. Compact Live Body Composition Telemetry Matrix
         item {
             BodyCompositionTelemetryCard(bio = liveBio)
         }
@@ -850,16 +1014,28 @@ fun ProfileAndJournalTab(
 }
 
 @Composable
-private fun BodyCompositionTelemetryCard(bio: HunterBiometrics) {
+internal fun PokemonClassHierarchyAndAchievementsCard(
+    playerStatus: PlayerStatus,
+    unlockedAchievements: List<AchievementItem>
+) {
+    val currentTier = playerStatus.currentTier
+    val nextTier = playerStatus.nextTier
+    val totalXp = playerStatus.currentXp
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(ObsidianCard)
-            .border(1.dp, HunterEmerald.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(ObsidianCardElevated, ObsidianCard)
+                )
+            )
+            .border(1.5.dp, HunterGold.copy(alpha = 0.7f), RoundedCornerShape(20.dp))
             .padding(18.dp)
-            .testTag("body_composition_card")
+            .testTag("pokemon_class_hierarchy_card")
     ) {
+        // Section Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -867,26 +1043,36 @@ private fun BodyCompositionTelemetryCard(bio: HunterBiometrics) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Filled.Science,
+                    imageVector = Icons.Filled.EmojiEvents,
                     contentDescription = null,
-                    tint = HunterEmerald,
-                    modifier = Modifier.size(20.dp)
+                    tint = HunterGold,
+                    modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.body_comp_matrix_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = HunterEmerald
-                )
+                Column {
+                    Text(
+                        text = "POKÉMON CLASS HIERARCHY & REWARDS",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = HunterGold,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "Auto-assigned by XP • Boosted early XP, slower elite XP",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                }
             }
             Surface(
-                color = HunterEmerald.copy(alpha = 0.16f),
-                shape = RoundedCornerShape(50)
+                color = HunterCyan.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(1.dp, HunterCyan.copy(alpha = 0.6f))
             ) {
                 Text(
-                    text = bio.bmiCategory.uppercase(),
+                    text = "TIER ${currentTier.tierLevel}/7",
                     style = MaterialTheme.typography.labelMedium,
-                    color = HunterEmerald,
+                    color = HunterCyan,
+                    fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
@@ -894,90 +1080,488 @@ private fun BodyCompositionTelemetryCard(bio: HunterBiometrics) {
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Row 1: BMI & Body Fat %
+        // Current Active Guardian Showcase Banner
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(ObsidianBg)
+                .border(1.5.dp, HunterCyan.copy(alpha = 0.65f), RoundedCornerShape(16.dp))
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(84.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(ObsidianCardElevated)
+                    .border(1.5.dp, HunterGold, RoundedCornerShape(14.dp))
+                    .padding(6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(id = currentTier.pokemonDrawableRes),
+                    contentDescription = currentTier.pokemonName,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        color = HunterGold.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = currentTier.classTitle.uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = HunterGold,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                    Text(
+                        text = "• ${currentTier.pokemonName}",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = HunterCyan,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Total XP: $totalXp XP (${currentTier.xpRangeLabel})",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Bolt,
+                        contentDescription = null,
+                        tint = HunterEmerald,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "${currentTier.xpPaceLabel} • Daily Check-In: +${currentTier.dailyCompletionXp} XP",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = HunterEmerald
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Active Reward: ${currentTier.rewardTitle}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = HunterGold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Progress to Next Class Bar
+        val progressFraction = (playerStatus.progressPercent / 100.0).toFloat().coerceIn(0f, 1f)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (nextTier != null) {
+                    "NEXT CLASS: ${nextTier.classTitle.uppercase()} (${nextTier.pokemonName})"
+                } else {
+                    "APEX CLASS REACHED: CHAMPION (ARCEUS)"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = HunterCyan,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = if (nextTier != null) {
+                    "${(nextTier.minXp - totalXp).coerceAtLeast(0)} XP TO PROMOTION"
+                } else {
+                    "$totalXp / 10,000+ XP"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = HunterGold,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        LinearProgressIndicator(
+            progress = { progressFraction },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(RoundedCornerShape(5.dp)),
+            color = HunterGold,
+            trackColor = ObsidianBg
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = "Dynamic XP Curve: Beginner (1.6x) & Challenger (1.3x) award boosted XP for daily completions to build momentum, then gradually slow down in Elite I–III & Champion (0.80x → 0.40x) to test true consistency!",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+        HorizontalDivider(color = BorderSubtle)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // All 7 Pokémon Class Tiers Roadmap
+        Text(
+            text = "7-TIER POKÉMON CLASS PROGRESSION ROADMAP",
+            style = MaterialTheme.typography.labelLarge,
+            color = HunterCyan,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            TrainerRankProgression.tiers.forEach { tier ->
+                val isUnlocked = totalXp >= tier.minXp
+                val isCurrent = tier.tierLevel == currentTier.tierLevel
+                PokemonTierRoadmapRow(
+                    tier = tier,
+                    isUnlocked = isUnlocked,
+                    isCurrent = isCurrent
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        HorizontalDivider(color = BorderSubtle)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Unlocked Achievements & Class Rewards Vault
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "ACHIEVEMENTS & CLASS REWARDS VAULT",
+                style = MaterialTheme.typography.labelLarge,
+                color = HunterGold,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "${unlockedAchievements.size} UNLOCKED",
+                style = MaterialTheme.typography.labelMedium,
+                color = HunterEmerald,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            unlockedAchievements.forEach { ach ->
+                val rarityColor = when (ach.rarity.uppercase()) {
+                    "LEGENDARY" -> HunterGold
+                    "EPIC" -> HunterViolet
+                    "RARE" -> HunterCyan
+                    else -> HunterEmerald
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(ObsidianBg)
+                        .border(1.dp, rarityColor.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.EmojiEvents,
+                        contentDescription = null,
+                        tint = rarityColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = ach.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Surface(
+                                color = rarityColor.copy(alpha = 0.18f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = ach.rarity.uppercase(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = rarityColor,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = ach.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PokemonTierRoadmapRow(
+    tier: TrainerRankTier,
+    isUnlocked: Boolean,
+    isCurrent: Boolean
+) {
+    val borderColor = when {
+        isCurrent -> HunterGold
+        isUnlocked -> HunterEmerald.copy(alpha = 0.65f)
+        else -> BorderSubtle
+    }
+    val bgColor = when {
+        isCurrent -> ObsidianCardElevated
+        isUnlocked -> ObsidianBg
+        else -> ObsidianBg.copy(alpha = 0.55f)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(bgColor)
+            .border(if (isCurrent) 1.5.dp else 1.dp, borderColor, RoundedCornerShape(14.dp))
+            .padding(10.dp)
+            .testTag("class_tier_row_${tier.tierLevel}"),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(ObsidianCard)
+                .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                .padding(4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(id = tier.pokemonDrawableRes),
+                contentDescription = tier.pokemonName,
+                contentScale = ContentScale.Fit,
+                alpha = if (isUnlocked) 1f else 0.45f,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${tier.classTitle} • ${tier.pokemonName}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (isUnlocked) TextPrimary else TextMuted,
+                    fontWeight = FontWeight.Bold
+                )
+                Surface(
+                    color = when {
+                        isCurrent -> HunterGold.copy(alpha = 0.2f)
+                        isUnlocked -> HunterEmerald.copy(alpha = 0.16f)
+                        else -> ObsidianCard
+                    },
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = when {
+                                isCurrent -> Icons.Filled.Bolt
+                                isUnlocked -> Icons.Filled.CheckCircle
+                                else -> Icons.Filled.Lock
+                            },
+                            contentDescription = null,
+                            tint = when {
+                                isCurrent -> HunterGold
+                                isUnlocked -> HunterEmerald
+                                else -> TextMuted
+                            },
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = when {
+                                isCurrent -> "CURRENT"
+                                isUnlocked -> "UNLOCKED"
+                                else -> "LOCKED"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when {
+                                isCurrent -> HunterGold
+                                isUnlocked -> HunterEmerald
+                                else -> TextMuted
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "${tier.xpRangeLabel}  •  ${tier.xpPaceLabel} (Daily +${tier.dailyCompletionXp} XP)",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isUnlocked) HunterCyan else TextMuted
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Reward: ${tier.rewardTitle} — ${tier.rewardDescription}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isUnlocked) TextSecondary else TextMuted
+            )
+        }
+    }
+}
+
+@Composable
+private fun BodyCompositionTelemetryCard(bio: HunterBiometrics) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(ObsidianCard)
+            .border(1.dp, HunterEmerald.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+            .padding(12.dp)
+            .testTag("body_composition_card")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Science,
+                    contentDescription = null,
+                    tint = HunterEmerald,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.body_comp_matrix_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = HunterEmerald,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Surface(
+                color = HunterEmerald.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(50)
+            ) {
+                Text(
+                    text = bio.bmiCategory.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = HunterEmerald,
+                    maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Compact 3x2 Grid for all 6 Body Composition Metrics
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             BiometricMetricTile(
-                label = "BMI INDEX",
+                label = "BMI",
                 primaryValue = "${bio.bmi}",
                 subValue = bio.bmiCategory,
                 accentColor = HunterCyan,
                 modifier = Modifier.weight(1f).testTag("metric_bmi_value")
             )
             BiometricMetricTile(
-                label = "BODY FAT %",
+                label = "BODY FAT",
                 primaryValue = "${bio.bodyFatPercent}%",
-                subValue = "${bio.fatMassKg} kg Fat Mass",
+                subValue = "${bio.fatMassKg} kg",
                 accentColor = HunterGold,
                 modifier = Modifier.weight(1f).testTag("metric_body_fat_value")
             )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Row 2: Skeletal Muscle Mass % & Lean Body Mass %
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
             BiometricMetricTile(
-                label = "MUSCLE MASS",
+                label = "MUSCLE",
                 primaryValue = "${bio.muscleMassPercent}%",
-                subValue = "${bio.muscleMassKg} kg Skeletal Muscle",
+                subValue = "${bio.muscleMassKg} kg",
                 accentColor = HunterEmerald,
                 modifier = Modifier.weight(1f).testTag("metric_muscle_mass_value")
             )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             BiometricMetricTile(
-                label = "LEAN MASS %",
+                label = "LEAN MASS",
                 primaryValue = "${bio.leanMassPercent}%",
-                subValue = "${bio.leanBodyMassKg} kg Fat-Free",
+                subValue = "${bio.leanBodyMassKg} kg",
                 accentColor = HunterViolet,
                 modifier = Modifier.weight(1f).testTag("metric_lean_mass_value")
             )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Row 3: Bone Mass & Total Body Water Mass
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
             BiometricMetricTile(
                 label = "BONE MASS",
                 primaryValue = "${bio.boneMassKg} kg",
-                subValue = "${bio.boneMassPercent}% of Total Mass",
+                subValue = "${bio.boneMassPercent}%",
                 accentColor = HunterCyan,
                 modifier = Modifier.weight(1f).testTag("metric_bone_mass_value")
             )
             BiometricMetricTile(
-                label = "WATER MASS",
+                label = "WATER",
                 primaryValue = "${bio.waterMassKg} kg",
-                subValue = "${bio.waterMassPercent}% Hydration Mass",
+                subValue = "${bio.waterMassPercent}%",
                 accentColor = HunterCyan,
                 modifier = Modifier.weight(1f).testTag("metric_water_mass_value")
             )
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
-        HorizontalDivider(color = BorderSubtle)
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Tissue Partition Bar
-        Text(
-            text = "TOTAL MASS PARTITION (${bio.weightKg} KG • BMR ${bio.bmrKcal} KCAL/DAY)",
-            style = MaterialTheme.typography.labelMedium,
-            color = TextSecondary
-        )
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(12.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
                 .background(ObsidianBg)
         ) {
             val muscleWeight = (bio.muscleMassPercent / 100.0).toFloat().coerceIn(0.1f, 0.85f)
@@ -1004,15 +1588,15 @@ private fun BodyCompositionTelemetryCard(bio: HunterBiometrics) {
             )
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("■ Muscle ${bio.muscleMassPercent}%", style = MaterialTheme.typography.labelMedium, color = HunterEmerald)
-            Text("■ Fat ${bio.bodyFatPercent}%", style = MaterialTheme.typography.labelMedium, color = HunterGold)
-            Text("■ Bone ${bio.boneMassPercent}%", style = MaterialTheme.typography.labelMedium, color = HunterCyan)
-            Text("■ H2O ${bio.waterMassPercent}%", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+            Text("■ Muscle ${bio.muscleMassPercent}%", style = MaterialTheme.typography.labelSmall, color = HunterEmerald)
+            Text("■ Fat ${bio.bodyFatPercent}%", style = MaterialTheme.typography.labelSmall, color = HunterGold)
+            Text("■ Bone ${bio.boneMassPercent}%", style = MaterialTheme.typography.labelSmall, color = HunterCyan)
+            Text("BMR ${bio.bmrKcal} kcal", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
         }
     }
 }
@@ -1027,26 +1611,27 @@ private fun BiometricMetricTile(
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(ObsidianCardElevated)
-            .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
-            .padding(12.dp)
+            .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = accentColor
+            style = MaterialTheme.typography.labelSmall,
+            color = accentColor,
+            maxLines = 1
         )
-        Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = primaryValue,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleMedium,
             color = TextPrimary,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
         Text(
             text = subValue,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelSmall,
             color = TextSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

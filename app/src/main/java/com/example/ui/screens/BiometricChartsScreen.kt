@@ -127,10 +127,10 @@ fun BiometricChartsScreen(
     val bio = state.biometrics
     var selectedChartMode by rememberSaveable { mutableStateOf(RechartsMetricMode.COMPOSED_ALL) }
 
-    // Inputs for plotting a new Firestore biometric point
-    var weightInput by rememberSaveable(bio.weightKg) { mutableStateOf(bio.weightKg.toString()) }
-    var bodyFatInput by rememberSaveable(bio.bodyFatPercent) { mutableStateOf(bio.bodyFatPercent.toString()) }
-    var muscleMassInput by rememberSaveable(bio.muscleMassPercent) { mutableStateOf(bio.muscleMassPercent.toString()) }
+    // Inputs for plotting a new Firestore biometric point (empty by default until user types)
+    var weightInput by rememberSaveable { mutableStateOf("") }
+    var bodyFatInput by rememberSaveable { mutableStateOf("") }
+    var muscleMassInput by rememberSaveable { mutableStateOf("") }
     var noteInput by rememberSaveable { mutableStateOf("") }
 
     LazyColumn(
@@ -223,15 +223,15 @@ fun BiometricChartsScreen(
             }
         }
 
-        // 3. Plot New Biometric Data Point to Firestore Card
+        // 3. Compact Plot New Biometric Data Point Card
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(ObsidianCard)
-                    .border(1.dp, HunterCyan.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
-                    .padding(18.dp)
+                    .border(1.dp, HunterCyan.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                    .padding(12.dp)
                     .testTag("log_biometric_point_card")
             ) {
                 Row(
@@ -239,51 +239,52 @@ fun BiometricChartsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = Icons.Filled.Timeline,
                             contentDescription = null,
                             tint = HunterCyan,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "PLOT NEW BIOMETRIC DATA POINT",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = HunterCyan
+                            text = "PLOT BIOMETRIC DATA POINT",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = HunterCyan,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Surface(
                         color = HunterCyan.copy(alpha = 0.16f),
                         shape = RoundedCornerShape(50),
                         border = BorderStroke(1.dp, HunterCyan.copy(alpha = 0.5f))
                     ) {
                         Text(
-                            text = "FIRESTORE LIVE SYNC",
-                            style = MaterialTheme.typography.labelMedium,
+                            text = "LIVE SYNC",
+                            style = MaterialTheme.typography.labelSmall,
                             color = HunterCyan,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Log a new Weight, Body Fat %, and Muscle Mass % reading to Firestore. The Recharts visualization above will immediately plot the new point over time.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     OutlinedTextField(
                         value = weightInput,
                         onValueChange = { weightInput = it },
-                        label = { Text("Weight (kg)") },
+                        label = { Text("Weight (kg)", fontSize = 11.sp, maxLines = 1) },
+                        placeholder = { Text("${bio.weightKg}", fontSize = 12.sp) },
                         singleLine = true,
                         modifier = Modifier
                             .weight(1f)
@@ -298,7 +299,8 @@ fun BiometricChartsScreen(
                     OutlinedTextField(
                         value = bodyFatInput,
                         onValueChange = { bodyFatInput = it },
-                        label = { Text("Body Fat (%)") },
+                        label = { Text("Body Fat %", fontSize = 11.sp, maxLines = 1) },
+                        placeholder = { Text("${bio.bodyFatPercent}", fontSize = 12.sp) },
                         singleLine = true,
                         modifier = Modifier
                             .weight(1f)
@@ -313,7 +315,8 @@ fun BiometricChartsScreen(
                     OutlinedTextField(
                         value = muscleMassInput,
                         onValueChange = { muscleMassInput = it },
-                        label = { Text("Muscle (%)") },
+                        label = { Text("Muscle %", fontSize = 11.sp, maxLines = 1) },
+                        placeholder = { Text("${bio.muscleMassPercent}", fontSize = 12.sp) },
                         singleLine = true,
                         modifier = Modifier
                             .weight(1f)
@@ -327,349 +330,60 @@ fun BiometricChartsScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                OutlinedTextField(
-                    value = noteInput,
-                    onValueChange = { noteInput = it },
-                    label = { Text("Check-In Context (e.g., Morning Fasted Scale Reading)") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("chart_input_note"),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = HunterCyan,
-                        unfocusedBorderColor = BorderSubtle,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        val w = weightInput.toDoubleOrNull()?.coerceIn(25.0, 350.0) ?: bio.weightKg
-                        val bf = bodyFatInput.toDoubleOrNull()?.coerceIn(3.0, 65.0)
-                        val mm = muscleMassInput.toDoubleOrNull()?.coerceIn(20.0, 90.0)
-                        onLogBiometricPoint(w, bf, mm, noteInput)
-                        noteInput = ""
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = HunterCyan,
-                        contentColor = ObsidianBg
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("plot_biometric_point_button")
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "PLOT & SAVE DATA POINT TO FIRESTORE (+50 XP)",
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-            }
-        }
-
-        // 4. Gemini Pika-Dietitian Multi-Turn Nutrition & Food Facts Chatbot
-        item {
-            PikaDietitianChatSection(
-                state = state,
-                messages = nutritionChatMessages,
-                isLoading = isNutritionChatLoading,
-                onSendMessage = onSendNutritionMessage,
-                onClearChat = onClearNutritionChat,
-                onLogRecommendedFood = onLogFoodItem
-            )
-        }
-    }
-}
-
-@Composable
-fun PikaDietitianChatSection(
-    state: HunterSystemState,
-    messages: List<NutritionChatMessage>,
-    isLoading: Boolean,
-    onSendMessage: (String) -> Unit,
-    onClearChat: () -> Unit,
-    onLogRecommendedFood: (mealName: String, calories: Int, proteinG: Double) -> Unit
-) {
-    val bio = state.biometrics
-    var queryInput by rememberSaveable { mutableStateOf("") }
-    val isDark = AppThemeIsDark
-    val accentColor = if (isDark) Color(0xFFFFDE00) else Color(0xFFEF233C)
-
-    val quickQuestions = remember(bio.goalDisplayLabel, bio.weightKg) {
-        listOf(
-            "Best foods for ${bio.goalDisplayLabel} with nutrition facts?",
-            "High-protein meal plan for ${bio.weightKg}kg (${bio.recommendedProteinG}g P)?",
-            "Pre & post-workout foods and their macro facts?",
-            "What foods should I avoid and swap for my BMI (${bio.bmi})?"
-        )
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(ObsidianCard)
-            .border(2.dp, accentColor.copy(alpha = 0.7f), RoundedCornerShape(22.dp))
-            .padding(18.dp)
-            .testTag("pika_dietitian_chat_card")
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF6792A4))
-                        .border(2.dp, accentColor, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    PikachuMascotBadge(
-                        drawableRes = R.drawable.pika_pokeball_bg,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.AutoAwesome,
-                            contentDescription = null,
-                            tint = accentColor,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = "GEMINI NUTRITION & FOOD FACTS BOT",
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            ),
-                            color = accentColor
-                        )
-                    }
-                    Text(
-                        text = "Ask Pika-Dietitian (${bio.goalDisplayLabel})",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        ),
-                        color = TextPrimary
-                    )
-                }
-            }
-
-            TextButton(onClick = onClearChat) {
-                Text(
-                    text = "Reset",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = TextSecondary
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Ask what foods to eat for your ${bio.goalDisplayLabel} plan (${state.statBreakdown.vitality.caloriesTarget} kcal • ${bio.recommendedProteinG}g protein target) and get full scientific nutrition facts!",
-            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
-            color = TextSecondary
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            quickQuestions.forEach { q ->
-                Surface(
-                    modifier = Modifier.clickable(enabled = !isLoading) {
-                        onSendMessage(q)
-                    },
-                    shape = RoundedCornerShape(50),
-                    color = accentColor.copy(alpha = 0.14f),
-                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.55f))
-                ) {
-                    Text(
-                        text = q,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = TextPrimary
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 180.dp, max = 380.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(ObsidianBg)
-                .border(1.dp, BorderSubtle, RoundedCornerShape(16.dp))
-                .padding(12.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            messages.forEach { msg ->
-                val isUser = msg.role == "user"
-                Column(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(
-                            topStart = 16.dp,
-                            topEnd = 16.dp,
-                            bottomStart = if (isUser) 16.dp else 4.dp,
-                            bottomEnd = if (isUser) 4.dp else 16.dp
-                        ),
-                        color = if (isUser) {
-                            Color(0xFFEF233C)
-                        } else if (msg.isError) {
-                            Color(0xFFEF4444).copy(alpha = 0.16f)
-                        } else {
-                            ObsidianCardElevated
+                    OutlinedTextField(
+                        value = noteInput,
+                        onValueChange = { noteInput = it },
+                        label = { Text("Note (Optional)", fontSize = 11.sp, maxLines = 1) },
+                        placeholder = { Text("e.g. Morning scale", fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .testTag("chart_input_note"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = HunterCyan,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+
+                    Button(
+                        onClick = {
+                            val w = weightInput.toDoubleOrNull()?.coerceIn(25.0, 350.0) ?: bio.weightKg
+                            val bf = bodyFatInput.toDoubleOrNull()?.coerceIn(3.0, 65.0)
+                            val mm = muscleMassInput.toDoubleOrNull()?.coerceIn(20.0, 90.0)
+                            onLogBiometricPoint(w, bf, mm, noteInput)
+                            weightInput = ""
+                            bodyFatInput = ""
+                            muscleMassInput = ""
+                            noteInput = ""
                         },
-                        border = if (isUser) null else BorderStroke(1.dp, BorderSubtle),
-                        modifier = Modifier.widthIn(max = 320.dp)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = HunterCyan,
+                            contentColor = ObsidianBg
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("plot_biometric_point_button")
                     ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                text = if (isUser) "Trainer ${bio.hunterName}" else "⚡ Pika-Dietitian (Gemini 3.8 Flash)",
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                ),
-                                color = if (isUser) Color.White.copy(alpha = 0.85f) else accentColor
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = msg.text,
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontSize = 15.sp,
-                                    lineHeight = 21.sp
-                                ),
-                                color = if (isUser) Color.White else TextPrimary
-                            )
-
-                            if (!isUser && !msg.isStreaming && msg.suggestedMealName != null && msg.suggestedCalories != null) {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Surface(
-                                    modifier = Modifier.clickable {
-                                        onLogRecommendedFood(
-                                            msg.suggestedMealName,
-                                            msg.suggestedCalories,
-                                            msg.suggestedProteinG ?: 35.0
-                                        )
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = HunterEmerald.copy(alpha = 0.18f),
-                                    border = BorderStroke(1.dp, HunterEmerald)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Restaurant,
-                                            contentDescription = null,
-                                            tint = HunterEmerald,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Log ${msg.suggestedMealName} (+${msg.suggestedCalories} kcal, ${msg.suggestedProteinG?.toInt() ?: 35}g P)",
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.ExtraBold
-                                            ),
-                                            color = HunterEmerald
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "PLOT (+50 XP)",
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1
+                        )
                     }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = queryInput,
-                onValueChange = { queryInput = it },
-                placeholder = {
-                    Text(
-                        text = "Ask about any food, diet plan, or nutrition facts...",
-                        fontSize = 14.sp
-                    )
-                },
-                enabled = !isLoading,
-                singleLine = true,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("nutrition_chat_input"),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = accentColor,
-                    unfocusedBorderColor = BorderSubtle,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary
-                )
-            )
-
-            Button(
-                onClick = {
-                    if (queryInput.isNotBlank()) {
-                        onSendMessage(queryInput)
-                        queryInput = ""
-                    }
-                },
-                enabled = !isLoading && queryInput.isNotBlank(),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFEF233C),
-                    contentColor = Color.White
-                ),
-                modifier = Modifier
-                    .height(54.dp)
-                    .testTag("nutrition_chat_send_button")
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Ask Pika-Dietitian"
-                    )
                 }
             }
         }
@@ -692,12 +406,12 @@ fun DailyProductiveStreakCard(
 
     var expandedActionMode by rememberSaveable { mutableIntStateOf(0) } // 0 = None, 1 = Food Form, 2 = Exercise Form
     var mealName by rememberSaveable { mutableStateOf("") }
-    var mealCalories by rememberSaveable { mutableStateOf("550") }
-    var mealProtein by rememberSaveable { mutableStateOf("42") }
+    var mealCalories by rememberSaveable { mutableStateOf("") }
+    var mealProtein by rememberSaveable { mutableStateOf("") }
 
     var exerciseName by rememberSaveable { mutableStateOf("") }
-    var exerciseSets by rememberSaveable { mutableStateOf("3") }
-    var exerciseReps by rememberSaveable { mutableStateOf("10") }
+    var exerciseSets by rememberSaveable { mutableStateOf("") }
+    var exerciseReps by rememberSaveable { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -1287,23 +1001,28 @@ private fun RechartsBiometricVisualizerCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ShowChart,
                     contentDescription = null,
                     tint = HunterCyan,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
                         text = "RECHARTS BIOMETRIC TELEMETRY",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = HunterCyan
+                        style = MaterialTheme.typography.titleSmall,
+                        color = HunterCyan,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "Weight, Body Fat % & Muscle Mass Over Time • ${entries.size} Firestore Points",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary
                     )
                 }

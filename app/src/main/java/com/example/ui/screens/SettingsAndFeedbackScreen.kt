@@ -1,10 +1,12 @@
 package com.example.ui.screens
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,25 +31,33 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.AddAPhoto
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Feedback
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
@@ -80,17 +90,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.model.FeedbackEntry
+import com.example.data.model.HunterBiometrics
 import com.example.data.model.HunterSystemState
+import com.example.ui.theme.AppThemeIsDark
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.HunterCrimson
 import com.example.ui.theme.HunterCyan
@@ -99,7 +112,6 @@ import com.example.ui.theme.HunterGold
 import com.example.ui.theme.HunterViolet
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.ObsidianCard
-import com.example.ui.theme.ObsidianCardElevated
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
@@ -115,13 +127,28 @@ import java.util.Locale
 
 private const val CREATOR_EMAIL = "creator@pikafit.app"
 
+/**
+ * Click-to-Go Settings Menu Hub & Sub-Pages:
+ * 0 = Main Settings Menu Hub (Click-to-go rows like Screenshot reference)
+ * 1 = Edit Profile, Biometrics & Target Weight/Physique
+ * 2 = Feedback & Public Creator Board
+ * 3 = App Data & Reset Progress
+ * 4 = Achievements & 7-Tier Pokémon Class Hierarchy
+ * 5 = Appearance (Dark/Light Mode & Wallpaper Guide)
+ * 6 = Analytics & Goal Telemetry Summary
+ * 7 = FAQ & Help Articles
+ * 8 = About Us
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsAndFeedbackScreen(
     state: HunterSystemState,
     feedbackState: DataLoadState<List<FeedbackEntry>>,
     currentUserId: String,
-    initialFocusSection: Int = 0, // 0 = All, 1 = Edit Profile, 2 = Public Feedback, 3 = Reset Progress
+    initialFocusSection: Int = 0,
+    releaseInfo: com.example.data.model.AppReleaseInfo = com.example.data.model.AppReleaseInfo(),
+    isDark: Boolean = AppThemeIsDark,
+    onToggleTheme: () -> Unit = {},
     onBack: () -> Unit,
     onSaveProfileAndTargets: (
         hunterName: String,
@@ -136,6 +163,23 @@ fun SettingsAndFeedbackScreen(
         waterTargetLiters: Double,
         avatarBase64: String?
     ) -> Unit,
+    onSaveProfileWithGoal: (
+        hunterName: String,
+        hunterTitle: String,
+        weightKg: Double,
+        heightCm: Double,
+        age: Int,
+        biologicalSex: String,
+        customBodyFatPercent: Double?,
+        customMuscleMassPercent: Double?,
+        caloriesTarget: Int,
+        waterTargetLiters: Double,
+        avatarBase64: String?,
+        targetWeightKg: Double?,
+        targetPhysique: String?
+    ) -> Unit = { name, title, w, h, a, sex, bf, mm, cal, water, avatar, _, _ ->
+        onSaveProfileAndTargets(name, title, w, h, a, sex, bf, mm, cal, water, avatar)
+    },
     onResetProgress: (clearJournalHistory: Boolean) -> Unit,
     onSubmitFeedback: (category: String, rating: Int, message: String) -> Unit,
     onUpdateFeedbackStatus: (feedbackId: String, newStatus: String) -> Unit,
@@ -148,43 +192,34 @@ fun SettingsAndFeedbackScreen(
     }
     val isAppCreator = currentUserEmail == CREATOR_EMAIL
 
-    var activeSectionFilter by rememberSaveable { mutableIntStateOf(initialFocusSection) }
+    var activePage by rememberSaveable { mutableIntStateOf(initialFocusSection) }
     LaunchedEffect(initialFocusSection) {
-        activeSectionFilter = initialFocusSection
+        activePage = initialFocusSection
     }
 
-    // Profile & Daily Targets State
+    if (activePage != 0) {
+        BackHandler {
+            activePage = 0
+        }
+    }
+
+    // Profile & Daily Targets State (Empty default strings so no pre-cached values clutter inputs)
     val bio = state.biometrics
     val vit = state.statBreakdown.vitality
     val stam = state.statBreakdown.stamina
 
-    var nameInput by rememberSaveable { mutableStateOf(bio.hunterName) }
-    var titleInput by rememberSaveable { mutableStateOf(bio.hunterTitle) }
-    var weightInput by rememberSaveable { mutableStateOf(bio.weightKg.toString()) }
-    var heightInput by rememberSaveable { mutableStateOf(bio.heightCm.toInt().toString()) }
-    var ageInput by rememberSaveable { mutableStateOf(bio.age.toString()) }
-    var sexInput by rememberSaveable { mutableStateOf(bio.biologicalSex) }
-    var customBfInput by rememberSaveable { mutableStateOf(bio.customBodyFatPercent?.toString() ?: "") }
-    var customMuscleInput by rememberSaveable { mutableStateOf(bio.customMuscleMassPercent?.toString() ?: "") }
-    var calTargetInput by rememberSaveable { mutableStateOf(vit.caloriesTarget.toString()) }
-    var waterTargetInput by rememberSaveable { mutableStateOf(stam.targetLiters.toString()) }
-    var avatarBase64State by remember { mutableStateOf(bio.avatarBase64) }
-
-    LaunchedEffect(bio, vit.caloriesTarget, stam.targetLiters) {
-        nameInput = bio.hunterName
-        titleInput = bio.hunterTitle
-        weightInput = bio.weightKg.toString()
-        heightInput = bio.heightCm.toInt().toString()
-        ageInput = bio.age.toString()
-        sexInput = bio.biologicalSex
-        customBfInput = bio.customBodyFatPercent?.toString() ?: ""
-        customMuscleInput = bio.customMuscleMassPercent?.toString() ?: ""
-        calTargetInput = vit.caloriesTarget.toString()
-        waterTargetInput = stam.targetLiters.toString()
-        if (bio.avatarBase64.isNotBlank()) {
-            avatarBase64State = bio.avatarBase64
-        }
-    }
+    var nameInput by rememberSaveable { mutableStateOf("") }
+    var weightInput by rememberSaveable { mutableStateOf("") }
+    var targetWeightInput by rememberSaveable { mutableStateOf("") }
+    var selectedPhysique by rememberSaveable(bio.targetPhysique) { mutableStateOf(bio.targetPhysique) }
+    var heightInput by rememberSaveable { mutableStateOf("") }
+    var ageInput by rememberSaveable { mutableStateOf("") }
+    var sexInput by rememberSaveable(bio.biologicalSex) { mutableStateOf(bio.biologicalSex) }
+    var customBfInput by rememberSaveable { mutableStateOf("") }
+    var customMuscleInput by rememberSaveable { mutableStateOf("") }
+    var calTargetInput by rememberSaveable { mutableStateOf("") }
+    var waterTargetInput by rememberSaveable { mutableStateOf("") }
+    var avatarBase64State by remember(bio.avatarBase64) { mutableStateOf(bio.avatarBase64) }
 
     val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -206,7 +241,7 @@ fun SettingsAndFeedbackScreen(
     var boardStatusFilter by rememberSaveable { mutableStateOf("ALL") }
 
     // Reset Progress State
-    var clearJournalOnReset by rememberSaveable { mutableStateOf(false) }
+    var clearJournalOnReset by rememberSaveable { mutableStateOf(true) }
     var showResetConfirmDialog by rememberSaveable { mutableStateOf(false) }
 
     if (showResetConfirmDialog) {
@@ -234,15 +269,15 @@ fun SettingsAndFeedbackScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Are you sure you want to reset your Hunter progression back to Level 1?",
+                        text = "Are you sure you want to reset your Hunter progression and clear all cached daily logs?",
                         style = MaterialTheme.typography.bodyLarge,
                         color = TextPrimary
                     )
                     Text(
-                        text = "• Level & Rank reset to Level 1 (E-Rank Novice)\n" +
-                            "• XP reset to 0 / 1,000 XP\n" +
-                            "• Daily Productive Streak reset to 0 Days (Unverified)\n" +
-                            "• Today's logged calories, water, and exercises cleared\n" +
+                        text = "• Level & Class reset to Level 1 (Beginner • Pikachu)\n" +
+                            "• XP reset to 0 / 1,500 XP\n" +
+                            "• Daily Productive Streak reset to 0 Days\n" +
+                            "• Today's logged calories, water, and exercises cleared to 0\n" +
                             if (clearJournalOnReset) {
                                 "• Biometric & Physique Journal History WILL BE DELETED"
                             } else {
@@ -279,121 +314,303 @@ fun SettingsAndFeedbackScreen(
         )
     }
 
+    val pageTitle = when (activePage) {
+        1 -> "Edit Profile"
+        2 -> "Feedback"
+        3 -> "App Data"
+        4 -> "Achievements & Classes"
+        5 -> "Appearance"
+        6 -> "Analytics"
+        7 -> "FAQ & Help Articles"
+        8 -> "About Us"
+        else -> "Settings"
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .testTag("settings_and_feedback_list"),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Header & Section Filter Pills
+        // =====================================================================
+        // TOP BAR (Close / Back + Page Title)
+        // =====================================================================
         item {
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(ObsidianCardElevated, ObsidianCard)
-                        )
-                    )
-                    .border(1.5.dp, HunterCyan.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-                    .padding(16.dp)
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                TextButton(
+                    onClick = {
+                        if (activePage == 0) {
+                            onBack()
+                        } else {
+                            activePage = 0
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.testTag("settings_back_button")
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(ObsidianBg)
-                                .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
-                                .testTag("settings_back_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back to Status HUD",
-                                tint = HunterCyan,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "SYSTEM SETTINGS & PUBLIC FEEDBACK",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = HunterCyan
-                            )
-                            Text(
-                                text = "Edit Profile • Reset Progress • Send Public Feedback to Creator",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = TextSecondary
-                            )
-                        }
+                    if (activePage != 0) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Settings",
+                            tint = HunterCrimson,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Settings",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = HunterCrimson
+                        )
+                    } else {
+                        Text(
+                            text = "Close",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = HunterCrimson
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Quick Section Filter Pills
-                val sections = listOf(
-                    0 to "ALL SECTIONS",
-                    1 to "EDIT PROFILE",
-                    2 to "PUBLIC FEEDBACK",
-                    3 to "RESET PROGRESS"
+                Text(
+                    text = pageTitle,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    ),
+                    color = TextPrimary
                 )
-                Row(
+
+                // Balance spacer so title stays centered
+                Spacer(modifier = Modifier.width(64.dp))
+            }
+        }
+
+        // =====================================================================
+        // MAIN CLICK-TO-GO SETTINGS HUB (activePage == 0)
+        // =====================================================================
+        if (activePage == 0) {
+            // 1. Profile Hero Click-to-Go Card (Matches Screenshot 5)
+            item {
+                val avatarBitmap = remember(avatarBase64State) {
+                    decodeAvatarBase64(avatarBase64State)
+                }
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable { activePage = 1 }
+                        .testTag("settings_section_chip_1"),
+                    shape = RoundedCornerShape(18.dp),
+                    color = ObsidianCard,
+                    border = BorderStroke(1.dp, BorderSubtle)
                 ) {
-                    sections.forEach { (idx, label) ->
-                        val selected = activeSectionFilter == idx
-                        val accent = when (idx) {
-                            1 -> HunterGold
-                            2 -> HunterEmerald
-                            3 -> HunterCrimson
-                            else -> HunterCyan
-                        }
-                        FilterChip(
-                            selected = selected,
-                            onClick = { activeSectionFilter = idx },
-                            label = {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(58.dp)
+                                    .clip(CircleShape)
+                                    .background(ObsidianBg)
+                                    .border(2.dp, HunterGold, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (avatarBitmap != null) {
+                                    Image(
+                                        bitmap = avatarBitmap.asImageBitmap(),
+                                        contentDescription = "Hunter Avatar",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    PikachuMascotBadge(
+                                        drawableRes = state.playerStatus.currentTier.pokemonDrawableRes,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelMedium
+                                    text = bio.hunterName,
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    ),
+                                    color = TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = accent.copy(alpha = 0.2f),
-                                selectedLabelColor = accent,
-                                containerColor = ObsidianBg,
-                                labelColor = TextSecondary
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = selected,
-                                borderColor = BorderSubtle,
-                                selectedBorderColor = accent
-                            ),
-                            modifier = Modifier.testTag("settings_section_chip_$idx")
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = currentUserEmail.ifBlank {
+                                        "${state.playerStatus.currentTier.classTitle} • ${state.playerStatus.currentTier.pokemonName} (${state.playerStatus.currentXp} XP)"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Tap to edit profile, target weight & daily goals",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = HunterGold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.Filled.ChevronRight,
+                            contentDescription = "Open Edit Profile",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
             }
+
+            // 2. Achievements & Class Hierarchy Click-to-Go Card
+            item {
+                SettingsMenuGroupCard {
+                    SettingsClickToGoRow(
+                        icon = Icons.Filled.EmojiEvents,
+                        iconTint = HunterGold,
+                        title = "Achievements & Class Hierarchy",
+                        subtitle = "${state.playerStatus.currentTier.classTitle} (${state.playerStatus.currentTier.pokemonName}) • ${state.unlockedAchievements.size} Unlocked",
+                        testTag = "settings_nav_achievements",
+                        onClick = { activePage = 4 }
+                    )
+                    HorizontalDivider(color = BorderSubtle.copy(alpha = 0.6f), modifier = Modifier.padding(start = 52.dp))
+                    SettingsClickToGoRow(
+                        icon = Icons.Filled.Edit,
+                        iconTint = HunterCyan,
+                        title = "Edit Profile & Target Physique",
+                        subtitle = "Weight: ${bio.weightKg}kg → Goal: ${bio.targetWeightKg}kg (${bio.targetPhysique})",
+                        testTag = "settings_nav_edit_profile",
+                        onClick = { activePage = 1 }
+                    )
+                }
+            }
+
+            // 3. Appearance Group
+            item {
+                SettingsMenuGroupCard {
+                    SettingsClickToGoRow(
+                        icon = Icons.Filled.Palette,
+                        iconTint = HunterViolet,
+                        title = "Appearance",
+                        subtitle = if (isDark) "Dark Obsidian Mode" else "Light Volt Mode",
+                        testTag = "settings_nav_appearance",
+                        onClick = { activePage = 5 }
+                    )
+                }
+            }
+
+            // 4. App Data & Analytics Group
+            item {
+                SettingsMenuGroupCard {
+                    SettingsClickToGoRow(
+                        icon = Icons.Filled.Storage,
+                        iconTint = HunterCrimson,
+                        title = "App Data",
+                        subtitle = "Clear cached logs or reset progress to Level 1",
+                        testTag = "settings_section_chip_3",
+                        onClick = { activePage = 3 }
+                    )
+                    HorizontalDivider(color = BorderSubtle.copy(alpha = 0.6f), modifier = Modifier.padding(start = 52.dp))
+                    SettingsClickToGoRow(
+                        icon = Icons.AutoMirrored.Filled.ShowChart,
+                        iconTint = HunterCyan,
+                        title = "Analytics",
+                        subtitle = "BMI ${bio.bmi} • Goal ${bio.recommendedCaloriesTarget} kcal • ${bio.targetWeightSummaryLabel}",
+                        testTag = "settings_nav_analytics",
+                        onClick = { activePage = 6 }
+                    )
+                }
+            }
+
+            // 5. FAQ & Help Articles Group
+            item {
+                SettingsMenuGroupCard {
+                    SettingsClickToGoRow(
+                        icon = Icons.AutoMirrored.Filled.HelpOutline,
+                        iconTint = HunterGold,
+                        title = "FAQ & Help Articles",
+                        subtitle = "How XP scaling, Smart Grams & Streaks work",
+                        testTag = "settings_nav_faq",
+                        onClick = { activePage = 7 }
+                    )
+                }
+            }
+
+            // 6. Feedback & About Us Group
+            item {
+                SettingsMenuGroupCard {
+                    SettingsClickToGoRow(
+                        icon = Icons.Filled.Feedback,
+                        iconTint = HunterEmerald,
+                        title = "Feedback",
+                        subtitle = "Rate the app & send suggestions to Creator Board",
+                        testTag = "settings_section_chip_2",
+                        onClick = { activePage = 2 }
+                    )
+                    HorizontalDivider(color = BorderSubtle.copy(alpha = 0.6f), modifier = Modifier.padding(start = 52.dp))
+                    val hasUpdate = releaseInfo.latestVersionCode > 1L
+                    SettingsClickToGoRow(
+                        icon = Icons.Filled.SystemUpdate,
+                        iconTint = if (hasUpdate) HunterGold else HunterCyan,
+                        title = "Check for Updates",
+                        subtitle = if (hasUpdate) {
+                            "v${releaseInfo.latestVersionName} Available • Tap to Download"
+                        } else {
+                            "Installed v1.0 • Up to date"
+                        },
+                        testTag = "settings_nav_check_updates",
+                        onClick = {
+                            val rawUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/" }
+                            val targetUri = Uri.parse(
+                                if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) "https://$rawUrl" else rawUrl
+                            )
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, targetUri).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (_: Exception) {}
+                        }
+                    )
+                    HorizontalDivider(color = BorderSubtle.copy(alpha = 0.6f), modifier = Modifier.padding(start = 52.dp))
+                    SettingsClickToGoRow(
+                        icon = Icons.Filled.Info,
+                        iconTint = HunterCyan,
+                        title = "About Us",
+                        subtitle = "PikaFit Hunter System • Pokémon Class Edition",
+                        testTag = "settings_nav_about",
+                        onClick = { activePage = 8 }
+                    )
+                }
+            }
         }
 
-        // 1. EDIT HUNTER PROFILE & DAILY TARGETS CARD
-        if (activeSectionFilter == 0 || activeSectionFilter == 1) {
+        // =====================================================================
+        // SUB-PAGE 1: EDIT PROFILE, BIOMETRICS & TARGET GOALS
+        // =====================================================================
+        if (activePage == 1) {
             item {
                 Column(
                     modifier = Modifier
@@ -403,31 +620,25 @@ fun SettingsAndFeedbackScreen(
                         .border(1.dp, HunterGold.copy(alpha = 0.45f), RoundedCornerShape(18.dp))
                         .padding(16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Filled.Edit,
-                                contentDescription = null,
-                                tint = HunterGold,
-                                modifier = Modifier.size(20.dp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = null,
+                            tint = HunterGold,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "EDIT HUNTER PROFILE & TARGET GOALS",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = HunterGold
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text(
-                                    text = "EDIT HUNTER PROFILE & DAILY TARGETS",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = HunterGold
-                                )
-                                Text(
-                                    text = "Customize identity, body metrics, and daily calorie/water goals",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = TextSecondary
-                                )
-                            }
+                            Text(
+                                text = "Leave any field blank to keep your current saved value",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondary
+                            )
                         }
                     }
 
@@ -444,7 +655,7 @@ fun SettingsAndFeedbackScreen(
                         }
                         Box(
                             modifier = Modifier
-                                .size(72.dp)
+                                .size(68.dp)
                                 .clip(CircleShape)
                                 .background(ObsidianBg)
                                 .border(2.dp, HunterGold, CircleShape)
@@ -468,7 +679,7 @@ fun SettingsAndFeedbackScreen(
                                     imageVector = Icons.Filled.Person,
                                     contentDescription = "Choose Avatar Photo",
                                     tint = HunterGold,
-                                    modifier = Modifier.size(34.dp)
+                                    modifier = Modifier.size(32.dp)
                                 )
                             }
                         }
@@ -480,7 +691,7 @@ fun SettingsAndFeedbackScreen(
                                 color = TextPrimary
                             )
                             Text(
-                                text = "${state.playerStatus.rank} • ${bio.hunterTitle}",
+                                text = "${state.playerStatus.currentTier.classTitle} • ${state.playerStatus.currentTier.pokemonName}",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = HunterCyan
                             )
@@ -510,9 +721,9 @@ fun SettingsAndFeedbackScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // Codename & Title
+                    // Codename & App-Assigned Class
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -521,6 +732,7 @@ fun SettingsAndFeedbackScreen(
                             value = nameInput,
                             onValueChange = { nameInput = it },
                             label = { Text("Hunter Codename") },
+                            placeholder = { Text(bio.hunterName) },
                             singleLine = true,
                             modifier = Modifier
                                 .weight(1f)
@@ -528,9 +740,10 @@ fun SettingsAndFeedbackScreen(
                             colors = settingsTextFieldColors(HunterGold)
                         )
                         OutlinedTextField(
-                            value = titleInput,
-                            onValueChange = { titleInput = it },
-                            label = { Text("Hunter Title / Class") },
+                            value = "${state.playerStatus.currentTier.classTitle} • ${state.playerStatus.currentTier.pokemonName}",
+                            onValueChange = { },
+                            readOnly = true,
+                            label = { Text("App-Assigned Class") },
                             singleLine = true,
                             modifier = Modifier
                                 .weight(1f)
@@ -541,7 +754,7 @@ fun SettingsAndFeedbackScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Weight, Height, Age
+                    // Weight, Target Weight, Height, Age
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -550,6 +763,7 @@ fun SettingsAndFeedbackScreen(
                             value = weightInput,
                             onValueChange = { weightInput = it },
                             label = { Text("Weight (kg)") },
+                            placeholder = { Text("${bio.weightKg}") },
                             singleLine = true,
                             modifier = Modifier
                                 .weight(1f)
@@ -557,9 +771,29 @@ fun SettingsAndFeedbackScreen(
                             colors = settingsTextFieldColors(HunterCyan)
                         )
                         OutlinedTextField(
+                            value = targetWeightInput,
+                            onValueChange = { targetWeightInput = it },
+                            label = { Text("Target Wt (kg)") },
+                            placeholder = { Text("${bio.targetWeightKg}") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("settings_target_weight_input"),
+                            colors = settingsTextFieldColors(HunterEmerald)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
                             value = heightInput,
                             onValueChange = { heightInput = it },
                             label = { Text("Height (cm)") },
+                            placeholder = { Text("${bio.heightCm.toInt()}") },
                             singleLine = true,
                             modifier = Modifier
                                 .weight(1f)
@@ -570,12 +804,50 @@ fun SettingsAndFeedbackScreen(
                             value = ageInput,
                             onValueChange = { ageInput = it },
                             label = { Text("Age (yrs)") },
+                            placeholder = { Text("${bio.age}") },
                             singleLine = true,
                             modifier = Modifier
-                                .weight(0.9f)
+                                .weight(1f)
                                 .testTag("settings_age_input"),
                             colors = settingsTextFieldColors(HunterCyan)
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Target Physique Goal Chips
+                    Text(
+                        text = "TARGET PHYSIQUE GOAL:",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = HunterEmerald
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        HunterBiometrics.PHYSIQUE_OPTIONS.forEach { option ->
+                            val selected = selectedPhysique.equals(option, ignoreCase = true)
+                            FilterChip(
+                                selected = selected,
+                                onClick = { selectedPhysique = option },
+                                label = { Text(option, style = MaterialTheme.typography.labelMedium) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = HunterEmerald.copy(alpha = 0.22f),
+                                    selectedLabelColor = HunterEmerald,
+                                    containerColor = ObsidianBg,
+                                    labelColor = TextSecondary
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = selected,
+                                    borderColor = BorderSubtle,
+                                    selectedBorderColor = HunterEmerald
+                                )
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -588,7 +860,7 @@ fun SettingsAndFeedbackScreen(
                         OutlinedTextField(
                             value = customBfInput,
                             onValueChange = { customBfInput = it },
-                            label = { Text("Body Fat % (Optional)") },
+                            label = { Text("Body Fat % (Opt)") },
                             placeholder = { Text("Auto: ${bio.bodyFatPercent}%") },
                             singleLine = true,
                             modifier = Modifier
@@ -599,7 +871,7 @@ fun SettingsAndFeedbackScreen(
                         OutlinedTextField(
                             value = customMuscleInput,
                             onValueChange = { customMuscleInput = it },
-                            label = { Text("Muscle Mass % (Optional)") },
+                            label = { Text("Muscle Mass % (Opt)") },
                             placeholder = { Text("Auto: ${bio.muscleMassPercent}%") },
                             singleLine = true,
                             modifier = Modifier
@@ -619,7 +891,8 @@ fun SettingsAndFeedbackScreen(
                         OutlinedTextField(
                             value = calTargetInput,
                             onValueChange = { calTargetInput = it },
-                            label = { Text("Daily Calorie Target (kcal)") },
+                            label = { Text("Daily Calorie Goal") },
+                            placeholder = { Text("${vit.caloriesTarget} kcal") },
                             singleLine = true,
                             modifier = Modifier
                                 .weight(1f)
@@ -629,7 +902,8 @@ fun SettingsAndFeedbackScreen(
                         OutlinedTextField(
                             value = waterTargetInput,
                             onValueChange = { waterTargetInput = it },
-                            label = { Text("Daily Water Target (L)") },
+                            label = { Text("Daily Water Goal (L)") },
+                            placeholder = { Text("${stam.targetLiters} L") },
                             singleLine = true,
                             modifier = Modifier
                                 .weight(1f)
@@ -647,7 +921,7 @@ fun SettingsAndFeedbackScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "BIOLOGICAL SEX (BMR & BF% FORMULA):",
+                            text = "BIOLOGICAL SEX:",
                             style = MaterialTheme.typography.labelMedium,
                             color = TextSecondary
                         )
@@ -674,16 +948,18 @@ fun SettingsAndFeedbackScreen(
 
                     Button(
                         onClick = {
+                            val finalName = nameInput.trim().ifBlank { bio.hunterName }
                             val w = weightInput.toDoubleOrNull() ?: bio.weightKg
+                            val tw = targetWeightInput.toDoubleOrNull() ?: bio.targetWeightKg
                             val h = heightInput.toDoubleOrNull() ?: bio.heightCm
                             val a = ageInput.toIntOrNull() ?: bio.age
-                            val bf = customBfInput.toDoubleOrNull()
-                            val mm = customMuscleInput.toDoubleOrNull()
+                            val bf = customBfInput.toDoubleOrNull() ?: bio.customBodyFatPercent
+                            val mm = customMuscleInput.toDoubleOrNull() ?: bio.customMuscleMassPercent
                             val calTarget = calTargetInput.toIntOrNull() ?: vit.caloriesTarget
                             val waterTarget = waterTargetInput.toDoubleOrNull() ?: stam.targetLiters
-                            onSaveProfileAndTargets(
-                                nameInput,
-                                titleInput,
+                            onSaveProfileWithGoal(
+                                finalName,
+                                state.playerStatus.currentTier.classTitle,
                                 w,
                                 h,
                                 a,
@@ -692,8 +968,20 @@ fun SettingsAndFeedbackScreen(
                                 mm,
                                 calTarget,
                                 waterTarget,
-                                avatarBase64State.ifBlank { null }
+                                avatarBase64State.ifBlank { null },
+                                tw,
+                                selectedPhysique
                             )
+                            nameInput = ""
+                            weightInput = ""
+                            targetWeightInput = ""
+                            heightInput = ""
+                            ageInput = ""
+                            customBfInput = ""
+                            customMuscleInput = ""
+                            calTargetInput = ""
+                            waterTargetInput = ""
+                            activePage = 0
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = HunterGold,
@@ -712,7 +1000,7 @@ fun SettingsAndFeedbackScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "SAVE PROFILE & DAILY TARGETS (+50 XP)",
+                            text = "SAVE PROFILE & DAILY TARGETS",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -721,8 +1009,10 @@ fun SettingsAndFeedbackScreen(
             }
         }
 
-        // 2. PUBLIC APP FEEDBACK & CREATOR BOARD
-        if (activeSectionFilter == 0 || activeSectionFilter == 2) {
+        // =====================================================================
+        // SUB-PAGE 2: PUBLIC APP FEEDBACK & CREATOR BOARD
+        // =====================================================================
+        if (activePage == 2) {
             item {
                 Column(
                     modifier = Modifier
@@ -732,34 +1022,25 @@ fun SettingsAndFeedbackScreen(
                         .border(1.5.dp, HunterEmerald.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
                         .padding(16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Feedback,
-                                contentDescription = null,
-                                tint = HunterEmerald,
-                                modifier = Modifier.size(20.dp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Feedback,
+                            contentDescription = null,
+                            tint = HunterEmerald,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "PUBLIC APP FEEDBACK & CREATOR BOARD",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = HunterEmerald
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text(
-                                    text = "PUBLIC APP FEEDBACK & CREATOR BOARD",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = HunterEmerald
-                                )
-                                Text(
-                                    text = "Submit public feedback directly to the creator so changes can be made accordingly",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = TextSecondary
-                                )
-                            }
+                            Text(
+                                text = "Submit feedback directly to the creator so changes can be made",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondary
+                            )
                         }
                     }
 
@@ -782,7 +1063,7 @@ fun SettingsAndFeedbackScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "CREATOR INBOX ACTIVE ($CREATOR_EMAIL) — You receive all public feedback in real time and can mark items In Review or Implemented.",
+                                text = "CREATOR INBOX ACTIVE ($CREATOR_EMAIL)",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = HunterEmerald
                             )
@@ -793,7 +1074,7 @@ fun SettingsAndFeedbackScreen(
 
                     // Rating Selector (1-5 Stars)
                     Text(
-                        text = "RATE YOUR HUNTER SYSTEM EXPERIENCE:",
+                        text = "RATE YOUR EXPERIENCE:",
                         style = MaterialTheme.typography.labelMedium,
                         color = TextSecondary
                     )
@@ -807,23 +1088,17 @@ fun SettingsAndFeedbackScreen(
                             IconButton(
                                 onClick = { feedbackRating = star },
                                 modifier = Modifier
-                                    .size(44.dp)
+                                    .size(42.dp)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(
-                                        if (filled) HunterGold.copy(alpha = 0.16f) else ObsidianBg
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (filled) HunterGold else BorderSubtle,
-                                        RoundedCornerShape(10.dp)
-                                    )
+                                    .background(if (filled) HunterGold.copy(alpha = 0.16f) else ObsidianBg)
+                                    .border(1.dp, if (filled) HunterGold else BorderSubtle, RoundedCornerShape(10.dp))
                                     .testTag("feedback_star_$star")
                             ) {
                                 Icon(
                                     imageVector = if (filled) Icons.Filled.Star else Icons.Filled.StarBorder,
                                     contentDescription = "Rate $star stars",
                                     tint = if (filled) HunterGold else TextSecondary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
@@ -837,13 +1112,6 @@ fun SettingsAndFeedbackScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Category Selector
-                    Text(
-                        text = "FEEDBACK CATEGORY:",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
                     val categories = listOf(
                         "FEATURE_REQUEST" to "Feature Request",
                         "UI_UX" to "UI / UX",
@@ -879,45 +1147,12 @@ fun SettingsAndFeedbackScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Quick Feedback Idea Chips
-                    val quickIdeas = listOf(
-                        "Add custom rest timer between sets",
-                        "Add barcode scanner for food logging",
-                        "Add weekly macro & workout summary export"
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        quickIdeas.forEachIndexed { idx, idea ->
-                            Surface(
-                                color = ObsidianBg,
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, BorderSubtle),
-                                modifier = Modifier
-                                    .clickable { feedbackMessage = idea }
-                                    .testTag("quick_feedback_idea_$idx")
-                            ) {
-                                Text(
-                                    text = "+ $idea",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = HunterCyan,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
                     OutlinedTextField(
                         value = feedbackMessage,
                         onValueChange = { feedbackMessage = it },
                         label = { Text("Your Public Feedback / Feature Suggestion") },
                         placeholder = {
-                            Text("Share what features, improvements, or fixes you want the creator to build next...")
+                            Text("Share what features, improvements, or fixes you want next...")
                         },
                         minLines = 3,
                         maxLines = 5,
@@ -958,39 +1193,24 @@ fun SettingsAndFeedbackScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "SUBMIT PUBLIC FEEDBACK TO CREATOR (+35 XP)",
+                            text = "SUBMIT PUBLIC FEEDBACK",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     HorizontalDivider(color = BorderSubtle)
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // Live Public Feedback & Creator Inbox Feed Header
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "LIVE PUBLIC FEEDBACK INBOX & ROADMAP",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "Real-time Firestore feed received by creator & community",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = TextSecondary
-                            )
-                        }
-                    }
+                    Text(
+                        text = "LIVE PUBLIC FEEDBACK INBOX",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = TextPrimary
+                    )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    // Filter by Status
                     val statusFilters = listOf("ALL", "OPEN", "IN_REVIEW", "IMPLEMENTED")
                     Row(
                         modifier = Modifier
@@ -1038,7 +1258,7 @@ fun SettingsAndFeedbackScreen(
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = "Syncing public feedback from Firestore...",
+                                    text = "Syncing public feedback...",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = TextSecondary
                                 )
@@ -1062,11 +1282,11 @@ fun SettingsAndFeedbackScreen(
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(ObsidianBg)
                                         .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
-                                        .padding(16.dp),
+                                        .padding(14.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "No public feedback entries in this filter yet. Be the first Hunter to submit feedback above!",
+                                        text = "No feedback entries yet.",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = TextSecondary
                                     )
@@ -1093,8 +1313,10 @@ fun SettingsAndFeedbackScreen(
             }
         }
 
-        // 3. RESET PROGRESS (DANGER ZONE) CARD
-        if (activeSectionFilter == 0 || activeSectionFilter == 3) {
+        // =====================================================================
+        // SUB-PAGE 3: APP DATA & RESET PROGRESS
+        // =====================================================================
+        if (activePage == 3) {
             item {
                 Column(
                     modifier = Modifier
@@ -1114,12 +1336,12 @@ fun SettingsAndFeedbackScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "RESET HUNTER PROGRESS (DANGER ZONE)",
+                                text = "APP DATA & RESET HUNTER PROGRESS",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = HunterCrimson
                             )
                             Text(
-                                text = "Reset Level, XP, Daily Streak, Quests, and Logs back to Level 1",
+                                text = "Clear all cached daily logs, XP, streaks, and journal history",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = TextSecondary
                             )
@@ -1129,7 +1351,7 @@ fun SettingsAndFeedbackScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = "Use this option if you want a fresh start from Level 1 (0 XP, 0-Day Streak, and 0 daily calories/water/exercises logged). Your Hunter Codename, Height, Weight, and Daily Targets are kept intact.",
+                        text = "Resetting progress clears all daily calories, water logs, workout exercises, XP, and streaks back to 0 so you start completely fresh with zero cached data.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
@@ -1154,9 +1376,9 @@ fun SettingsAndFeedbackScreen(
                             )
                             Text(
                                 text = if (clearJournalOnReset) {
-                                    "All historical biometric chart points & photos will be deleted"
+                                    "All historical chart points & journal photos will be deleted"
                                 } else {
-                                    "Keep Recharts biometric history & progress photos"
+                                    "Keep biometric history & progress photos"
                                 },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = if (clearJournalOnReset) HunterCrimson else TextSecondary
@@ -1197,7 +1419,7 @@ fun SettingsAndFeedbackScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "RESET HUNTER PROGRESS TO LEVEL 1",
+                            text = "CLEAR DATA & RESET TO LEVEL 1",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -1205,6 +1427,269 @@ fun SettingsAndFeedbackScreen(
                 }
             }
         }
+
+        // =====================================================================
+        // SUB-PAGE 4: ACHIEVEMENTS & 7-TIER POKÉMON CLASS HIERARCHY
+        // =====================================================================
+        if (activePage == 4) {
+            item {
+                PokemonClassHierarchyAndAchievementsCard(
+                    playerStatus = state.playerStatus,
+                    unlockedAchievements = state.unlockedAchievements
+                )
+            }
+        }
+
+        // =====================================================================
+        // SUB-PAGE 5: APPEARANCE
+        // =====================================================================
+        if (activePage == 5) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(ObsidianCard)
+                        .border(1.dp, HunterViolet.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.DarkMode,
+                                contentDescription = null,
+                                tint = HunterGold,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Dark Obsidian Theme",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = if (isDark) "Active (Dark Obsidian Mode)" else "Active (Light Volt Mode)",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = isDark,
+                            onCheckedChange = { onToggleTheme() }
+                        )
+                    }
+
+                    HorizontalDivider(color = BorderSubtle)
+
+                    Text(
+                        text = "TYPOGRAPHY & WALLPAPER",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = HunterGold
+                    )
+                    Text(
+                        text = "• Headings & Big Stats: Integral CF Bold\n• UI, Trackers & Active Workouts: SF Pro Semibold\n• Tip: Tap the Wallpaper icon in the top bar anytime to cycle Pikachu backgrounds.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+        }
+
+        // =====================================================================
+        // SUB-PAGE 6: ANALYTICS & GOAL TELEMETRY
+        // =====================================================================
+        if (activePage == 6) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(ObsidianCard)
+                        .border(1.dp, HunterCyan.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Flag,
+                            contentDescription = null,
+                            tint = HunterCyan,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "ANALYTICS & GOAL PROGRESS",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = HunterCyan
+                        )
+                    }
+
+                    Text(
+                        text = "• Current Weight: ${bio.weightKg} kg → Target Weight: ${bio.targetWeightKg} kg (${bio.targetWeightSummaryLabel})\n" +
+                            "• Target Physique: ${bio.targetPhysique}\n" +
+                            "• BMI: ${bio.bmi} (${bio.bmiCategory}) • Body Fat: ${bio.bodyFatPercent}%\n" +
+                            "• Muscle Mass: ${bio.muscleMassPercent}% • Lean Mass: ${bio.leanBodyMassKg} kg\n" +
+                            "• BMR: ${bio.bmrKcal} kcal/day • Goal Intake: ${bio.recommendedCaloriesTarget} kcal/day\n" +
+                            "• Current Class: ${state.playerStatus.currentTier.classTitle} (${state.playerStatus.currentTier.pokemonName}) • ${state.playerStatus.currentXp} XP",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary
+                    )
+                }
+            }
+        }
+
+        // =====================================================================
+        // SUB-PAGE 7: FAQ & HELP ARTICLES
+        // =====================================================================
+        if (activePage == 7) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(ObsidianCard)
+                        .border(1.dp, HunterGold.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "FAQ & HELP ARTICLES",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = HunterGold
+                    )
+                    Text(
+                        text = "1. How do Pokémon Classes & XP Scaling work?\n" +
+                            "Your class is automatically assigned by your total XP: Beginner (Pikachu, 0–1,500 XP), Challenger (Charizard, 1,500–3,000 XP), Leader (Greninja, 3,000–5,000 XP), Elite I (Mega Lucario, 5,000–7,500 XP), Elite II (Garchomp, 7,500–9,000 XP), Elite III (Rayquaza, 9,000–10,000 XP), and Champion (Arceus, 10,000+ XP). Early tiers grant a 1.6x XP boost, gradually tapering at higher ranks.\n\n" +
+                            "2. How does Smart Grams & Quantity work?\n" +
+                            "In the Workout & Nutrition tab, switch between Quantity mode (e.g., '3 Dosa 4 Idly') and Grams mode (e.g., '150g Chicken Breast') to automatically compute calories, protein, carbs, fats, and fiber.\n\n" +
+                            "3. How do Daily Productive Streaks work?\n" +
+                            "Log at least one meal or exercise set each day to verify your daily streak.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+        }
+
+        // =====================================================================
+        // SUB-PAGE 8: ABOUT US
+        // =====================================================================
+        if (activePage == 8) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(ObsidianCard)
+                        .border(1.dp, HunterCyan.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "ABOUT PIKAFIT HUNTER SYSTEM",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = HunterCyan
+                    )
+                    Text(
+                        text = "PikaFit combines scientific biometric telemetry, smart South Indian & global nutrition tracking, post-workout expenditure analysis, PikaBot AI dietitian coaching, and a 7-tier Pokémon class progression system.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsMenuGroupCard(
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = ObsidianCard,
+        border = BorderStroke(1.dp, BorderSubtle)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsClickToGoRow(
+    icon: ImageVector,
+    iconTint: Color,
+    title: String,
+    subtitle: String? = null,
+    testTag: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(iconTint.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.5.sp
+                    ),
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Icon(
+            imageVector = Icons.Filled.ChevronRight,
+            contentDescription = "Open $title",
+            tint = TextSecondary,
+            modifier = Modifier.size(20.dp)
+        )
     }
 }
 

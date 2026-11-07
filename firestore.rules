@@ -227,5 +227,12 @@ service cloud.firestore {
                        isValidId(feedbackId) &&
                        (existing().userId == request.auth.uid || isAppCreator());
     }
+
+    // System release version metadata (for in-app update checks & GitHub release links)
+    match /system/app_version {
+      allow get: if true;
+      allow list: if true;
+      allow write: if isAppCreator();
+    }
   }
 }

@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
@@ -9,6 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -42,6 +45,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -62,7 +66,9 @@ import com.example.ui.viewmodel.HunterViewModel
 import com.example.ui.viewmodel.PikaCoachTip
 import com.example.ui.viewmodel.PikaCoachUiState
 import com.example.ui.viewmodel.WaterEntryRecord
+import com.example.util.SmartFoodNutritionEngine
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlin.math.round
 import kotlin.math.roundToInt
 
 private val PikaVoltYellow = Color(0xFFFFDE00)
@@ -87,12 +93,21 @@ fun PikachuMascotBadge(
     @DrawableRes drawableRes: Int = R.drawable.pika_logo_hi,
     modifier: Modifier = Modifier
 ) {
-    Image(
-        painter = painterResource(id = drawableRes),
-        contentDescription = "Pikachu Mascot",
-        modifier = modifier.clip(CircleShape),
-        contentScale = ContentScale.Crop
-    )
+    val bmp = rememberAsyncDrawableBitmap(drawableRes)
+    if (bmp != null) {
+        Image(
+            bitmap = bmp,
+            contentDescription = "Pikachu Mascot",
+            modifier = modifier.clip(CircleShape),
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .clip(CircleShape)
+                .background(Color(0xFF6792A4))
+        )
+    }
 }
 
 @Composable
@@ -315,6 +330,210 @@ fun PikachuTutorialDialog(
 }
 
 @Composable
+fun AppUpdateDialog(
+    releaseInfo: AppReleaseInfo,
+    isDark: Boolean,
+    onDismiss: () -> Unit,
+    onDownload: () -> Unit
+) {
+    val surfaceBg = if (isDark) Color(0xFF141B2D) else Color.White
+    val borderColor = PikaVoltYellow
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f))
+            .clickable(onClick = onDismiss)
+            .padding(22.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 440.dp)
+                .clickable(enabled = false) {}
+                .testTag("app_update_dialog"),
+            shape = RoundedCornerShape(26.dp),
+            color = surfaceBg,
+            border = BorderStroke(2.dp, borderColor),
+            shadowElevation = 24.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        color = PikaVoltYellow.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, PikaVoltYellow)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Bolt,
+                                contentDescription = null,
+                                tint = PikaVoltYellow,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "NEW UPDATE AVAILABLE",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.8.sp
+                                ),
+                                color = if (isDark) Color.White else Color(0xFF0F172A)
+                            )
+                        }
+                    }
+
+                    if (!releaseInfo.isMandatory) {
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Close update prompt",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(CircleShape)
+                        .background(PikaVoltYellow.copy(alpha = 0.16f))
+                        .border(3.dp, PikaVoltYellow, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    PikachuMascotBadge(
+                        drawableRes = R.drawable.pika_logo_hi,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "${releaseInfo.releaseTitle} (v${releaseInfo.latestVersionName})",
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    ),
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = releaseInfo.releaseNotes.ifBlank {
+                        "A new version of PikaFit is available! Tap download below to install the latest APK update."
+                    },
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp
+                    ),
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Download URL Destination preview card
+                val cleanUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/" }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = (if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9)),
+                    border = BorderStroke(1.dp, BorderSubtle)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.OpenInBrowser,
+                            contentDescription = null,
+                            tint = PikaVoltYellow,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = cleanUrl,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (!releaseInfo.isMandatory) {
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, BorderSubtle)
+                        ) {
+                            Text("Later", color = TextSecondary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Button(
+                        onClick = onDownload,
+                        modifier = Modifier
+                            .weight(1.35f)
+                            .height(50.dp)
+                            .testTag("download_update_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PikaVoltYellow,
+                            contentColor = Color(0xFF0F172A)
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CloudDownload,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Download APK",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun PikaCoachPopupDialog(
     tip: PikaCoachTip,
     isDark: Boolean,
@@ -406,13 +625,9 @@ fun PikaCoachPopupDialog(
                         .border(3.dp, PikaVoltYellow, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Image(
-                        painter = painterResource(
-                            id = if (tip.coachMood == "ALERT_INACTIVE") R.drawable.pika_orange_wave else R.drawable.pika_logo_hi
-                        ),
-                        contentDescription = "Pika-Coach Mascot",
-                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                        contentScale = ContentScale.Crop
+                    PikachuMascotBadge(
+                        drawableRes = if (tip.coachMood == "ALERT_INACTIVE") R.drawable.pika_orange_wave else R.drawable.pika_logo_hi,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape)
                     )
                 }
 
@@ -555,11 +770,9 @@ fun PikaCoachDashboardCard(
                     .border(2.dp, PikaVoltYellow, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Image(
-                    painter = painterResource(id = R.drawable.pika_logo_hi),
-                    contentDescription = "Pika-Coach",
-                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                    contentScale = ContentScale.Crop
+                PikachuMascotBadge(
+                    drawableRes = R.drawable.pika_logo_hi,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape)
                 )
             }
 
@@ -716,9 +929,9 @@ fun EmbeddedDashboard(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "${bio.goalDisplayLabel} • ${bio.experienceDisplayLabel} • ${bio.weightKg} kg",
+                        text = "${state.playerStatus.currentTier.classTitle} (${state.playerStatus.currentTier.pokemonName}) • ${state.playerStatus.currentXp} XP • ${bio.weightKg} kg",
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 16.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         ),
                         color = if (isDark) PikaVoltYellow else PikaCheekCrimson
@@ -734,13 +947,13 @@ fun EmbeddedDashboard(
                             .size(58.dp)
                             .shadow(6.dp, CircleShape)
                             .clip(CircleShape)
-                            .background(Color(0xFF6792A4))
+                            .background(Color(0xFF1E293B))
                             .border(2.5.dp, PikaVoltYellow, CircleShape)
                             .clickable { onOpenTutorial() },
                         contentAlignment = Alignment.Center
                     ) {
                         PikachuMascotBadge(
-                            drawableRes = R.drawable.pika_logo_hi,
+                            drawableRes = state.playerStatus.currentTier.pokemonDrawableRes,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -1654,6 +1867,8 @@ fun MainHunterScreen(
     val logsState by viewModel.logsState.collectAsStateWithLifecycle()
     val journalState by viewModel.journalState.collectAsStateWithLifecycle()
     val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
+    val releaseInfo by viewModel.appReleaseInfo.collectAsStateWithLifecycle()
+    val dismissedUpdateVersion by viewModel.dismissedUpdateVersion.collectAsStateWithLifecycle()
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var settingsFocusSection by rememberSaveable { mutableIntStateOf(0) }
@@ -1871,18 +2086,24 @@ fun MainHunterScreen(
                         Triple(1, "Charts", Icons.AutoMirrored.Filled.ShowChart),
                         Triple(2, "Workout", Icons.Filled.FitnessCenter),
                         Triple(3, "Journal", Icons.Filled.Person),
-                        Triple(4, "Settings", Icons.Filled.Settings)
+                        Triple(4, "PikaBot", Icons.Filled.SmartToy),
+                        Triple(5, "Settings", Icons.Filled.Settings)
                     )
                     tabs.forEach { (idx, label, icon) ->
                         NavigationBarItem(
                             selected = selectedTab == idx,
-                            onClick = { selectedTab = idx },
-                            icon = { Icon(imageVector = icon, contentDescription = label, modifier = Modifier.size(24.dp)) },
+                            onClick = {
+                                if (idx == 5) settingsFocusSection = 0
+                                selectedTab = idx
+                            },
+                            modifier = Modifier.testTag("nav_tab_${label.lowercase()}"),
+                            icon = { Icon(imageVector = icon, contentDescription = label, modifier = Modifier.size(22.dp)) },
                             label = {
                                 Text(
                                     text = label,
+                                    maxLines = 1,
                                     style = MaterialTheme.typography.labelLarge.copy(
-                                        fontSize = 13.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = if (selectedTab == idx) FontWeight.ExtraBold else FontWeight.SemiBold
                                     )
                                 )
@@ -1921,7 +2142,7 @@ fun MainHunterScreen(
                             onAddWorkoutClick = { selectedTab = 2 },
                             onAddTaskClick = { selectedTab = 2 },
                             onQuickCalories = viewModel::quickAdjustCalories,
-                            onQuickWater = viewModel::quickAddWater,
+                            onQuickWater = { liters -> viewModel.quickAddWater(liters) },
                             onUndoFood = { viewModel.undoLastFoodEntry() },
                             onUndoWater = { viewModel.undoLastWaterEntry() }
                         )
@@ -1944,7 +2165,19 @@ fun MainHunterScreen(
                             waterHistory = waterHistory,
                             onQuickCalories = viewModel::quickAdjustCalories,
                             onLogFoodItem = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
-                            onQuickWater = viewModel::quickAddWater,
+                            onLogSmartFoodItem = { meal, cal, pro, carbs, fats, fiber, grams ->
+                                viewModel.logFoodItem(
+                                    mealName = meal,
+                                    calories = cal,
+                                    proteinG = pro,
+                                    carbsG = carbs,
+                                    fatsG = fats,
+                                    fiberG = fiber,
+                                    grams = grams
+                                )
+                            },
+                            onQuickWater = { liters -> viewModel.quickAddWater(liters) },
+                            onLogCustomWater = { liters, label -> viewModel.quickAddWater(liters, label) },
                             onUndoFood = viewModel::undoLastFoodEntry,
                             onUndoWater = viewModel::undoLastWaterEntry,
                             onAddExercise = viewModel::addExerciseSet,
@@ -1954,16 +2187,33 @@ fun MainHunterScreen(
                             state = state,
                             journalState = journalState,
                             onSaveBiometrics = viewModel::updateProfileAndBiometrics,
+                            onSaveBiometricsWithGoal = viewModel::updateProfileAndBiometrics,
                             onLogProgressPhoto = viewModel::logProgressPhotoToJournal,
-                            onDeleteJournalEntry = viewModel::deleteJournalEntry
+                            onDeleteJournalEntry = viewModel::deleteJournalEntry,
+                            onOpenAchievementsInSettings = {
+                                settingsFocusSection = 4
+                                selectedTab = 5
+                            }
                         )
-                        4 -> SettingsAndFeedbackScreen(
+                        4 -> PikaBotScreen(
+                            state = state,
+                            messages = nutritionChatMessages,
+                            isLoading = isNutritionChatLoading,
+                            onSendMessage = viewModel::sendNutritionChatMessage,
+                            onClearChat = viewModel::clearNutritionChat,
+                            onLogRecommendedFood = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) }
+                        )
+                        5 -> SettingsAndFeedbackScreen(
                             state = state,
                             feedbackState = feedbackState,
                             currentUserId = currentUserId,
                             initialFocusSection = settingsFocusSection,
+                            releaseInfo = releaseInfo,
+                            isDark = isDark,
+                            onToggleTheme = onToggleTheme,
                             onBack = { selectedTab = 0 },
                             onSaveProfileAndTargets = viewModel::updateSettingsProfileAndTargets,
+                            onSaveProfileWithGoal = viewModel::updateSettingsProfileAndTargets,
                             onResetProgress = { clearJournal ->
                                 viewModel.resetHunterProgress(clearJournal)
                                 forceShowOnboarding = true
@@ -1983,7 +2233,32 @@ fun MainHunterScreen(
             }
         }
 
-        if (popupTipPair != null && popupTipPair.second && selectedTab == 0) {
+        val isNewVersionAvailable = releaseInfo.latestVersionCode > 1L &&
+            dismissedUpdateVersion != releaseInfo.latestVersionCode
+
+        if (isNewVersionAvailable) {
+            AppUpdateDialog(
+                releaseInfo = releaseInfo,
+                isDark = isDark,
+                onDismiss = {
+                    viewModel.dismissUpdatePrompt(releaseInfo.latestVersionCode)
+                },
+                onDownload = {
+                    val rawUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/" }
+                    val targetUri = Uri.parse(
+                        if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) "https://$rawUrl" else rawUrl
+                    )
+                    try {
+                        val browserIntent = Intent(Intent.ACTION_VIEW, targetUri).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(browserIntent)
+                    } catch (_: Exception) {}
+                }
+            )
+        }
+
+        if (popupTipPair != null && popupTipPair.second && selectedTab == 0 && !isNewVersionAvailable) {
             val activeTip = popupTipPair.first
             PikaCoachPopupDialog(
                 tip = activeTip,
@@ -2062,7 +2337,10 @@ fun StatsBreakdownTab(
     waterHistory: List<WaterEntryRecord> = emptyList(),
     onQuickCalories: (Int, Double) -> Unit,
     onLogFoodItem: (String, Int, Double) -> Unit,
+    onLogSmartFoodItem: (mealName: String, calories: Int, proteinG: Double, carbsG: Double, fatsG: Double, fiberG: Double, grams: Int) -> Unit =
+        { meal, cal, pro, _, _, _, _ -> onLogFoodItem(meal, cal, pro) },
     onQuickWater: (Double) -> Unit,
+    onLogCustomWater: (Double, String?) -> Unit = { liters, _ -> onQuickWater(liters) },
     onUndoFood: (String?) -> Unit = {},
     onUndoWater: (String?) -> Unit = {},
     onAddExercise: (String, Int, String, Boolean) -> Unit,
@@ -2072,30 +2350,74 @@ fun StatsBreakdownTab(
     val stam = state.statBreakdown.stamina
     val str = state.statBreakdown.strength
     val isDark = AppThemeIsDark
-    val cardBg = if (isDark) Color(0xFF141B2D).copy(alpha = 0.82f) else Color.White.copy(alpha = 0.86f)
+    val cardBg = if (isDark) Color(0xFF141B2D).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.90f)
 
+    // Smart Grams OR Quantity/Pieces (empty default so no pre-existing cached inputs appear)
+    var isQuantityMode by rememberSaveable { mutableStateOf(true) } // true = Quantity/Pieces, false = Grams (g)
+    var smartFoodQuery by rememberSaveable { mutableStateOf("") }
+    var smartFoodAmountInput by rememberSaveable { mutableStateOf("") }
+    val parsedAmount = smartFoodAmountInput.toIntOrNull()?.coerceIn(1, 5000) ?: if (isQuantityMode) 1 else 100
+    val smartCalc = remember(smartFoodQuery, parsedAmount, isQuantityMode) {
+        SmartFoodNutritionEngine.calculateForGramsOrQuantity(
+            foodInput = smartFoodQuery.ifBlank { "Idli" },
+            amountValue = parsedAmount,
+            isQuantityMode = isQuantityMode
+        )
+    }
+
+    // Manual Food Entry state (empty defaults)
+    var showManualFoodFields by rememberSaveable { mutableStateOf(false) }
     var foodName by rememberSaveable { mutableStateOf("") }
-    var foodKcal by rememberSaveable { mutableStateOf("600") }
-    var foodProtein by rememberSaveable { mutableStateOf("45") }
+    var foodKcal by rememberSaveable { mutableStateOf("") }
+    var foodProtein by rememberSaveable { mutableStateOf("") }
+
+    // Separate Custom Water Hydration state (empty defaults)
+    var waterUnitIsMl by rememberSaveable { mutableStateOf(true) } // true = ml, false = Liters
+    var customWaterAmountInput by rememberSaveable { mutableStateOf("") }
+    var customWaterNote by rememberSaveable { mutableStateOf("") }
+
+    // Exercise state (empty defaults)
     var exName by rememberSaveable { mutableStateOf("") }
-    var exSets by rememberSaveable { mutableStateOf("3") }
-    var exReps by rememberSaveable { mutableStateOf("12") }
+    var exSets by rememberSaveable { mutableStateOf("") }
+    var exReps by rememberSaveable { mutableStateOf("") }
     var overloadHit by rememberSaveable { mutableStateOf(true) }
 
     val canUndoFood = vit.caloriesLogged > 0 || vit.proteinG > 0.0 || foodHistory.isNotEmpty()
     val canUndoWater = stam.waterLiters > 0.0 || waterHistory.isNotEmpty()
+
+    // Quick presets for Quantity/Pieces vs Grams
+    val quickQuantityFoods = remember {
+        listOf(
+            Triple("3 Dosa 4 Idly", 1, true),
+            Triple("Idli", 4, true),
+            Triple("Dosa", 3, true),
+            Triple("Masala Dosa", 2, true),
+            Triple("Roti", 3, true),
+            Triple("Boiled Eggs", 3, true),
+            Triple("Tea", 1, true),
+            Triple("Banana", 2, true),
+            Triple("Chicken Breast", 150, false),
+            Triple("Cooked Rice", 200, false),
+            Triple("Paneer", 100, false),
+            Triple("Dal", 150, false),
+            Triple("Oats", 80, false)
+        )
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
+        // =========================================================================
+        // 1. SMART FOOD (GRAMS OR QUANTITY/PIECES) CONVERTER & DAILY MEAL LOG CARD
+        // =========================================================================
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = cardBg),
-                border = BorderStroke(1.5.dp, BorderSubtle)
+                border = BorderStroke(1.5.dp, PikaCheekCrimson.copy(alpha = 0.65f))
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
@@ -2103,7 +2425,7 @@ fun StatsBreakdownTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                             PikachuMascotBadge(
                                 drawableRes = R.drawable.pika_pokeball_bg,
                                 modifier = Modifier
@@ -2113,18 +2435,18 @@ fun StatsBreakdownTab(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = "Food & Water Input",
+                                    text = "Smart Grams & Quantity Log",
                                     style = MaterialTheme.typography.headlineSmall.copy(
-                                        fontSize = 21.sp,
+                                        fontSize = 19.sp,
                                         fontWeight = FontWeight.ExtraBold
                                     ),
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "Log meals & hydration or undo mistaken entries",
+                                    text = "Enter Quantity (e.g. 3 Dosa 4 Idly) or Grams (g) -> Macros",
                                     style = MaterialTheme.typography.bodySmall.copy(
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold
                                     ),
                                     color = TextSecondary
                                 )
@@ -2133,13 +2455,24 @@ fun StatsBreakdownTab(
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
+
+                    // Daily Calorie & Macro Progress Summary Bar
                     Text(
-                        text = "Calories: ${vit.caloriesLogged} / ${vit.caloriesTarget} kcal • Protein: ${vit.proteinG.toInt()}g",
+                        text = "Calories: ${vit.caloriesLogged} / ${vit.caloriesTarget} kcal",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.ExtraBold
                         ),
                         color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Protein: ${vit.proteinG}g • Carbs: ${vit.carbsG.toInt()}g • Fats: ${vit.fatsG.toInt()}g • Fiber: ${vit.fiberG.toInt()}g",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = if (isDark) PikaVoltYellow else PikaCheekCrimson
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     LinearProgressIndicator(
@@ -2151,27 +2484,332 @@ fun StatsBreakdownTab(
                         color = PikaCheekCrimson
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Water Hydration: ${stam.waterLiters}L / ${stam.targetLiters}L",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { (stam.waterLiters.toFloat() / stam.targetLiters.coerceAtLeast(0.5).toFloat()).coerceIn(0f, 1f) },
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // SMART GRAMS OR QUANTITY CONVERTER PANEL
+                    Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(10.dp)
-                            .clip(RoundedCornerShape(5.dp)),
-                        color = PikaDeepIndigo
-                    )
+                            .testTag("smart_grams_to_calories_card"),
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                        border = BorderStroke(1.5.dp, PikaVoltYellow.copy(alpha = 0.65f))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                text = "⚡ SMART QUANTITY / GRAMS -> CALORIES & MACRO CONVERTER",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.4.sp
+                                ),
+                                color = if (isDark) PikaVoltYellow else PikaCheekCrimson
+                            )
 
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // INPUT MODE TOGGLE: Quantity / Pieces vs Grams (g)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            if (!isQuantityMode) {
+                                                isQuantityMode = true
+                                                if ((smartFoodAmountInput.toIntOrNull() ?: 1) > 20) {
+                                                    smartFoodAmountInput = "3"
+                                                }
+                                            }
+                                        }
+                                        .testTag("mode_quantity_button"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isQuantityMode) PikaVoltYellow else MaterialTheme.colorScheme.surfaceVariant,
+                                    border = BorderStroke(
+                                        1.5.dp,
+                                        if (isQuantityMode) PikaVoltYellow else BorderSubtle
+                                    )
+                                ) {
+                                    Text(
+                                        text = "🍽 Quantity (3 Dosa, 4 Idly)",
+                                        modifier = Modifier.padding(vertical = 9.dp, horizontal = 6.dp),
+                                        textAlign = TextAlign.Center,
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = if (isQuantityMode) Color(0xFF0F172A) else TextPrimary
+                                    )
+                                }
+
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            if (isQuantityMode) {
+                                                isQuantityMode = false
+                                                if ((smartFoodAmountInput.toIntOrNull() ?: 100) <= 20) {
+                                                    smartFoodAmountInput = "150"
+                                                }
+                                            }
+                                        }
+                                        .testTag("mode_grams_button"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (!isQuantityMode) PikaVoltYellow else MaterialTheme.colorScheme.surfaceVariant,
+                                    border = BorderStroke(
+                                        1.5.dp,
+                                        if (!isQuantityMode) PikaVoltYellow else BorderSubtle
+                                    )
+                                ) {
+                                    Text(
+                                        text = "⚖️ Grams (100g, 150g)",
+                                        modifier = Modifier.padding(vertical = 9.dp, horizontal = 6.dp),
+                                        textAlign = TextAlign.Center,
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = if (!isQuantityMode) Color(0xFF0F172A) else TextPrimary
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Quick Food Selector Chips (Supports combos like "3 Dosa 4 Idly", pieces, and grams)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                quickQuantityFoods.forEach { (presetName, presetVal, presetIsQty) ->
+                                    val isSelected = smartFoodQuery.equals(presetName, ignoreCase = true)
+                                    val chipLabel = if (presetName.contains(" ") && presetName.first().isDigit()) {
+                                        presetName
+                                    } else if (presetIsQty) {
+                                        "$presetVal $presetName"
+                                    } else {
+                                        "$presetName (${presetVal}g)"
+                                    }
+                                    Surface(
+                                        modifier = Modifier.clickable {
+                                            smartFoodQuery = presetName
+                                            isQuantityMode = presetIsQty
+                                            smartFoodAmountInput = presetVal.toString()
+                                        },
+                                        shape = RoundedCornerShape(50),
+                                        color = if (isSelected) PikaCheekCrimson else PikaCheekCrimson.copy(alpha = 0.12f),
+                                        border = BorderStroke(1.dp, PikaCheekCrimson.copy(alpha = 0.55f))
+                                    ) {
+                                        Text(
+                                            text = chipLabel,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            ),
+                                            color = if (isSelected) Color.White else TextPrimary
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Food Name (or combo e.g. "3 dosa 4 idly") & Quantity/Grams Input Row
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = smartFoodQuery,
+                                    onValueChange = { smartFoodQuery = it },
+                                    label = {
+                                        Text(
+                                            text = if (isQuantityMode) {
+                                                "Food / Combo (e.g. 3 Dosa 4 Idly, Idli)"
+                                            } else {
+                                                "Food Name (e.g. Chicken, Rice, Tea)"
+                                            },
+                                            fontSize = 12.5.sp
+                                        )
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .weight(1.5f)
+                                        .testTag("smart_food_name_input")
+                                )
+                                OutlinedTextField(
+                                    value = smartFoodAmountInput,
+                                    onValueChange = { input ->
+                                        smartFoodAmountInput = input.filter { it.isDigit() }.take(4)
+                                    },
+                                    label = {
+                                        Text(
+                                            text = if (isQuantityMode) "Qty / Pcs" else "Grams (g)",
+                                            fontSize = 12.5.sp
+                                        )
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .weight(0.8f)
+                                        .testTag("smart_food_grams_input")
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Quick Presets Row (Pieces 1..6 when in Quantity mode, or Grams 50..300g when in Grams mode)
+                            val quickNumbers = if (isQuantityMode) {
+                                listOf(1, 2, 3, 4, 5, 6)
+                            } else {
+                                listOf(50, 100, 150, 200, 250, 300)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                quickNumbers.forEach { num ->
+                                    val selectedN = parsedAmount == num
+                                    Surface(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { smartFoodAmountInput = num.toString() },
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (selectedN) PikaVoltYellow else MaterialTheme.colorScheme.surfaceVariant,
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (selectedN) PikaVoltYellow else BorderSubtle
+                                        )
+                                    ) {
+                                        Text(
+                                            text = if (isQuantityMode) "${num}x" else "${num}g",
+                                            modifier = Modifier.padding(vertical = 6.dp),
+                                            textAlign = TextAlign.Center,
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            color = if (selectedN) Color(0xFF0F172A) else TextPrimary
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Live Nutritional Breakdown Preview Card (Shows Quantity + Equivalent Grams + Macros)
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9),
+                                border = BorderStroke(1.dp, BorderSubtle)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = "${smartCalc.foodName} [${smartCalc.servingLabel}] - ${smartCalc.description}",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = TextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Nutritional Breakdown :-",
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = if (isDark) PikaVoltYellow else PikaCheekCrimson
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "• Calories - ${smartCalc.calories} kcal\n• Carbs - ${smartCalc.carbsG}g\n• Fats - ${smartCalc.fatsG}g",
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                lineHeight = 19.sp
+                                            ),
+                                            color = TextPrimary
+                                        )
+                                        Text(
+                                            text = "• Protein - ${smartCalc.proteinG}g\n• Fiber - ${smartCalc.fiberG}g\n• Weight - ${smartCalc.grams}g",
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                lineHeight = 19.sp
+                                            ),
+                                            color = HunterDoneGreen
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "• Key Nutrients - ${smartCalc.micronutrients}",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // 1-Tap Log Converted Food to Daily Meal Button
+                            Button(
+                                onClick = {
+                                    val label = "${smartCalc.foodName} (${smartCalc.servingLabel})"
+                                    onLogSmartFoodItem(
+                                        label,
+                                        smartCalc.calories,
+                                        smartCalc.proteinG,
+                                        smartCalc.carbsG,
+                                        smartCalc.fatsG,
+                                        smartCalc.fiberG,
+                                        smartCalc.grams
+                                    )
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PikaVoltYellow,
+                                    contentColor = Color(0xFF0F172A)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .testTag("smart_convert_and_log_food_button"),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Restaurant,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Log ${smartCalc.foodName} (+${smartCalc.calories} kcal) ⚡",
+                                    maxLines = 1,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Quick Calorie Presets & Undo Food Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         OutlinedButton(
                             onClick = { onQuickCalories(300, 25.0) },
                             modifier = Modifier.weight(1f).testTag("quick_add_300_kcal")
@@ -2184,17 +2822,11 @@ fun StatsBreakdownTab(
                         ) {
                             Text("+500 kcal", fontWeight = FontWeight.Bold, color = PikaCheekCrimson)
                         }
-                        OutlinedButton(
-                            onClick = { onQuickWater(0.5) },
-                            modifier = Modifier.weight(1f).testTag("quick_add_water_05l")
-                        ) {
-                            Text("+0.5L 💧", fontWeight = FontWeight.Bold, color = TextPrimary)
-                        }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // UNDO FOOD & WATER LOGGING ROW
+                    // UNDO FOOD BUTTON & TOGGLE MANUAL ENTRY
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2224,7 +2856,7 @@ fun StatsBreakdownTab(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (canUndoFood) "Undo Food (-${lastFoodCals})" else "Undo Food",
+                                text = if (canUndoFood) "Undo Food (-${lastFoodCals} kcal)" else "Undo Food",
                                 style = MaterialTheme.typography.labelLarge.copy(
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.ExtraBold
@@ -2232,42 +2864,81 @@ fun StatsBreakdownTab(
                             )
                         }
 
-                        val lastWaterLiters = waterHistory.lastOrNull()?.litersDelta ?: 0.5
                         OutlinedButton(
-                            onClick = { onUndoWater(null) },
-                            enabled = canUndoWater,
+                            onClick = { showManualFoodFields = !showManualFoodFields },
                             modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .testTag("undo_water_entry_button"),
+                                .height(48.dp),
                             shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(
-                                1.5.dp,
-                                if (canUndoWater) PikaDeepIndigo else BorderSubtle
-                            ),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (canUndoWater) PikaDeepIndigo.copy(alpha = 0.14f) else Color.Transparent,
-                                contentColor = if (canUndoWater) (if (isDark) Color(0xFF818CF8) else PikaDeepIndigo) else TextSecondary
-                            )
+                            border = BorderStroke(1.dp, BorderSubtle)
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Undo,
-                                contentDescription = "Undo Water Entry",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (canUndoWater) "Undo Water (-${lastWaterLiters}L)" else "Undo Water",
+                                text = if (showManualFoodFields) "Hide Manual" else "Manual Kcal",
                                 style = MaterialTheme.typography.labelLarge.copy(
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = TextPrimary
                             )
                         }
                     }
 
-                    // Individual recent Food & Water entries with per-entry Undo/Remove button
-                    if (foodHistory.isNotEmpty() || waterHistory.isNotEmpty()) {
+                    // Optional Manual Calorie/Protein Input
+                    AnimatedVisibility(visible = showManualFoodFields) {
+                        Column(modifier = Modifier.padding(top = 12.dp)) {
+                            OutlinedTextField(
+                                value = foodName,
+                                onValueChange = { foodName = it },
+                                label = { Text("Custom Meal Name", fontSize = 14.sp) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedTextField(
+                                    value = foodKcal,
+                                    onValueChange = { foodKcal = it },
+                                    label = { Text("Calories (kcal)", fontSize = 14.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = foodProtein,
+                                    onValueChange = { foodProtein = it },
+                                    label = { Text("Protein (g)", fontSize = 14.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = {
+                                    val cals = foodKcal.toIntOrNull()?.coerceIn(10, 10000) ?: 500
+                                    val pro = foodProtein.toDoubleOrNull()?.coerceIn(0.0, 500.0) ?: 35.0
+                                    onLogFoodItem(foodName.ifBlank { "Custom Meal" }, cals, pro)
+                                    foodName = ""
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PikaCheekCrimson,
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Text(
+                                    text = "Log Manual Meal & Update Streak ⚡",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontSize = 15.5.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Individual recent Food entries with per-entry Undo/Remove button
+                    if (foodHistory.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -2280,7 +2951,7 @@ fun StatsBreakdownTab(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = "RECENT FOOD & WATER ENTRIES (TAP UNDO TO REMOVE)",
+                                    text = "RECENT DAILY MEAL ENTRIES (TAP UNDO TO REMOVE)",
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontWeight = FontWeight.ExtraBold,
                                         letterSpacing = 0.7.sp
@@ -2288,7 +2959,7 @@ fun StatsBreakdownTab(
                                     color = TextSecondary
                                 )
 
-                                foodHistory.takeLast(4).reversed().forEach { entry ->
+                                foodHistory.takeLast(5).reversed().forEach { entry ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -2308,8 +2979,8 @@ fun StatsBreakdownTab(
                                                 color = TextPrimary
                                             )
                                             Text(
-                                                text = "+${entry.calories} kcal • +${entry.proteinG.toInt()}g protein",
-                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                                                text = "+${entry.calories} kcal • P: ${entry.proteinG}g • C: ${entry.carbsG.toInt()}g • F: ${entry.fatsG.toInt()}g",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                                                 color = TextSecondary
                                             )
                                         }
@@ -2332,13 +3003,378 @@ fun StatsBreakdownTab(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-                                waterHistory.takeLast(3).reversed().forEach { entry ->
+        // =========================================================================
+        // 2. SEPARATE DEDICATED WATER HYDRATION LOG CARD (CUSTOM ML / LITERS)
+        // =========================================================================
+        item {
+            val waterAccent = if (isDark) Color(0xFF38BDF8) else PikaDeepIndigo
+            val parsedWaterRaw = customWaterAmountInput.toDoubleOrNull() ?: 0.0
+            val calculatedLiters = if (waterUnitIsMl) {
+                round((parsedWaterRaw / 1000.0) * 100.0) / 100.0
+            } else {
+                round(parsedWaterRaw * 100.0) / 100.0
+            }.coerceIn(0.05, 10.0)
+            val calculatedMl = (calculatedLiters * 1000).roundToInt()
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("dedicated_water_hydration_card"),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = BorderStroke(1.5.dp, waterAccent.copy(alpha = 0.65f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(waterAccent.copy(alpha = 0.16f))
+                                    .border(2.dp, waterAccent, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.WaterDrop,
+                                    contentDescription = null,
+                                    tint = waterAccent,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Water Hydration Log 💧",
+                                    style = MaterialTheme.typography.headlineSmall.copy(
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    ),
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Log any custom water amount in ml or Liters",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    val remainingLiters = (round((stam.targetLiters - stam.waterLiters) * 100.0) / 100.0).coerceAtLeast(0.0)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Logged: ${stam.waterLiters}L / ${stam.targetLiters}L (${(stam.waterLiters * 1000).roundToInt()} ml)",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            ),
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = if (remainingLiters <= 0.0) "Goal Met! ✓" else "${remainingLiters}L left",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                            color = if (remainingLiters <= 0.0) HunterDoneGreen else waterAccent
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { (stam.waterLiters.toFloat() / stam.targetLiters.coerceAtLeast(0.5).toFloat()).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(5.dp)),
+                        color = waterAccent
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Quick Custom Water Size Buttons (150ml, 250ml, 350ml, 500ml, 750ml, 1L)
+                    Text(
+                        text = "QUICK HYDRATION SIZES (TAP TO LOG INSTANTLY)",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.6.sp
+                        ),
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val waterPresets = listOf(
+                        Triple(0.15, "+150ml", "Small Cup"),
+                        Triple(0.25, "+250ml", "1 Glass"),
+                        Triple(0.35, "+350ml", "Mug / Can"),
+                        Triple(0.50, "+500ml", "0.5L Bottle"),
+                        Triple(0.75, "+750ml", "Shaker"),
+                        Triple(1.00, "+1.0L", "1L Jug")
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        waterPresets.forEach { (litersVal, amountTitle, subLabel) ->
+                            Surface(
+                                modifier = Modifier
+                                    .clickable {
+                                        onLogCustomWater(litersVal, "$amountTitle ($subLabel)")
+                                    }
+                                    .testTag("quick_add_water_${(litersVal * 1000).roundToInt()}ml"),
+                                shape = RoundedCornerShape(14.dp),
+                                color = waterAccent.copy(alpha = 0.14f),
+                                border = BorderStroke(1.dp, waterAccent.copy(alpha = 0.65f))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "$amountTitle 💧",
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = TextPrimary
+                                    )
+                                    Text(
+                                        text = subLabel,
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Custom Water Input Section (Enter any exact ml or Liters)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                        border = BorderStroke(1.dp, BorderSubtle)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "CUSTOM WATER AMOUNT",
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontWeight = FontWeight.ExtraBold
+                                    ),
+                                    color = waterAccent
+                                )
+
+                                // Unit Switcher: ml vs Liters
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Surface(
+                                        modifier = Modifier.clickable {
+                                            if (!waterUnitIsMl) {
+                                                val curL = customWaterAmountInput.toDoubleOrNull() ?: 0.25
+                                                customWaterAmountInput = (curL * 1000).roundToInt().toString()
+                                                waterUnitIsMl = true
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (waterUnitIsMl) waterAccent else Color.Transparent,
+                                        border = BorderStroke(1.dp, waterAccent)
+                                    ) {
+                                        Text(
+                                            text = "ml",
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                            color = if (waterUnitIsMl) Color.White else TextPrimary
+                                        )
+                                    }
+
+                                    Surface(
+                                        modifier = Modifier.clickable {
+                                            if (waterUnitIsMl) {
+                                                val curMl = customWaterAmountInput.toDoubleOrNull() ?: 250.0
+                                                customWaterAmountInput = (round((curMl / 1000.0) * 100.0) / 100.0).toString()
+                                                waterUnitIsMl = false
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (!waterUnitIsMl) waterAccent else Color.Transparent,
+                                        border = BorderStroke(1.dp, waterAccent)
+                                    ) {
+                                        Text(
+                                            text = "Liters (L)",
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                            color = if (!waterUnitIsMl) Color.White else TextPrimary
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = customWaterAmountInput,
+                                    onValueChange = { input ->
+                                        customWaterAmountInput = input.filter { it.isDigit() || it == '.' }.take(6)
+                                    },
+                                    label = {
+                                        Text(
+                                            text = if (waterUnitIsMl) "Water (ml) e.g. 300" else "Water (L) e.g. 0.35",
+                                            fontSize = 13.sp
+                                        )
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("custom_water_amount_input")
+                                )
+
+                                OutlinedTextField(
+                                    value = customWaterNote,
+                                    onValueChange = { customWaterNote = it },
+                                    label = { Text("Label (Optional)", fontSize = 13.sp) },
+                                    placeholder = { Text("e.g. Post-Run", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("custom_water_note_input")
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Button(
+                                onClick = {
+                                    val cleanNote = customWaterNote.trim()
+                                    val label = if (cleanNote.isNotEmpty()) {
+                                        "$cleanNote (+${calculatedLiters}L / ${calculatedMl}ml)"
+                                    } else {
+                                        "+${calculatedLiters}L (${calculatedMl}ml) Water"
+                                    }
+                                    onLogCustomWater(calculatedLiters, label)
+                                    customWaterNote = ""
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = waterAccent,
+                                    contentColor = if (isDark) Color(0xFF0F172A) else Color.White
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("log_custom_water_button"),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.WaterDrop,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Log Custom Water (+${calculatedLiters}L / ${calculatedMl}ml) 💧",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Undo Water Button
+                    val lastWaterLiters = waterHistory.lastOrNull()?.litersDelta ?: 0.25
+                    OutlinedButton(
+                        onClick = { onUndoWater(null) },
+                        enabled = canUndoWater,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .testTag("undo_water_entry_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(
+                            1.5.dp,
+                            if (canUndoWater) waterAccent else BorderSubtle
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (canUndoWater) waterAccent.copy(alpha = 0.12f) else Color.Transparent,
+                            contentColor = if (canUndoWater) waterAccent else TextSecondary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Undo,
+                            contentDescription = "Undo Water Entry",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (canUndoWater) "Undo Last Water Entry (-${lastWaterLiters}L)" else "Undo Water Entry",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        )
+                    }
+
+                    // Recent Water Entries List with per-entry Undo
+                    if (waterHistory.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                            border = BorderStroke(1.dp, BorderSubtle)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "RECENT WATER LOGS (TAP UNDO TO REMOVE)",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 0.7.sp
+                                    ),
+                                    color = TextSecondary
+                                )
+
+                                waterHistory.takeLast(5).reversed().forEach { entry ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(10.dp))
-                                            .background(PikaDeepIndigo.copy(alpha = 0.12f))
+                                            .background(waterAccent.copy(alpha = 0.12f))
                                             .padding(horizontal = 10.dp, vertical = 6.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
@@ -2363,14 +3399,14 @@ fun StatsBreakdownTab(
                                             Icon(
                                                 imageVector = Icons.AutoMirrored.Filled.Undo,
                                                 contentDescription = "Remove ${entry.label}",
-                                                tint = if (isDark) Color(0xFF818CF8) else PikaDeepIndigo,
+                                                tint = waterAccent,
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Text(
                                                 text = "Undo",
                                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
-                                                color = if (isDark) Color(0xFF818CF8) else PikaDeepIndigo
+                                                color = waterAccent
                                             )
                                         }
                                     }
@@ -2378,125 +3414,171 @@ fun StatsBreakdownTab(
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    OutlinedTextField(
-                        value = foodName,
-                        onValueChange = { foodName = it },
-                        label = { Text("Meal Name", fontSize = 15.sp) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(
-                            value = foodKcal,
-                            onValueChange = { foodKcal = it },
-                            label = { Text("Calories", fontSize = 15.sp) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = foodProtein,
-                            onValueChange = { foodProtein = it },
-                            label = { Text("Protein (g)", fontSize = 15.sp) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Button(
-                        onClick = {
-                            val cals = foodKcal.toIntOrNull()?.coerceIn(10, 10000) ?: 500
-                            val pro = foodProtein.toDoubleOrNull()?.coerceIn(0.0, 500.0) ?: 35.0
-                            onLogFoodItem(foodName.ifBlank { "Energy Ration" }, cals, pro)
-                            foodName = ""
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = PikaVoltYellow,
-                            contentColor = Color(0xFF0F172A)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Text(
-                            text = "Log Meal & Update Streak ⚡",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        )
-                    }
                 }
             }
         }
 
+        // =========================================================================
+        // 3. WORKOUT OVERLOAD + CALORIES BURNED & GOAL DIET / SURPLUS-DEFICIT CARD
+        // =========================================================================
         item {
+            val workoutDietSummary = remember(
+                str.exercisesLogged,
+                state.biometrics,
+                vit.caloriesLogged,
+                vit.caloriesTarget,
+                vit.proteinG
+            ) {
+                SmartFoodNutritionEngine.calculateWorkoutBurnAndDietPlan(
+                    exercises = str.exercisesLogged,
+                    bio = state.biometrics,
+                    caloriesLogged = vit.caloriesLogged,
+                    caloriesTarget = vit.caloriesTarget,
+                    proteinLogged = vit.proteinG
+                )
+            }
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = cardBg),
-                border = BorderStroke(1.5.dp, BorderSubtle)
+                border = BorderStroke(1.5.dp, PikaCheekCrimson.copy(alpha = 0.65f))
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        PikachuMascotBadge(
-                            drawableRes = R.drawable.pika_orange_wave,
-                            modifier = Modifier
-                                .size(46.dp)
-                                .border(2.dp, PikaCheekCrimson, CircleShape)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Workout Overload",
-                            style = MaterialTheme.typography.headlineSmall.copy(
-                                fontSize = 21.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            ),
-                            color = TextPrimary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(14.dp))
-                    if (str.exercisesLogged.isNotEmpty()) {
-                        str.exercisesLogged.forEach { ex ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            PikachuMascotBadge(
+                                drawableRes = R.drawable.pika_orange_wave,
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .border(2.dp, PikaCheekCrimson, CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Workout & Burn Analysis",
+                                    style = MaterialTheme.typography.headlineSmall.copy(
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    ),
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Calories Burned • Post-Workout Meals • Surplus/Deficit",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = PikaCheekCrimson.copy(alpha = 0.16f),
+                            border = BorderStroke(1.dp, PikaCheekCrimson.copy(alpha = 0.6f))
+                        ) {
                             Text(
-                                text = "• ${ex.exerciseName}: ${ex.setsCompleted} sets × ${ex.repsPerSet} reps",
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                text = "🔥 ${workoutDietSummary.totalWorkoutBurnKcal} kcal",
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold
                                 ),
-                                color = TextSecondary,
-                                modifier = Modifier.padding(vertical = 3.dp)
+                                color = if (isDark) PikaVoltYellow else PikaCheekCrimson
                             )
                         }
-                        Spacer(modifier = Modifier.height(10.dp))
                     }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Logged Exercises with Per-Exercise Calories Burned
+                    if (workoutDietSummary.exerciseBreakdown.isNotEmpty()) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                            border = BorderStroke(1.dp, BorderSubtle)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "LOGGED SETS & EXPENDITURE (${workoutDietSummary.totalSetsCompleted} SETS TOTAL)",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 0.6.sp
+                                    ),
+                                    color = if (isDark) PikaVoltYellow else PikaCheekCrimson
+                                )
+                                workoutDietSummary.exerciseBreakdown.forEach { burnItem ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "• ${burnItem.exerciseName}: ${burnItem.sets} sets × ${burnItem.reps} reps",
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            ),
+                                            color = TextPrimary,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            text = "-${burnItem.caloriesBurned} kcal",
+                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            color = HunterDoneGreen
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    // Add / Update Exercise Set Inputs
                     OutlinedTextField(
                         value = exName,
                         onValueChange = { exName = it },
-                        label = { Text("Exercise Name", fontSize = 15.sp) },
-                        modifier = Modifier.fillMaxWidth()
+                        label = { Text("Exercise Name (e.g. Bench Press, Squats, Pushups)", fontSize = 14.sp) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("workout_exercise_name_input")
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedTextField(
                             value = exSets,
-                            onValueChange = { exSets = it },
-                            label = { Text("Sets", fontSize = 15.sp) },
+                            onValueChange = { exSets = it.filter { ch -> ch.isDigit() }.take(2) },
+                            label = { Text("Sets", fontSize = 14.sp) },
+                            singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
                         OutlinedTextField(
                             value = exReps,
                             onValueChange = { exReps = it },
-                            label = { Text("Reps", fontSize = 15.sp) },
+                            label = { Text("Reps", fontSize = 14.sp) },
+                            singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
                     }
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Button(
                         onClick = {
                             if (exName.isNotBlank()) {
-                                onAddExercise(exName, exSets.toIntOrNull() ?: 3, exReps, overloadHit)
+                                onAddExercise(exName, exSets.toIntOrNull() ?: 3, exReps.ifBlank { "12" }, overloadHit)
                                 exName = ""
                             }
                         },
@@ -2506,16 +3588,246 @@ fun StatsBreakdownTab(
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp),
+                            .height(50.dp)
+                            .testTag("log_exercise_set_button"),
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Text(
-                            text = "Log Exercise Set & Check In ⚡",
+                            text = "Log Exercise Set & Recalculate Burn ⚡",
                             style = MaterialTheme.typography.titleMedium.copy(
-                                fontSize = 17.sp,
+                                fontSize = 15.5.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // =========================================================================
+                    // POST-WORKOUT CALORIES BURNED, SURPLUS/DEFICIT & DAILY DIET GUIDANCE PANEL
+                    // =========================================================================
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("workout_burn_and_diet_card"),
+                        shape = RoundedCornerShape(18.dp),
+                        color = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC),
+                        border = BorderStroke(1.5.dp, PikaVoltYellow.copy(alpha = 0.7f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "🔥 WORKOUT EXPENDITURE & GOAL INTAKE PROTOCOL",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                color = if (isDark) PikaVoltYellow else PikaCheekCrimson
+                            )
+
+                            // 3 Stat Pills: Burned | Burn-Adjusted Target | Remaining Intake
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = PikaCheekCrimson.copy(alpha = 0.14f),
+                                    border = BorderStroke(1.dp, PikaCheekCrimson.copy(alpha = 0.45f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "BURNED",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                            color = TextSecondary
+                                        )
+                                        Text(
+                                            text = "${workoutDietSummary.totalWorkoutBurnKcal} kcal",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            color = PikaCheekCrimson
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = PikaVoltYellow.copy(alpha = 0.14f),
+                                    border = BorderStroke(1.dp, PikaVoltYellow.copy(alpha = 0.45f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "NEW TARGET",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                            color = TextSecondary
+                                        )
+                                        Text(
+                                            text = "${workoutDietSummary.burnAdjustedTargetKcal} kcal",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            color = if (isDark) PikaVoltYellow else TextPrimary
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = HunterDoneGreen.copy(alpha = 0.14f),
+                                    border = BorderStroke(1.dp, HunterDoneGreen.copy(alpha = 0.45f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "TO INTAKE",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                            color = TextSecondary
+                                        )
+                                        Text(
+                                            text = "${workoutDietSummary.remainingCaloriesNeeded} kcal",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            color = HunterDoneGreen
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Goal Surplus (Weight Gain) or Reduction/Deficit (Weight Loss) Breakdown Box
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                                border = BorderStroke(1.dp, BorderSubtle)
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = workoutDietSummary.surplusOrDeficitHeadline,
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = if (isDark) PikaVoltYellow else PikaCheekCrimson
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = workoutDietSummary.surplusOrDeficitAdvice,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = 12.5.sp,
+                                            lineHeight = 18.sp
+                                        ),
+                                        color = TextPrimary
+                                    )
+                                }
+                            }
+
+                            // Recommended Meals to Take Today (Post-Workout & Recovery) with 1-Tap Log
+                            Text(
+                                text = "🍽 MEALS TO TAKE FOR THIS WORKOUT (TAP TO LOG):",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                ),
+                                color = HunterDoneGreen
+                            )
+
+                            workoutDietSummary.recommendedMeals.forEach { meal ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                                        .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "${meal.timingTitle}: ${meal.mealName}",
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            color = TextPrimary
+                                        )
+                                        Text(
+                                            text = "${meal.portionDescription} • ${meal.calories} kcal • P:${meal.proteinG.toInt()}g C:${meal.carbsG.toInt()}g F:${meal.fatsG.toInt()}g",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                            color = TextSecondary
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = {
+                                            onLogSmartFoodItem(
+                                                meal.mealName,
+                                                meal.calories,
+                                                meal.proteinG,
+                                                meal.carbsG,
+                                                meal.fatsG,
+                                                4.0,
+                                                250
+                                            )
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = PikaVoltYellow,
+                                            contentColor = Color(0xFF0F172A)
+                                        ),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.height(36.dp)
+                                    ) {
+                                        Text(
+                                            text = "+Log",
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Full-Day Diet Protocol Summary
+                            Text(
+                                text = "📋 DAILY DIET PROTOCOL FOR TODAY:",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                ),
+                                color = if (isDark) PikaVoltYellow else PikaCheekCrimson
+                            )
+                            workoutDietSummary.dailyDietProtocolBullets.forEach { bullet ->
+                                Text(
+                                    text = "• $bullet",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 12.sp,
+                                        lineHeight = 17.sp
+                                    ),
+                                    color = TextSecondary
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -1,7 +1,9 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.example.R
+import com.example.data.model.AppReleaseInfo
 import com.example.data.model.FeedbackEntry
 import com.example.data.model.HunterBiometrics
 import com.example.data.model.HunterSession
@@ -15,13 +17,17 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.util.Date
 import java.util.UUID
 
@@ -480,21 +486,6 @@ class HunterRepository(
             getJournalFlowForUid(effUid).value = emptyList()
         }
         val sessionRes = saveOrUpdateSession(resetState, sessionId)
-        appendTacticalLog(
-            commandText = "SYSTEM RESET TO LEVEL 1",
-            briefingResponse = resetState.tacticalBriefing,
-            xpDelta = 0
-        )
-        if (clearJournalEntries) {
-            appendJournalEntry(
-                entryType = "BIOMETRIC_UPDATE",
-                title = "Fresh Level 1 Biometric Baseline",
-                caption = "Progress reset completed. Starting baseline at ${resetState.biometrics.weightKg} kg, BF ${resetState.biometrics.bodyFatPercent}%, Muscle ${resetState.biometrics.muscleMassPercent}%.",
-                poseTag = "System Reset",
-                photoBase64 = "",
-                biometrics = resetState.biometrics
-            )
-        }
 
         val firebaseUid = currentUserIdOrNull() ?: return sessionRes
         return try {
@@ -517,6 +508,35 @@ class HunterRepository(
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.WRITE, "users/$firebaseUid/sessions/$sessionId")
             sessionRes
+        }
+    }
+
+    fun observeAppReleaseInfo(): Flow<AppReleaseInfo> = callbackFlow {
+        val listener = db.collection("system").document("app_version")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(AppReleaseInfo())
+                    return@addSnapshotListener
+                }
+                if (snapshot != null && snapshot.exists()) {
+                    val info = snapshot.toObject(AppReleaseInfo::class.java) ?: AppReleaseInfo()
+                    trySend(info)
+                } else {
+                    trySend(AppReleaseInfo())
+                }
+            }
+        awaitClose { listener.remove() }
+    }
+
+    suspend fun setAppReleaseInfo(releaseInfo: AppReleaseInfo): Boolean = withContext(Dispatchers.IO) {
+        try {
+            db.collection("system").document("app_version")
+                .set(releaseInfo)
+                .await()
+            true
+        } catch (e: Exception) {
+            Log.e("HunterRepository", "Failed to update system release metadata", e)
+            false
         }
     }
 

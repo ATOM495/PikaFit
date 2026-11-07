@@ -27,6 +27,13 @@ jobs:
         fi
         chmod +x gradlew
 
+    - name: Restore Signing Keystore
+      run: |
+        if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
+          echo "Restoring debug.keystore from debug.keystore.base64 for Google Sign-In certificate matching..."
+          base64 -d debug.keystore.base64 > debug.keystore
+        fi
+
     - name: Build Debug APK
       run: ./gradlew assembleDebug --no-daemon --stacktrace
 

@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.AchievementItem
+import com.example.data.model.AppReleaseInfo
 import com.example.data.model.ExerciseLogged
 import com.example.data.model.FeedbackEntry
 import com.example.data.model.HunterBiometrics
@@ -12,7 +13,9 @@ import com.example.data.model.JournalEntry
 import com.example.data.model.QuestItem
 import com.example.data.model.StreakDateUtils
 import com.example.data.model.TacticalLog
+import com.example.data.model.TrainerRankProgression
 import com.example.data.repository.HunterRepository
+import com.example.util.SmartFoodNutritionEngine
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.ai.ai
@@ -21,6 +24,7 @@ import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,10 +34,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.util.Date
 import java.util.UUID
+import kotlin.math.round
 
 sealed interface AiSyncState {
     data object Idle : AiSyncState
@@ -81,6 +87,8 @@ data class FoodEntryRecord(
     val proteinG: Double,
     val carbsG: Double,
     val fatsG: Double,
+    val fiberG: Double = 0.0,
+    val grams: Int = 100,
     val xpAwarded: Int,
     val triggeredDailyCheckIn: Boolean,
     val previousStreakDays: Int
@@ -160,6 +168,20 @@ class HunterViewModel(
             started = SharingStarted.WhileSubscribed(5000L),
             initialValue = DataLoadState.Loading
         )
+
+    val appReleaseInfo: StateFlow<AppReleaseInfo> = repository.observeAppReleaseInfo()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = AppReleaseInfo()
+        )
+
+    private val _dismissedUpdateVersion = MutableStateFlow<Long?>(null)
+    val dismissedUpdateVersion: StateFlow<Long?> = _dismissedUpdateVersion.asStateFlow()
+
+    fun dismissUpdatePrompt(versionCode: Long) {
+        _dismissedUpdateVersion.value = versionCode
+    }
 
     private val hunterSystemSchema by lazy {
         val playerStatusSchema = Schema.obj(
@@ -305,19 +327,24 @@ class HunterViewModel(
 
     private fun observeRemoteSession() {
         viewModelScope.launch {
-            val wasAlreadyOnboardedLocally = repository.isOnboardingCompletedForUser(currentUserId)
-            if (wasAlreadyOnboardedLocally) {
-                val cachedStateJson = repository.getCachedStateJsonForUser(currentUserId)
-                val restoredBio = if (!cachedStateJson.isNullOrBlank()) {
-                    try {
-                        val root = JSONObject(cachedStateJson)
-                        HunterBiometrics.fromJsonObject(root.optJSONObject("biometrics")).copy(onboardingCompleted = true)
-                    } catch (e: Exception) {
+            val (wasAlreadyOnboardedLocally, restoredBio) = withContext(Dispatchers.IO) {
+                val onboarded = repository.isOnboardingCompletedForUser(currentUserId)
+                val bio = if (onboarded) {
+                    val cachedStateJson = repository.getCachedStateJsonForUser(currentUserId)
+                    if (!cachedStateJson.isNullOrBlank()) {
+                        try {
+                            val root = JSONObject(cachedStateJson)
+                            HunterBiometrics.fromJsonObject(root.optJSONObject("biometrics")).copy(onboardingCompleted = true)
+                        } catch (e: Exception) {
+                            HunterBiometrics(onboardingCompleted = true)
+                        }
+                    } else {
                         HunterBiometrics(onboardingCompleted = true)
                     }
-                } else {
-                    HunterBiometrics(onboardingCompleted = true)
-                }
+                } else null
+                Pair(onboarded, bio)
+            }
+            if (restoredBio != null) {
                 _systemState.value = _systemState.value.copy(biometrics = restoredBio)
             }
 
@@ -328,23 +355,24 @@ class HunterViewModel(
                 }
                 .collect { session ->
                     if (session != null) {
-                        val loaded = session.toHunterSystemState()
-                        // If a session document already exists in Firestore for this Google account,
-                        // ensure onboardingCompleted is true so returning users never repeat the "Hey Trainer" setup!
-                        val effectiveBiometrics = if (loaded.biometrics.onboardingCompleted || session.stateJson.isNotBlank()) {
-                            loaded.biometrics.copy(onboardingCompleted = true)
-                        } else {
-                            loaded.biometrics
+                        val evaluated = withContext(Dispatchers.IO) {
+                            val loaded = session.toHunterSystemState()
+                            val effectiveBiometrics = if (loaded.biometrics.onboardingCompleted || session.stateJson.isNotBlank()) {
+                                loaded.biometrics.copy(onboardingCompleted = true)
+                            } else {
+                                loaded.biometrics
+                            }
+                            val eval = loaded.copy(biometrics = effectiveBiometrics).evaluateStreakOnLogin()
+                            if (effectiveBiometrics.onboardingCompleted) {
+                                repository.setOnboardingCompletedForUser(currentUserId, true, eval.toStateJson())
+                            }
+                            eval
                         }
-                        val evaluated = loaded.copy(biometrics = effectiveBiometrics).evaluateStreakOnLogin()
                         _systemState.value = evaluated
-                        if (effectiveBiometrics.onboardingCompleted) {
-                            repository.setOnboardingCompletedForUser(currentUserId, true, evaluated.toStateJson())
-                        }
                         hasSeededInitialSession = true
                         _isSessionLoaded.value = true
                         seedWelcomeNutritionChatIfEmpty(evaluated)
-                        if (effectiveBiometrics.onboardingCompleted && !hasAutoTriggeredCoachThisSession) {
+                        if (evaluated.biometrics.onboardingCompleted && !hasAutoTriggeredCoachThisSession) {
                             hasAutoTriggeredCoachThisSession = true
                             generatePikaCoachTip(showAsPopup = true)
                         }
@@ -509,12 +537,14 @@ class HunterViewModel(
         _nutritionChatMessages.value = listOf(
             NutritionChatMessage(
                 role = "model",
-                text = "Pika-Pika! I'm Pika-Dietitian, your Gemini Nutrition & Food Science Bot! ⚡\n\n" +
-                    "I'm calibrated to your ${bio.goalDisplayLabel} plan (${bio.weightKg} kg, BMI ${bio.bmi}, Body Fat ${bio.bodyFatPercent}%, Muscle ${bio.muscleMassPercent}%, Target ${vit.caloriesTarget} kcal & ${bio.recommendedProteinG}g protein/day).\n\n" +
-                    "Ask me about any food, meal plan, or pre/post-workout nutrition — I'll recommend the best foods for your plan and break down their scientific nutrition facts!",
-                suggestedMealName = "High-Protein Greek Yogurt & Berry Bowl",
-                suggestedCalories = 420,
-                suggestedProteinG = 38.0
+                text = "Pika-Pika! I'm Pika-Dietitian, your Smart Nutrition & Diet Plan Bot! ⚡\n\n" +
+                    "Type ANY food name (e.g., \"tea\", \"150g chicken breast\", \"200g rice\", \"idli\", \"paneer\", \"oats\", \"banana\") or ask for a \"diet plan\" and I will give you:\n" +
+                    "• Food overview & fitness benefits\n" +
+                    "• Nutritional Breakdown :- (Calories, Carbs, Fats, Protein, Fiber)\n" +
+                    "• Diet Plan Ideas :- tailored to your ${bio.goalDisplayLabel} target (${vit.caloriesTarget} kcal & ${bio.recommendedProteinG}g protein/day)!",
+                suggestedMealName = "High-Protein Greek Yogurt & Berry Bowl (200g)",
+                suggestedCalories = 260,
+                suggestedProteinG = 20.0
             )
         )
     }
@@ -553,37 +583,55 @@ class HunterViewModel(
                 - Fitness Plan: ${bio.goalDisplayLabel} (${bio.experienceDisplayLabel})
                 - Daily Targets: ${vit.caloriesTarget} kcal (Logged today: ${vit.caloriesLogged} kcal), Protein Target: ${bio.recommendedProteinG}g (Logged today: ${vit.proteinG.toInt()}g), Water: ${stam.waterLiters}L / ${stam.targetLiters}L
 
-                Your Role & Formatting Rules:
-                1. Directly answer the user's query about what foods to take, avoid, or prioritize for their specific ${bio.goalDisplayLabel} plan.
-                2. Always include a dedicated '📊 NUTRITION FACTS & SCIENCE' section breaking down exact macros (Calories, Protein, Carbs, Healthy Fats, Fiber) per 100g or per serving, key micronutrients/vitamins, bioavailability, and WHY it helps their muscle mass (${bio.muscleMassPercent}%) or body fat (${bio.bodyFatPercent}%) trajectory.
-                3. Give 2-3 practical meal ideas with portion sizes they can eat today. Keep the tone encouraging, clear, and scannable with bullet points.
+                MANDATORY OUTPUT FORMAT FOR ANY FOOD OR DIET QUERY ("$cleanQuery"):
+                Always format your response strictly using this clean, structured layout:
+
+                <Food Name> - <1-2 sentence description of the food, its energy profile, and fitness benefits>
+
+                Nutritional Breakdown (per serving / 100g) :-
+                • Calories - <kcal>
+                • Carbs - <grams>g
+                • Fats - <grams>g
+                • Protein - <grams>g
+                • Fiber - <grams>g
+                • Micronutrients - <key vitamins, minerals, antioxidants>
+
+                Diet Plan Ideas (${bio.goalDisplayLabel}) :-
+                • <Morning / Pre-Workout Idea with portion in grams>
+                • <Lunch / Post-Workout Idea with portion in grams>
+                • <Dinner / Daily Balance Tip tailored to ${vit.caloriesTarget} kcal & ${bio.recommendedProteinG}g protein>
             """.trimIndent()
+
+            val recentContext = previousHistory
+                .filter { it.text.isNotBlank() && !it.isStreaming && !it.isError }
+                .takeLast(4)
+                .joinToString("\n") { msg ->
+                    val sender = if (msg.role == "user") "Trainer" else "Pika-Dietitian"
+                    "$sender: ${msg.text.take(200)}"
+                }
+
+            val fullPrompt = buildString {
+                appendLine(systemContextPrompt)
+                if (recentContext.isNotBlank()) {
+                    appendLine()
+                    appendLine("Recent Conversation:")
+                    appendLine(recentContext)
+                }
+                appendLine()
+                appendLine("User Food / Diet Input: \"$cleanQuery\"")
+                appendLine("Respond immediately following the exact '<Food> - ... \\nNutritional Breakdown :-\\n• Calories - ...\\n• Carbs - ...\\n• Fats - ...\\n• Protein - ...\\nDiet Plan Ideas :-' structure.")
+            }
 
             val accumulated = StringBuilder()
             try {
-                if (Firebase.auth.currentUser != null) {
-                    val chatHistory = buildList {
-                        add(content("user") { text(systemContextPrompt) })
-                        add(content("model") { text("Understood! I am Pika-Dietitian. I will tailor all food recommendations and scientific nutrition facts to Trainer ${bio.hunterName}'s ${bio.goalDisplayLabel} plan.") })
-                        previousHistory.takeLast(10).forEach { msg ->
-                            if (!msg.isError && msg.text.isNotBlank()) {
-                                val roleName = if (msg.role == "user") "user" else "model"
-                                add(content(roleName) { text(msg.text) })
-                            }
-                        }
-                    }
-
-                    val chat = nutritionChatModel.startChat(history = chatHistory)
-
-                    withTimeoutOrNull(12_000L) {
-                        chat.sendMessageStream(cleanQuery).collect { chunk ->
-                            val part = chunk.text.orEmpty()
-                            if (part.isNotEmpty()) {
-                                accumulated.append(part)
-                                val liveText = accumulated.toString()
-                                _nutritionChatMessages.value = _nutritionChatMessages.value.map { msg ->
-                                    if (msg.id == placeholderId) msg.copy(text = liveText, isStreaming = true) else msg
-                                }
+                withTimeoutOrNull(20_000L) {
+                    nutritionChatModel.generateContentStream(fullPrompt).collect { chunk ->
+                        val part = chunk.text.orEmpty()
+                        if (part.isNotEmpty()) {
+                            accumulated.append(part)
+                            val liveText = accumulated.toString()
+                            _nutritionChatMessages.value = _nutritionChatMessages.value.map { msg ->
+                                if (msg.id == placeholderId) msg.copy(text = liveText, isStreaming = true) else msg
                             }
                         }
                     }
@@ -591,7 +639,7 @@ class HunterViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.d(TAG, "Nutrition chat fallback activated: ${e.message}")
+                Log.w(TAG, "Nutrition chat Gemini generation notice: ${e.message}", e)
             } finally {
                 val (fallbackReply, sugMeal, sugCal, sugPro) = buildSmartNutritionScientificReply(
                     query = cleanQuery,
@@ -603,21 +651,33 @@ class HunterViewModel(
                     waterTarget = stam.targetLiters
                 )
                 val finalText = accumulated.toString().trim().ifEmpty { fallbackReply }
+                val resolvedMeal = if (accumulated.isNotBlank()) {
+                    extractSuggestedMealFromQuery(cleanQuery, bio)
+                } else {
+                    Triple(sugMeal, sugCal, sugPro)
+                }
+
                 _nutritionChatMessages.value = _nutritionChatMessages.value.map { msg ->
                     if (msg.id == placeholderId) {
                         msg.copy(
                             text = finalText,
                             isStreaming = false,
                             isError = false,
-                            suggestedMealName = sugMeal,
-                            suggestedCalories = sugCal,
-                            suggestedProteinG = sugPro
+                            suggestedMealName = resolvedMeal.first,
+                            suggestedCalories = resolvedMeal.second,
+                            suggestedProteinG = resolvedMeal.third
                         )
                     } else msg
                 }
                 _isNutritionChatLoading.value = false
             }
         }
+    }
+
+    private fun extractSuggestedMealFromQuery(query: String, bio: HunterBiometrics): Triple<String, Int, Double> {
+        val (foodPart, grams) = SmartFoodNutritionEngine.extractGramsFromQuery(query)
+        val calc = SmartFoodNutritionEngine.calculateForGrams(foodPart, grams)
+        return Triple("${calc.foodName} (${calc.grams}g)", calc.calories, calc.proteinG)
     }
 
     private data class NutritionReplyResult(
@@ -636,90 +696,29 @@ class HunterViewModel(
         waterLogged: Double,
         waterTarget: Double
     ): NutritionReplyResult {
-        val q = query.lowercase()
-        val calRemaining = (caloriesTarget - caloriesLogged).coerceAtLeast(0)
-        val proRemaining = (bio.recommendedProteinG - proteinLogged.toInt()).coerceAtLeast(0)
-
-        return when {
-            q.contains("pre") || q.contains("post") || q.contains("workout") || q.contains("gym") -> NutritionReplyResult(
-                replyText = """
-                    ⚡ **Pika-Dietitian Pre & Post-Workout Protocol for ${bio.hunterName} (${bio.goalDisplayLabel})**
-                    
-                    1. **Pre-Workout (60–90 mins before training):**
-                       • **Oats + Banana + Whey/Egg Whites (380 kcal | 28g Protein | 58g Carbs | 4g Fat)**
-                       • Supplies fast + medium-digesting glucose to saturate skeletal muscle glycogen (${bio.muscleMassKg} kg muscle mass) without gastric heaviness.
-                    
-                    2. **Post-Workout Anabolic Window (0–60 mins after training):**
-                       • **Grilled Chicken Breast or Whey Isolate + Jasmine Rice (520 kcal | 46g Protein | 68g Carbs | 5g Fat)**
-                       • Triggers the **mTORC1** pathway via ~3.8g of **L-Leucine** while insulin from high-glycemic rice shuttles amino acids into muscle fibers.
-                    
-                    📊 **NUTRITION FACTS & SCIENCE (Per Serving Post-Workout Bowl):**
-                    • **Bioavailability (DIAAS Score):** >1.08 (Complete Essential Amino Acid profile)
-                    • **Micronutrients:** Potassium (640mg for nerve conduction), Magnesium (85mg for ATP synthesis), Vitamin B6 (1.1mg for protein metabolism)
-                    • **Remaining Daily Budget:** You have **$calRemaining kcal** and **${proRemaining}g protein** left to hit your ${caloriesTarget} kcal target today!
-                """.trimIndent(),
-                mealName = "Post-Workout Chicken & Jasmine Rice Bowl",
-                calories = 520,
-                proteinG = 46.0
-            )
-            q.contains("veg") || q.contains("paneer") || q.contains("tofu") || q.contains("plant") || q.contains("lentil") || q.contains("dal") -> NutritionReplyResult(
-                replyText = """
-                    🌱 **High-Protein Vegetarian Plan for ${bio.hunterName} (${bio.goalDisplayLabel})**
-                    
-                    To support your **${bio.muscleMassPercent}% skeletal muscle mass** and **${bio.recommendedProteinG}g/day protein goal** on plant/vegetarian sources, combine complementary amino acid profiles:
-                    
-                    1. **Low-Fat Paneer / Extra-Firm Tofu Tikka Scramble (200g) + Quinoa:** 480 kcal | 38g Protein | 36g Carbs | 16g Healthy Fats
-                    2. **Greek Skyr / Hung Curd (250g) + Hemp & Chia Seeds + Berries:** 340 kcal | 32g Protein | 28g Carbs | 8g Omega-3 Fats
-                    3. **Roasted Edamame + Moong Dal Chilla (3 pancakes):** 430 kcal | 34g Protein | 52g Complex Carbs | 9g Fiber
-                    
-                    📊 **NUTRITION FACTS & SCIENCE (Per 100g Tofu / Low-Fat Paneer + Edamame):**
-                    • **Leucine + Lysine Pairing:** Pairing legumes (high Lysine) with grains/seeds (high Methionine) achieves complete protein synthesis matching whey.
-                    • **Micronutrients:** Calcium (380mg for muscular contraction), Iron (4.8mg for oxygen transport), Isoflavones & Polyphenols (reduces exercise-induced oxidative stress).
-                """.trimIndent(),
-                mealName = "High-Protein Tofu/Paneer & Quinoa Power Bowl",
-                calories = 480,
-                proteinG = 38.0
-            )
-            q.contains("loss") || q.contains("fat") || q.contains("cut") || q.contains("lean") || q.contains("deficit") -> NutritionReplyResult(
-                replyText = """
-                    🔥 **Fat-Loss & Lean Muscle Preservation Guide for ${bio.hunterName}**
-                    
-                    At **${bio.weightKg} kg** (**${bio.bodyFatPercent}% Body Fat**, **${bio.muscleMassPercent}% Muscle**), the key to fat loss is maximizing **Thermic Effect of Food (TEF)** and **Satiety Index** while protecting lean tissue:
-                    
-                    1. **Lean White Fish / Chicken Breast (200g) + Steamed Broccoli & Air-Fried Potatoes:** 440 kcal | 48g Protein | 42g Carbs | 6g Fat | 9g Fiber
-                    2. **Egg White Omelet (6 whites + 1 whole egg) + Spinach & Mushrooms:** 260 kcal | 32g Protein | 6g Carbs | 7g Fat
-                    3. **0% Greek Yogurt + 1 Scoop Casein/Whey + Cinnamon & Apple:** 310 kcal | 40g Protein | 26g Carbs | 2g Fat
-                    
-                    📊 **NUTRITION FACTS & SCIENCE:**
-                    • **Thermic Effect of Protein (25–30%):** Your body burns ~30 kcal out of every 100 kcal of pure protein just digesting and metabolizing it.
-                    • **GLP-1 & PYY Satiety:** High protein + soluble fiber slows gastric emptying and keeps hunger hormones suppressed for 4–5 hours.
-                """.trimIndent(),
-                mealName = "Lean Grilled Chicken, Broccoli & Potato Plate",
-                calories = 440,
-                proteinG = 48.0
-            )
-            else -> NutritionReplyResult(
-                replyText = """
-                    ⚡ **Pika-Dietitian Custom Food & Science Breakdown for "${query}"**
-                    *(Calibrated for Trainer ${bio.hunterName}: ${bio.weightKg} kg • BMI ${bio.bmi} • ${bio.goalDisplayLabel} • Target ${caloriesTarget} kcal & ${bio.recommendedProteinG}g Protein)*
-                    
-                    **Top Recommended Foods for Your ${bio.goalDisplayLabel} Plan Today:**
-                    1. **Wild Salmon / Lean Chicken Breast + Whole Eggs + Jasmine Rice (620 kcal | 50g Protein | 64g Carbs | 16g Fat)**
-                    2. **Greek Yogurt Power Bowl with Rolled Oats, Walnuts & Blueberries (490 kcal | 38g Protein | 52g Carbs | 12g Fat)**
-                    3. **Cottage Cheese / Paneer & Lentil Sprout Wrap (450 kcal | 36g Protein | 48g Carbs | 11g Fat)**
-                    
-                    📊 **NUTRITION FACTS & SCIENCE (Per 100g Core Staples):**
-                    • **Chicken Breast (Cooked, 100g):** 165 kcal • **31g Protein** • 0g Carbs • 3.6g Fat • Rich in Niacin (B3), Selenium & Phosphorus.
-                    • **Whole Eggs (2 Large / 100g):** 143 kcal • **12.6g Protein** • 9.5g Fat • **294mg Choline** (neuro-muscular drive) + Vitamin D3 & B12.
-                    • **Rolled Oats (100g Dry):** 389 kcal • **16.9g Protein** • 66g Complex Carbs • **10.6g Beta-Glucan Fiber** (sustained ATP release & lipid control).
-                    
-                    💡 **Tactical Status:** You have logged **${caloriesLogged} / ${caloriesTarget} kcal** and **${proteinLogged.toInt()}g / ${bio.recommendedProteinG}g protein** today (${waterLogged}L / ${waterTarget}L water). Tap below to log your recommended meal now!
-                """.trimIndent(),
-                mealName = if (bio.fitnessGoal.uppercase() == "WEIGHT_LOSS") "Lean Chicken, Egg & Quinoa Bowl" else "Anabolic Chicken, Egg & Rice Power Bowl",
-                calories = if (bio.fitnessGoal.uppercase() == "WEIGHT_LOSS") 460 else 620,
-                proteinG = 48.0
-            )
-        }
+        val calc = SmartFoodNutritionEngine.formatChatbotResponseForQuery(
+            query = query,
+            bio = bio,
+            caloriesTarget = caloriesTarget,
+            caloriesLogged = caloriesLogged,
+            proteinLogged = proteinLogged,
+            waterLogged = waterLogged,
+            waterTarget = waterTarget
+        )
+        val formattedText = SmartFoodNutritionEngine.buildFormattedChatReplyText(
+            query = query,
+            calc = calc,
+            bio = bio,
+            caloriesTarget = caloriesTarget,
+            caloriesLogged = caloriesLogged,
+            proteinLogged = proteinLogged
+        )
+        return NutritionReplyResult(
+            replyText = formattedText,
+            mealName = "${calc.foodName} (${calc.grams}g)",
+            calories = calc.calories,
+            proteinG = calc.proteinG
+        )
     }
 
     fun clearNutritionChat() {
@@ -744,14 +743,10 @@ class HunterViewModel(
             val cleanExp = experienceLevel.uppercase().let {
                 if (it in setOf("BEGINNER", "INTERMEDIATE", "PROFESSIONAL")) it else "BEGINNER"
             }
-            val titleLabel = when (cleanExp) {
-                "PROFESSIONAL" -> "Pro Gym Leader"
-                "INTERMEDIATE" -> "Thunder Challenger"
-                else -> "PikaFit Rookie"
-            }
+            val starterTier = TrainerRankProgression.tierForXp(0)
             val calibratedBio = HunterBiometrics(
                 hunterName = cleanName,
-                hunterTitle = titleLabel,
+                hunterTitle = "${starterTier.classTitle} • ${starterTier.pokemonName}",
                 avatarBase64 = "",
                 weightKg = weightKg.coerceIn(25.0, 350.0),
                 heightCm = heightCm.coerceIn(100.0, 250.0),
@@ -776,7 +771,7 @@ class HunterViewModel(
             seedWelcomeNutritionChatIfEmpty(freshState)
             generatePikaCoachTip(showAsPopup = true)
             _aiSyncState.value = AiSyncState.Success(
-                "Pika-Pika! Welcome Trainer $cleanName! Target: ${freshState.statBreakdown.vitality.caloriesTarget} kcal & ${freshState.statBreakdown.stamina.targetLiters}L water."
+                "Pika-Pika! Welcome Trainer $cleanName (${starterTier.classTitle})! Target: ${freshState.statBreakdown.vitality.caloriesTarget} kcal & ${freshState.statBreakdown.stamina.targetLiters}L water."
             )
         }
     }
@@ -801,27 +796,15 @@ class HunterViewModel(
                 customMuscleMassPercent = muscleMassPercent?.coerceIn(20.0, 90.0)
             )
 
-            val xpGain = 50
-            val rawXp = current.playerStatus.currentXp + xpGain
-            val leveledUp = rawXp >= current.playerStatus.nextLevelXp
-            val newLevel = if (leveledUp) current.playerStatus.level + 1 else current.playerStatus.level
-            val finalXp = if (leveledUp) rawXp - current.playerStatus.nextLevelXp else rawXp
-            val progress = ((finalXp.toDouble() / current.playerStatus.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val (xpUpdatedState, scaledXpGain) = current.copy(biometrics = updatedBio).applyScaledXpProgress(50)
 
             val cleanNote = note.trim().ifBlank {
                 "Weight ${updatedBio.weightKg} kg • Body Fat ${updatedBio.bodyFatPercent}% • Muscle Mass ${updatedBio.muscleMassPercent}% (${updatedBio.muscleMassKg} kg)"
             }
-            val briefing = "New biometric point plotted to Firestore: ${updatedBio.weightKg} kg, ${updatedBio.bodyFatPercent}% Body Fat, ${updatedBio.muscleMassPercent}% Muscle Mass (${updatedBio.muscleMassKg} kg)."
+            val briefing = "New biometric point plotted to Firestore: ${updatedBio.weightKg} kg, ${updatedBio.bodyFatPercent}% Body Fat, ${updatedBio.muscleMassPercent}% Muscle Mass (${updatedBio.muscleMassKg} kg). Class: ${xpUpdatedState.playerStatus.rank} (+$scaledXpGain XP)."
 
-            val updatedState = current.copy(
-                playerStatus = current.playerStatus.copy(
-                    level = newLevel,
-                    rank = if (newLevel >= 3) "D-Rank Vanguard" else current.playerStatus.rank,
-                    currentXp = finalXp,
-                    progressPercent = progress
-                ),
-                tacticalBriefing = briefing,
-                biometrics = updatedBio
+            val updatedState = xpUpdatedState.copy(
+                tacticalBriefing = briefing
             )
 
             _systemState.value = updatedState
@@ -833,16 +816,16 @@ class HunterViewModel(
                 caption = cleanNote,
                 poseTag = "Recharts Sync",
                 photoBase64 = "",
-                biometrics = updatedBio
+                biometrics = updatedState.biometrics
             )
 
             repository.appendTacticalLog(
                 commandText = "Plotted Biometrics: ${updatedBio.weightKg}kg, BF ${updatedBio.bodyFatPercent}%, Muscle ${updatedBio.muscleMassPercent}%",
                 briefingResponse = briefing,
-                xpDelta = xpGain
+                xpDelta = scaledXpGain
             )
 
-            _aiSyncState.value = AiSyncState.Success("Biometric point saved to Firestore & plotted (+50 XP)")
+            _aiSyncState.value = AiSyncState.Success("Biometric point saved to Firestore & plotted (+$scaledXpGain XP • ${updatedState.playerStatus.rank})")
         }
     }
 
@@ -853,68 +836,59 @@ class HunterViewModel(
         heightCm: Double,
         age: Int,
         biologicalSex: String,
-        avatarBase64: String? = null
+        avatarBase64: String? = null,
+        targetWeightKg: Double? = null,
+        targetPhysique: String? = null
     ) {
         viewModelScope.launch {
             val current = _systemState.value
             val prevBio = current.biometrics
             val updatedBio = prevBio.copy(
                 hunterName = hunterName.trim().take(60).ifBlank { prevBio.hunterName },
-                hunterTitle = hunterTitle.trim().take(60).ifBlank { prevBio.hunterTitle },
                 avatarBase64 = avatarBase64?.take(18000) ?: prevBio.avatarBase64,
                 weightKg = weightKg.coerceIn(25.0, 350.0),
                 heightCm = heightCm.coerceIn(100.0, 250.0),
                 age = age.coerceIn(10, 120),
                 biologicalSex = if (biologicalSex.uppercase() == "FEMALE") "FEMALE" else "MALE",
+                targetWeightKg = (targetWeightKg ?: prevBio.targetWeightKg).coerceIn(25.0, 350.0),
+                targetPhysique = targetPhysique?.trim()?.take(60)?.ifBlank { prevBio.targetPhysique } ?: prevBio.targetPhysique,
                 onboardingCompleted = true
             )
 
-            val xpGain = 50
-            val rawXp = current.playerStatus.currentXp + xpGain
-            val leveledUp = rawXp >= current.playerStatus.nextLevelXp
-            val newLevel = if (leveledUp) current.playerStatus.level + 1 else current.playerStatus.level
-            val finalXp = if (leveledUp) rawXp - current.playerStatus.nextLevelXp else rawXp
-            val progress = ((finalXp.toDouble() / current.playerStatus.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val (xpUpdatedState, scaledXpGain) = current.copy(biometrics = updatedBio).applyScaledXpProgress(50)
+            val calibratedBio = xpUpdatedState.biometrics
 
-            val briefing = "Biometric telemetry calibrated for ${updatedBio.hunterName}: ${updatedBio.weightKg}kg @ ${updatedBio.heightCm.toInt()}cm (BMI ${updatedBio.bmi} • Body Fat ${updatedBio.bodyFatPercent}% • Muscle ${updatedBio.muscleMassPercent}% • Bone ${updatedBio.boneMassKg}kg • Water ${updatedBio.waterMassKg}kg). Automatically archived to Personal Journal (+50 XP)."
+            val briefing = "Biometric telemetry calibrated for ${calibratedBio.hunterName} (${xpUpdatedState.playerStatus.rank}): ${calibratedBio.weightKg}kg -> Target ${calibratedBio.targetWeightKg}kg (${calibratedBio.targetPhysique}). BMI ${calibratedBio.bmi} • Body Fat ${calibratedBio.bodyFatPercent}% • Muscle ${calibratedBio.muscleMassPercent}%. Archived to Personal Journal (+$scaledXpGain XP)."
 
-            val updatedState = current.copy(
-                playerStatus = current.playerStatus.copy(
-                    level = newLevel,
-                    rank = if (newLevel >= 3) "D-Rank Vanguard" else current.playerStatus.rank,
-                    currentXp = finalXp,
-                    progressPercent = progress
-                ),
-                tacticalBriefing = briefing,
-                biometrics = updatedBio
+            val updatedState = xpUpdatedState.copy(
+                tacticalBriefing = briefing
             )
 
             _systemState.value = updatedState
             repository.saveOrUpdateSession(updatedState)
 
             val summaryCaption = buildString {
-                append("Weight: ${updatedBio.weightKg} kg • Height: ${updatedBio.heightCm.toInt()} cm • Age: ${updatedBio.age} (${updatedBio.biologicalSex})\n")
-                append("BMI: ${updatedBio.bmi} (${updatedBio.bmiCategory}) • Body Fat: ${updatedBio.bodyFatPercent}% (${updatedBio.fatMassKg} kg)\n")
-                append("Skeletal Muscle: ${updatedBio.muscleMassPercent}% (${updatedBio.muscleMassKg} kg) • Lean Mass: ${updatedBio.leanMassPercent}% (${updatedBio.leanBodyMassKg} kg)\n")
-                append("Bone Mass: ${updatedBio.boneMassKg} kg (${updatedBio.boneMassPercent}%) • Water Mass: ${updatedBio.waterMassKg} kg (${updatedBio.waterMassPercent}%) • BMR: ${updatedBio.bmrKcal} kcal/day")
+                append("Weight: ${calibratedBio.weightKg} kg -> Target: ${calibratedBio.targetWeightKg} kg (${calibratedBio.targetPhysique})\n")
+                append("Height: ${calibratedBio.heightCm.toInt()} cm • Age: ${calibratedBio.age} (${calibratedBio.biologicalSex}) • Class: ${updatedState.playerStatus.rank} (${updatedState.playerStatus.currentXp} XP)\n")
+                append("BMI: ${calibratedBio.bmi} (${calibratedBio.bmiCategory}) • Body Fat: ${calibratedBio.bodyFatPercent}% (${calibratedBio.fatMassKg} kg) • Muscle: ${calibratedBio.muscleMassPercent}% (${calibratedBio.muscleMassKg} kg)")
             }
 
             repository.appendJournalEntry(
                 entryType = "BIOMETRIC_UPDATE",
-                title = "Biometric Profile Sync (${updatedBio.weightKg} kg • BMI ${updatedBio.bmi})",
+                title = "Biometric Profile Sync (${calibratedBio.weightKg} kg • BMI ${calibratedBio.bmi})",
                 caption = summaryCaption,
                 poseTag = "Biometric Sync",
                 photoBase64 = avatarBase64 ?: "",
-                biometrics = updatedBio
+                biometrics = calibratedBio
             )
 
             repository.appendTacticalLog(
-                commandText = "Updated Biometrics: ${updatedBio.weightKg}kg, ${updatedBio.heightCm.toInt()}cm, Age ${updatedBio.age}",
+                commandText = "Updated Biometrics: ${calibratedBio.weightKg}kg, ${calibratedBio.heightCm.toInt()}cm, Age ${calibratedBio.age}",
                 briefingResponse = briefing,
-                xpDelta = xpGain
+                xpDelta = scaledXpGain
             )
 
-            _aiSyncState.value = AiSyncState.Success("Biometrics & Profile saved to Personal Journal (+50 XP)")
+            _aiSyncState.value = AiSyncState.Success("Biometrics saved (+$scaledXpGain XP • Class: ${updatedState.playerStatus.rank})")
         }
     }
 
@@ -934,41 +908,30 @@ class HunterViewModel(
                 current.biometrics
             }
 
-            val xpGain = 85
-            val rawXp = current.playerStatus.currentXp + xpGain
-            val leveledUp = rawXp >= current.playerStatus.nextLevelXp
-            val newLevel = if (leveledUp) current.playerStatus.level + 1 else current.playerStatus.level
-            val finalXp = if (leveledUp) rawXp - current.playerStatus.nextLevelXp else rawXp
-            val progress = ((finalXp.toDouble() / current.playerStatus.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val (xpUpdatedState, scaledXpGain) = current.copy(biometrics = updatedBio).applyScaledXpProgress(85)
+            val calibratedBio = xpUpdatedState.biometrics
 
             val cleanTitle = title.trim().ifBlank { "Physique Check-In ($poseTag)" }
             val cleanCaption = caption.trim().ifBlank {
-                "Documented physique progress at ${updatedBio.weightKg} kg (BMI ${updatedBio.bmi}, BF ${updatedBio.bodyFatPercent}%, Muscle ${updatedBio.muscleMassPercent}%)."
+                "Documented physique progress at ${calibratedBio.weightKg} kg (BMI ${calibratedBio.bmi}, BF ${calibratedBio.bodyFatPercent}%, Muscle ${calibratedBio.muscleMassPercent}%)."
             }
 
-            val hasPhotoAchievement = current.unlockedAchievements.any { it.title == "Visual Chronicler" }
+            val hasPhotoAchievement = xpUpdatedState.unlockedAchievements.any { it.title == "Visual Chronicler" }
             val updatedAchievements = if (!hasPhotoAchievement) {
-                current.unlockedAchievements + AchievementItem(
+                xpUpdatedState.unlockedAchievements + AchievementItem(
                     title = "Visual Chronicler",
                     description = "Uploaded and archived a physique progress photo to your Personal Hunter Journal.",
                     rarity = "EPIC"
                 )
             } else {
-                current.unlockedAchievements
+                xpUpdatedState.unlockedAchievements
             }
 
-            val briefing = "Progress photo \"$cleanTitle\" [$poseTag] archived in Personal Journal with full biometric telemetry (${updatedBio.weightKg}kg, BF ${updatedBio.bodyFatPercent}%, Muscle ${updatedBio.muscleMassPercent}%). Awarded +$xpGain XP."
+            val briefing = "Progress photo \"$cleanTitle\" [$poseTag] archived in Personal Journal with full biometric telemetry (${calibratedBio.weightKg}kg, BF ${calibratedBio.bodyFatPercent}%, Muscle ${calibratedBio.muscleMassPercent}%). Awarded +$scaledXpGain XP (Class: ${xpUpdatedState.playerStatus.rank})."
 
-            val updatedState = current.copy(
-                playerStatus = current.playerStatus.copy(
-                    level = newLevel,
-                    rank = if (newLevel >= 3) "D-Rank Vanguard" else current.playerStatus.rank,
-                    currentXp = finalXp,
-                    progressPercent = progress
-                ),
+            val updatedState = xpUpdatedState.copy(
                 unlockedAchievements = updatedAchievements,
-                tacticalBriefing = briefing,
-                biometrics = updatedBio
+                tacticalBriefing = briefing
             )
 
             _systemState.value = updatedState
@@ -980,17 +943,17 @@ class HunterViewModel(
                 caption = cleanCaption,
                 poseTag = poseTag,
                 photoBase64 = photoBase64,
-                biometrics = updatedBio
+                biometrics = calibratedBio
             )
 
             repository.appendTacticalLog(
                 commandText = "Journal Photo Logged: $cleanTitle [$poseTag]",
                 briefingResponse = briefing,
-                xpDelta = xpGain
+                xpDelta = scaledXpGain
             )
 
             if (res.isSuccess) {
-                _aiSyncState.value = AiSyncState.Success("Progress photo added to Personal Journal (+$xpGain XP)")
+                _aiSyncState.value = AiSyncState.Success("Progress photo added to Personal Journal (+$scaledXpGain XP)")
             } else {
                 _aiSyncState.value = AiSyncState.Error(
                     res.exceptionOrNull()?.localizedMessage ?: "Failed to save journal entry."
@@ -1014,40 +977,42 @@ class HunterViewModel(
         calories: Int,
         proteinG: Double,
         carbsG: Double = (calories * 0.10),
-        fatsG: Double = (calories * 0.03)
+        fatsG: Double = (calories * 0.03),
+        fiberG: Double = 0.0,
+        grams: Int = 100
     ) {
         if (calories <= 0 && mealName.isBlank()) return
         viewModelScope.launch {
             val cleanMeal = mealName.trim().ifBlank { "Tactical Ration" }
-            val safeCals = calories.coerceIn(10, 10000)
-            val safePro = proteinG.coerceIn(0.0, 500.0)
-            val safeCarbs = carbsG.coerceIn(0.0, 1000.0)
-            val safeFats = fatsG.coerceIn(0.0, 500.0)
+            val safeCals = calories.coerceIn(1, 10000)
+            val safePro = round(proteinG.coerceIn(0.0, 500.0) * 10.0) / 10.0
+            val safeCarbs = round(carbsG.coerceIn(0.0, 1000.0) * 10.0) / 10.0
+            val safeFats = round(fatsG.coerceIn(0.0, 500.0) * 10.0) / 10.0
+            val safeFiber = round(fiberG.coerceIn(0.0, 200.0) * 10.0) / 10.0
+            val safeGrams = grams.coerceIn(1, 5000)
 
             val current = _systemState.value
             val vit = current.statBreakdown.vitality
             val newKcal = (vit.caloriesLogged + safeCals).coerceIn(0, 50000)
-            val newProtein = (vit.proteinG + safePro).coerceIn(0.0, 2000.0)
-            val newCarbs = (vit.carbsG + safeCarbs).coerceIn(0.0, 5000.0)
-            val newFats = (vit.fatsG + safeFats).coerceIn(0.0, 2000.0)
+            val newProtein = round((vit.proteinG + safePro).coerceIn(0.0, 2000.0) * 10.0) / 10.0
+            val newCarbs = round((vit.carbsG + safeCarbs).coerceIn(0.0, 5000.0) * 10.0) / 10.0
+            val newFats = round((vit.fatsG + safeFats).coerceIn(0.0, 2000.0) * 10.0) / 10.0
+            val newFiber = round((vit.fiberG + safeFiber).coerceIn(0.0, 500.0) * 10.0) / 10.0
             val targetMet = newKcal >= vit.caloriesTarget && newProtein >= 110.0
 
-            // Apply productive input to check the user in for their Daily Streak
+            // Apply productive input to check the user in for their Daily Streak (awards tier-scaled daily completion bonus)
             val (streakUpdatedState, newlyCheckedIn) = current.applyProductiveInput(
                 isFoodInput = true,
-                inputSummary = "$cleanMeal (+$safeCals kcal, ${safePro.toInt()}g P)"
+                inputSummary = "$cleanMeal (+$safeCals kcal, ${safePro}g P, ${safeCarbs}g C, ${safeFats}g F)"
             )
 
             val baseXpGain = 45
-            val totalXpGain = baseXpGain + (if (newlyCheckedIn) 50 else 0)
-            val ps = streakUpdatedState.playerStatus
-            val rawXp = ps.currentXp + baseXpGain
-            val leveledUp = rawXp >= ps.nextLevelXp
-            val newLevel = if (leveledUp) ps.level + 1 else ps.level
-            val finalXp = if (leveledUp) rawXp - ps.nextLevelXp else rawXp
-            val progress = ((finalXp.toDouble() / ps.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val (xpUpdatedState, scaledActionXp) = streakUpdatedState.applyScaledXpProgress(baseXpGain)
+            val ps = xpUpdatedState.playerStatus
+            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.tierForXp(current.playerStatus.currentXp).dailyCompletionXp else 0
+            val totalXpGain = scaledActionXp + dailyBonusXp
 
-            val updatedQuests = streakUpdatedState.questLog.map { q ->
+            val updatedQuests = xpUpdatedState.questLog.map { q ->
                 if (q.questName.contains("kcal", ignoreCase = true) || q.questName.contains("Surplus", ignoreCase = true)) {
                     QuestItem(
                         questName = "Clear ${vit.caloriesTarget} kcal Surplus Target ($newKcal / ${vit.caloriesTarget} logged)",
@@ -1060,26 +1025,21 @@ class HunterViewModel(
             }
 
             val streakNote = if (newlyCheckedIn) {
-                "Daily Productive Streak Checked In (${ps.streakDays} Days)!"
+                "Daily Productive Streak Checked In (${ps.streakDays} Days • +$dailyBonusXp Daily XP)!"
             } else {
-                "Productive Streak active (${ps.streakDays} Days)."
+                "Productive Streak active (${ps.streakDays} Days • Class: ${ps.rank})."
             }
 
-            val updatedBriefing = "Logged food \"$cleanMeal\" (+$safeCals kcal, +${safePro.toInt()}g protein). Total intake: $newKcal / ${vit.caloriesTarget} kcal. $streakNote"
+            val updatedBriefing = "Logged food \"$cleanMeal\" (+$safeCals kcal | P: ${safePro}g • C: ${safeCarbs}g • F: ${safeFats}g). Total intake: $newKcal / ${vit.caloriesTarget} kcal. $streakNote"
 
-            val finalState = streakUpdatedState.copy(
-                playerStatus = ps.copy(
-                    level = newLevel,
-                    rank = if (newLevel >= 3) "D-Rank Vanguard" else ps.rank,
-                    currentXp = finalXp,
-                    progressPercent = progress
-                ),
-                statBreakdown = streakUpdatedState.statBreakdown.copy(
+            val finalState = xpUpdatedState.copy(
+                statBreakdown = xpUpdatedState.statBreakdown.copy(
                     vitality = vit.copy(
                         caloriesLogged = newKcal,
                         proteinG = newProtein,
                         carbsG = newCarbs,
                         fatsG = newFats,
+                        fiberG = newFiber,
                         targetMet = targetMet
                     )
                 ),
@@ -1093,7 +1053,9 @@ class HunterViewModel(
                 proteinG = safePro,
                 carbsG = safeCarbs,
                 fatsG = safeFats,
-                xpAwarded = baseXpGain,
+                fiberG = safeFiber,
+                grams = safeGrams,
+                xpAwarded = totalXpGain,
                 triggeredDailyCheckIn = newlyCheckedIn,
                 previousStreakDays = current.playerStatus.streakDays
             )
@@ -1101,16 +1063,16 @@ class HunterViewModel(
             _systemState.value = finalState
             repository.saveOrUpdateSession(finalState)
             repository.appendTacticalLog(
-                commandText = "Food Input: $cleanMeal (+$safeCals kcal, ${safePro.toInt()}g P)",
+                commandText = "Food Input: $cleanMeal (+$safeCals kcal, ${safePro}g P, ${safeCarbs}g C, ${safeFats}g F)",
                 briefingResponse = updatedBriefing,
                 xpDelta = totalXpGain
             )
 
             _aiSyncState.value = AiSyncState.Success(
                 if (newlyCheckedIn) {
-                    "Daily Streak Checked In (${ps.streakDays}D) via Food Input! (+$totalXpGain XP)"
+                    "Daily Streak Checked In (${ps.streakDays}D) via $cleanMeal! (+$totalXpGain XP • ${ps.rank})"
                 } else {
-                    "Food logged: $cleanMeal (+$totalXpGain XP)"
+                    "Logged $cleanMeal: +$safeCals kcal (+$totalXpGain XP • ${ps.rank})"
                 }
             )
         }
@@ -1219,15 +1181,12 @@ class HunterViewModel(
             }
 
             val baseXpGain = if (deltaKcal > 0) 40 else 0
-            val totalXpGain = baseXpGain + (if (newlyCheckedIn) 50 else 0)
-            val ps = streakState.playerStatus
-            val rawXp = ps.currentXp + baseXpGain
-            val leveledUp = rawXp >= ps.nextLevelXp
-            val newLevel = if (leveledUp) ps.level + 1 else ps.level
-            val finalXp = if (leveledUp) rawXp - ps.nextLevelXp else rawXp
-            val progress = ((finalXp.toDouble() / ps.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val (xpUpdatedState, scaledActionXp) = streakState.applyScaledXpProgress(baseXpGain)
+            val ps = xpUpdatedState.playerStatus
+            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.tierForXp(current.playerStatus.currentXp).dailyCompletionXp else 0
+            val totalXpGain = scaledActionXp + dailyBonusXp
 
-            val updatedQuests = streakState.questLog.map { q ->
+            val updatedQuests = xpUpdatedState.questLog.map { q ->
                 if (q.questName.contains("kcal", ignoreCase = true) || q.questName.contains("Surplus", ignoreCase = true)) {
                     QuestItem(
                         questName = "Clear ${vit.caloriesTarget} kcal Surplus Target ($newKcal / ${vit.caloriesTarget} logged)",
@@ -1247,14 +1206,8 @@ class HunterViewModel(
                 "Vitality updated to $newKcal kcal (${newProtein.toInt()}g protein). $remaining kcal remaining to clear your daily hypertrophy surplus.$streakSuffix"
             }
 
-            val updated = streakState.copy(
-                playerStatus = ps.copy(
-                    level = newLevel,
-                    rank = if (newLevel >= 3) "D-Rank Vanguard" else ps.rank,
-                    currentXp = finalXp,
-                    progressPercent = progress
-                ),
-                statBreakdown = streakState.statBreakdown.copy(
+            val updated = xpUpdatedState.copy(
+                statBreakdown = xpUpdatedState.statBreakdown.copy(
                     vitality = vit.copy(
                         caloriesLogged = newKcal,
                         proteinG = newProtein,
@@ -1273,7 +1226,7 @@ class HunterViewModel(
                     proteinG = deltaProteinG,
                     carbsG = deltaKcal * 0.11,
                     fatsG = 0.0,
-                    xpAwarded = baseXpGain,
+                    xpAwarded = totalXpGain,
                     triggeredDailyCheckIn = newlyCheckedIn,
                     previousStreakDays = current.playerStatus.streakDays
                 )
@@ -1288,32 +1241,33 @@ class HunterViewModel(
             )
 
             if (newlyCheckedIn) {
-                _aiSyncState.value = AiSyncState.Success("Daily Streak Checked In (${ps.streakDays}D) via Food Input! (+$totalXpGain XP)")
+                _aiSyncState.value = AiSyncState.Success("Daily Streak Checked In (${ps.streakDays}D) via Food Input! (+$totalXpGain XP • ${ps.rank})")
             } else if (deltaKcal > 0) {
-                _aiSyncState.value = AiSyncState.Success("Logged +$deltaKcal kcal (+${deltaProteinG.toInt()}g protein)")
+                _aiSyncState.value = AiSyncState.Success("Logged +$deltaKcal kcal (+${deltaProteinG.toInt()}g protein • +$totalXpGain XP)")
             }
         }
     }
 
-    fun quickAddWater(litersDelta: Double) {
+    fun quickAddWater(litersDelta: Double, customLabel: String? = null) {
+        if (litersDelta == 0.0) return
         viewModelScope.launch {
+            val safeDelta = round(litersDelta.coerceIn(-10.0, 15.0) * 100.0) / 100.0
             val current = _systemState.value
             val stam = current.statBreakdown.stamina
-            val newWater = ((stam.waterLiters + litersDelta) * 10.0).toInt() / 10.0
+            val newWater = round((stam.waterLiters + safeDelta) * 100.0) / 100.0
             val clampedWater = newWater.coerceIn(0.0, 50.0)
             val targetMet = clampedWater >= stam.targetLiters
 
-            val xpGain = if (litersDelta > 0) 20 else 0
-            val rawXp = (current.playerStatus.currentXp + xpGain).coerceAtMost(current.playerStatus.nextLevelXp - 1)
-            val progress = ((rawXp.toDouble() / current.playerStatus.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val baseXpGain = if (safeDelta > 0) 20 else 0
+            val (xpUpdatedState, scaledXpGain) = current.applyScaledXpProgress(baseXpGain)
 
-            val briefing = "Hydration reserves at ${clampedWater}L / ${stam.targetLiters}L. Cellular nutrient transport and joint lubrication optimized."
-            val updated = current.copy(
-                playerStatus = current.playerStatus.copy(
-                    currentXp = rawXp,
-                    progressPercent = progress
-                ),
-                statBreakdown = current.statBreakdown.copy(
+            val mlEquivalent = (safeDelta * 1000).toInt()
+            val entryLabel = customLabel?.takeIf { it.isNotBlank() }
+                ?: "+${safeDelta}L (${mlEquivalent}ml) Water"
+
+            val briefing = "Hydration reserves at ${clampedWater}L / ${stam.targetLiters}L ($entryLabel). Cellular nutrient transport and joint lubrication optimized."
+            val updated = xpUpdatedState.copy(
+                statBreakdown = xpUpdatedState.statBreakdown.copy(
                     stamina = stam.copy(
                         waterLiters = clampedWater,
                         targetMet = targetMet
@@ -1321,29 +1275,29 @@ class HunterViewModel(
                 ),
                 tacticalBriefing = briefing
             )
-            if (litersDelta > 0) {
+            if (safeDelta > 0) {
                 _waterHistory.value = _waterHistory.value + WaterEntryRecord(
-                    label = "+${litersDelta}L Water",
-                    litersDelta = litersDelta,
-                    xpAwarded = xpGain
+                    label = entryLabel,
+                    litersDelta = safeDelta,
+                    xpAwarded = scaledXpGain
                 )
             }
             _systemState.value = updated
             repository.saveOrUpdateSession(updated)
             repository.appendTacticalLog(
-                commandText = "Hydration +${litersDelta}L (${clampedWater}L total)",
+                commandText = "Hydration $entryLabel (${clampedWater}L total)",
                 briefingResponse = briefing,
-                xpDelta = xpGain
+                xpDelta = scaledXpGain
             )
-            if (litersDelta > 0) {
-                _aiSyncState.value = AiSyncState.Success("Logged +${litersDelta}L water (${clampedWater}L / ${stam.targetLiters}L)")
+            if (safeDelta > 0) {
+                _aiSyncState.value = AiSyncState.Success("Logged $entryLabel (${clampedWater}L / ${stam.targetLiters}L • +$scaledXpGain XP)")
             }
         }
     }
 
     /**
      * Undoes the most recent Food/Calorie entry (or removes a specific FoodEntryRecord by id),
-     * reverting calories, protein, carbs, fats, XP, and daily food input counters if mistakenly entered.
+     * reverting calories, protein, carbs, fats, fiber, XP, and daily food input counters if mistakenly entered.
      */
     fun undoLastFoodEntry(entryId: String? = null) {
         viewModelScope.launch {
@@ -1366,6 +1320,7 @@ class HunterViewModel(
             val removePro = targetRecord?.proteinG ?: vit.proteinG.coerceAtMost(28.0)
             val removeCarbs = targetRecord?.carbsG ?: (removeCals * 0.10)
             val removeFats = targetRecord?.fatsG ?: (removeCals * 0.03)
+            val removeFiber = targetRecord?.fiberG ?: 0.0
             val removeLabel = targetRecord?.mealName ?: "${removeCals} kcal entry"
             val removeXp = targetRecord?.xpAwarded ?: 40
 
@@ -1374,9 +1329,10 @@ class HunterViewModel(
             }
 
             val newKcal = (vit.caloriesLogged - removeCals).coerceAtLeast(0)
-            val newProtein = (vit.proteinG - removePro).coerceAtLeast(0.0)
-            val newCarbs = (vit.carbsG - removeCarbs).coerceAtLeast(0.0)
-            val newFats = (vit.fatsG - removeFats).coerceAtLeast(0.0)
+            val newProtein = round((vit.proteinG - removePro).coerceAtLeast(0.0) * 10.0) / 10.0
+            val newCarbs = round((vit.carbsG - removeCarbs).coerceAtLeast(0.0) * 10.0) / 10.0
+            val newFats = round((vit.fatsG - removeFats).coerceAtLeast(0.0) * 10.0) / 10.0
+            val newFiber = round((vit.fiberG - removeFiber).coerceAtLeast(0.0) * 10.0) / 10.0
             val targetMet = newKcal >= vit.caloriesTarget && newProtein >= 110.0
 
             val ps = current.playerStatus
@@ -1389,10 +1345,9 @@ class HunterViewModel(
                 ps.streakDays
             }
 
-            val newXp = (ps.currentXp - removeXp).coerceAtLeast(0)
-            val newProgress = ((newXp.toDouble() / ps.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val (xpRevertedState, _) = current.applyScaledXpProgress(-removeXp, isRawAlreadyScaled = true)
 
-            val updatedQuests = current.questLog.map { q ->
+            val updatedQuests = xpRevertedState.questLog.map { q ->
                 if (q.questName.contains("kcal", ignoreCase = true) || q.questName.contains("Surplus", ignoreCase = true)) {
                     QuestItem(
                         questName = "Clear ${vit.caloriesTarget} kcal Surplus Target ($newKcal / ${vit.caloriesTarget} logged)",
@@ -1404,22 +1359,21 @@ class HunterViewModel(
                 }
             }
 
-            val updatedBriefing = "Undid food entry \"$removeLabel\" (-$removeCals kcal, -${removePro.toInt()}g protein). Updated total: $newKcal / ${vit.caloriesTarget} kcal."
+            val updatedBriefing = "Undid food entry \"$removeLabel\" (-$removeCals kcal, -${removePro}g protein). Updated total: $newKcal / ${vit.caloriesTarget} kcal."
 
-            val updatedState = current.copy(
-                playerStatus = ps.copy(
-                    currentXp = newXp,
-                    progressPercent = newProgress,
+            val updatedState = xpRevertedState.copy(
+                playerStatus = xpRevertedState.playerStatus.copy(
                     todayFoodInputs = newFoodInputs,
                     checkedInToday = newCheckedIn,
                     streakDays = newStreakDays
                 ),
-                statBreakdown = current.statBreakdown.copy(
+                statBreakdown = xpRevertedState.statBreakdown.copy(
                     vitality = vit.copy(
                         caloriesLogged = newKcal,
                         proteinG = newProtein,
                         carbsG = newCarbs,
                         fatsG = newFats,
+                        fiberG = newFiber,
                         targetMet = targetMet
                     )
                 ),
@@ -1434,7 +1388,7 @@ class HunterViewModel(
                 briefingResponse = updatedBriefing,
                 xpDelta = -removeXp
             )
-            _aiSyncState.value = AiSyncState.Success("Undid food entry: $removeLabel (-$removeCals kcal, -${removePro.toInt()}g P)")
+            _aiSyncState.value = AiSyncState.Success("Undid food entry: $removeLabel (-$removeCals kcal, -${removePro}g P)")
         }
     }
 
@@ -1466,21 +1420,15 @@ class HunterViewModel(
                 _waterHistory.value = history.filterNot { it.id == targetRecord.id }
             }
 
-            val newWater = (((stam.waterLiters - removeLiters) * 10.0).toInt() / 10.0).coerceAtLeast(0.0)
+            val newWater = (round((stam.waterLiters - removeLiters) * 100.0) / 100.0).coerceAtLeast(0.0)
             val targetMet = newWater >= stam.targetLiters
 
-            val ps = current.playerStatus
-            val newXp = (ps.currentXp - removeXp).coerceAtLeast(0)
-            val newProgress = ((newXp.toDouble() / ps.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val (xpRevertedState, _) = current.applyScaledXpProgress(-removeXp, isRawAlreadyScaled = true)
 
             val updatedBriefing = "Undid water entry (-${removeLiters}L). Hydration reserves updated to ${newWater}L / ${stam.targetLiters}L."
 
-            val updatedState = current.copy(
-                playerStatus = ps.copy(
-                    currentXp = newXp,
-                    progressPercent = newProgress
-                ),
-                statBreakdown = current.statBreakdown.copy(
+            val updatedState = xpRevertedState.copy(
+                statBreakdown = xpRevertedState.statBreakdown.copy(
                     stamina = stam.copy(
                         waterLiters = newWater,
                         targetMet = targetMet
@@ -1520,25 +1468,16 @@ class HunterViewModel(
             )
 
             val baseXpGain = if (overload) 75 else 45
-            val totalXpGain = baseXpGain + (if (newlyCheckedIn) 50 else 0)
-            val ps = streakState.playerStatus
-            val rawXp = ps.currentXp + baseXpGain
-            val leveledUp = rawXp >= ps.nextLevelXp
-            val newLevel = if (leveledUp) ps.level + 1 else ps.level
-            val finalXp = if (leveledUp) rawXp - ps.nextLevelXp else rawXp
-            val progress = ((finalXp.toDouble() / ps.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val (xpUpdatedState, scaledActionXp) = streakState.applyScaledXpProgress(baseXpGain)
+            val ps = xpUpdatedState.playerStatus
+            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.tierForXp(current.playerStatus.currentXp).dailyCompletionXp else 0
+            val totalXpGain = scaledActionXp + dailyBonusXp
 
             val streakSuffix = if (newlyCheckedIn) " Daily Productive Streak Checked In (${ps.streakDays}D)!" else ""
             val briefing = "Logged ${newEx.exerciseName} (${newEx.setsCompleted}x${newEx.repsPerSet}). Progressive overload ${if (overload) "CONFIRMED" else "maintained"} — mechanical tension stimulus recorded.$streakSuffix"
-            val updated = streakState.copy(
-                playerStatus = ps.copy(
-                    level = newLevel,
-                    rank = if (newLevel >= 3) "D-Rank Vanguard" else ps.rank,
-                    currentXp = finalXp,
-                    progressPercent = progress
-                ),
-                statBreakdown = streakState.statBreakdown.copy(
-                    strength = streakState.statBreakdown.strength.copy(
+            val updated = xpUpdatedState.copy(
+                statBreakdown = xpUpdatedState.statBreakdown.copy(
+                    strength = xpUpdatedState.statBreakdown.strength.copy(
                         workoutCompleted = true,
                         exercisesLogged = updatedList
                     )
@@ -1555,9 +1494,9 @@ class HunterViewModel(
 
             _aiSyncState.value = AiSyncState.Success(
                 if (newlyCheckedIn) {
-                    "Daily Streak Checked In (${ps.streakDays}D) via Exercise Input! (+$totalXpGain XP)"
+                    "Daily Streak Checked In (${ps.streakDays}D) via Exercise Input! (+$totalXpGain XP • ${ps.rank})"
                 } else {
-                    "Exercise logged: ${newEx.exerciseName} (+$totalXpGain XP)"
+                    "Exercise logged: ${newEx.exerciseName} (+$totalXpGain XP • ${ps.rank})"
                 }
             )
         }
@@ -1573,14 +1512,9 @@ class HunterViewModel(
             quests[index] = item.copy(status = nextStatus)
 
             val xpDelta = if (nextStatus == "COMPLETED") item.xpAwarded else -item.xpAwarded
-            val rawXp = (current.playerStatus.currentXp + xpDelta).coerceIn(0, current.playerStatus.nextLevelXp - 1)
-            val progress = ((rawXp.toDouble() / current.playerStatus.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val (xpUpdatedState, _) = current.applyScaledXpProgress(xpDelta)
 
-            val updated = current.copy(
-                playerStatus = current.playerStatus.copy(
-                    currentXp = rawXp,
-                    progressPercent = progress
-                ),
+            val updated = xpUpdatedState.copy(
                 questLog = quests
             )
             _systemState.value = updated
@@ -1599,19 +1533,22 @@ class HunterViewModel(
         customMuscleMassPercent: Double?,
         caloriesTarget: Int,
         waterTargetLiters: Double,
-        avatarBase64: String? = null
+        avatarBase64: String? = null,
+        targetWeightKg: Double? = null,
+        targetPhysique: String? = null
     ) {
         viewModelScope.launch {
             val current = _systemState.value
             val prevBio = current.biometrics
             val updatedBio = prevBio.copy(
                 hunterName = hunterName.trim().take(60).ifBlank { prevBio.hunterName },
-                hunterTitle = hunterTitle.trim().take(60).ifBlank { prevBio.hunterTitle },
                 avatarBase64 = avatarBase64?.take(18000) ?: prevBio.avatarBase64,
                 weightKg = weightKg.coerceIn(25.0, 350.0),
                 heightCm = heightCm.coerceIn(100.0, 250.0),
                 age = age.coerceIn(10, 120),
                 biologicalSex = if (biologicalSex.uppercase() == "FEMALE") "FEMALE" else "MALE",
+                targetWeightKg = (targetWeightKg ?: prevBio.targetWeightKg).coerceIn(25.0, 350.0),
+                targetPhysique = targetPhysique?.trim()?.take(60)?.ifBlank { prevBio.targetPhysique } ?: prevBio.targetPhysique,
                 customBodyFatPercent = customBodyFatPercent?.coerceIn(3.0, 65.0),
                 customMuscleMassPercent = customMuscleMassPercent?.coerceIn(20.0, 90.0),
                 onboardingCompleted = true
@@ -1622,16 +1559,12 @@ class HunterViewModel(
             val vit = current.statBreakdown.vitality
             val stam = current.statBreakdown.stamina
 
-            val xpGain = 50
-            val rawXp = current.playerStatus.currentXp + xpGain
-            val leveledUp = rawXp >= current.playerStatus.nextLevelXp
-            val newLevel = if (leveledUp) current.playerStatus.level + 1 else current.playerStatus.level
-            val finalXp = if (leveledUp) rawXp - current.playerStatus.nextLevelXp else rawXp
-            val progress = ((finalXp.toDouble() / current.playerStatus.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+            val (xpUpdatedState, scaledXpGain) = current.copy(biometrics = updatedBio).applyScaledXpProgress(50)
+            val calibratedBio = xpUpdatedState.biometrics
 
-            val briefing = "Profile & Daily Targets updated in Settings for ${updatedBio.hunterName} (${updatedBio.hunterTitle}): ${updatedBio.weightKg}kg, ${updatedBio.heightCm.toInt()}cm, Daily Targets ${safeCalTarget} kcal & ${safeWaterTarget}L water."
+            val briefing = "Profile & Daily Targets updated in Settings for ${calibratedBio.hunterName} (${xpUpdatedState.playerStatus.rank}): ${calibratedBio.weightKg}kg -> Target ${calibratedBio.targetWeightKg}kg (${calibratedBio.targetPhysique}), Daily Targets ${safeCalTarget} kcal & ${safeWaterTarget}L water."
 
-            val updatedQuests = current.questLog.map { q ->
+            val updatedQuests = xpUpdatedState.questLog.map { q ->
                 if (q.questName.contains("kcal", ignoreCase = true) || q.questName.contains("Surplus", ignoreCase = true)) {
                     QuestItem(
                         questName = "Clear ${safeCalTarget} kcal Surplus Target (${vit.caloriesLogged} / ${safeCalTarget} logged)",
@@ -1643,14 +1576,8 @@ class HunterViewModel(
                 }
             }
 
-            val updatedState = current.copy(
-                playerStatus = current.playerStatus.copy(
-                    level = newLevel,
-                    rank = if (newLevel >= 3) "D-Rank Vanguard" else current.playerStatus.rank,
-                    currentXp = finalXp,
-                    progressPercent = progress
-                ),
-                statBreakdown = current.statBreakdown.copy(
+            val updatedState = xpUpdatedState.copy(
+                statBreakdown = xpUpdatedState.statBreakdown.copy(
                     vitality = vit.copy(
                         caloriesTarget = safeCalTarget,
                         targetMet = vit.caloriesLogged >= safeCalTarget && vit.proteinG >= 110.0
@@ -1661,8 +1588,7 @@ class HunterViewModel(
                     )
                 ),
                 questLog = updatedQuests,
-                tacticalBriefing = briefing,
-                biometrics = updatedBio
+                tacticalBriefing = briefing
             )
 
             _systemState.value = updatedState
@@ -1670,26 +1596,28 @@ class HunterViewModel(
 
             repository.appendJournalEntry(
                 entryType = "BIOMETRIC_UPDATE",
-                title = "Settings Profile Sync (${updatedBio.weightKg} kg • Target ${safeCalTarget} kcal)",
-                caption = "Updated profile & targets: ${updatedBio.hunterName} (${updatedBio.hunterTitle}) • Weight ${updatedBio.weightKg} kg • Body Fat ${updatedBio.bodyFatPercent}% • Muscle ${updatedBio.muscleMassPercent}% • Targets: ${safeCalTarget} kcal / ${safeWaterTarget}L.",
+                title = "Settings Profile Sync (${calibratedBio.weightKg} kg -> ${calibratedBio.targetWeightKg} kg)",
+                caption = "Updated profile & targets: ${calibratedBio.hunterName} (${updatedState.playerStatus.rank}) • Weight ${calibratedBio.weightKg} kg • Target ${calibratedBio.targetWeightKg} kg (${calibratedBio.targetPhysique}) • Targets: ${safeCalTarget} kcal / ${safeWaterTarget}L.",
                 poseTag = "Settings Sync",
                 photoBase64 = avatarBase64 ?: "",
-                biometrics = updatedBio
+                biometrics = calibratedBio
             )
 
             repository.appendTacticalLog(
-                commandText = "Settings Profile Updated: ${updatedBio.hunterName} (${safeCalTarget} kcal, ${safeWaterTarget}L)",
+                commandText = "Settings Profile Updated: ${calibratedBio.hunterName} (${safeCalTarget} kcal, ${safeWaterTarget}L)",
                 briefingResponse = briefing,
-                xpDelta = xpGain
+                xpDelta = scaledXpGain
             )
 
-            _aiSyncState.value = AiSyncState.Success("Profile & Daily Targets saved (+50 XP)")
+            _aiSyncState.value = AiSyncState.Success("Profile & Daily Targets saved (+$scaledXpGain XP • ${updatedState.playerStatus.rank})")
         }
     }
 
     fun resetHunterProgress(clearJournalHistory: Boolean) {
         viewModelScope.launch {
             val current = _systemState.value
+            _foodHistory.value = emptyList()
+            _waterHistory.value = emptyList()
             val resetState = HunterSystemState.createResetState(
                 existingBiometrics = current.biometrics.copy(onboardingCompleted = false),
                 caloriesTarget = current.statBreakdown.vitality.caloriesTarget,
@@ -1704,9 +1632,9 @@ class HunterViewModel(
             if (res.isSuccess) {
                 _aiSyncState.value = AiSyncState.Success(
                     if (clearJournalHistory) {
-                        "All progress & journal history reset to Level 1 (0 XP, 0D Streak)."
+                        "All progress & journal history reset to Beginner (0 XP, 0D Streak)."
                     } else {
-                        "Hunter progress reset to Level 1 (0 XP, 0D Streak). Biometrics preserved."
+                        "Hunter progress reset to Beginner (0 XP, 0D Streak). Biometrics preserved."
                     }
                 )
             } else {
@@ -1734,15 +1662,8 @@ class HunterViewModel(
                 message = cleanMsg
             )
             if (res.isSuccess) {
-                val xpGain = 35
-                val ps = current.playerStatus
-                val rawXp = (ps.currentXp + xpGain).coerceAtMost(ps.nextLevelXp - 1)
-                val progress = ((rawXp.toDouble() / ps.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
-                val updated = current.copy(
-                    playerStatus = ps.copy(
-                        currentXp = rawXp,
-                        progressPercent = progress
-                    ),
+                val (xpUpdatedState, scaledXpGain) = current.applyScaledXpProgress(35)
+                val updated = xpUpdatedState.copy(
                     tacticalBriefing = "Public feedback ($category • ${rating}★) transmitted to the Creator Feedback Board. Thank you for helping evolve the Hunter System!"
                 )
                 _systemState.value = updated
@@ -1750,9 +1671,9 @@ class HunterViewModel(
                 repository.appendTacticalLog(
                     commandText = "Public Feedback Submitted [$category • ${rating}★]",
                     briefingResponse = updated.tacticalBriefing,
-                    xpDelta = xpGain
+                    xpDelta = scaledXpGain
                 )
-                _aiSyncState.value = AiSyncState.Success("Public feedback received by Creator Board (+35 XP)")
+                _aiSyncState.value = AiSyncState.Success("Public feedback received by Creator Board (+$scaledXpGain XP)")
             } else {
                 _aiSyncState.value = AiSyncState.Error(
                     res.exceptionOrNull()?.localizedMessage ?: "Failed to submit feedback."

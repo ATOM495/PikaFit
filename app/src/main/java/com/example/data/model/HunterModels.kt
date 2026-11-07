@@ -1,5 +1,7 @@
 package com.example.data.model
 
+import androidx.annotation.DrawableRes
+import com.example.R
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.Exclude
@@ -13,9 +15,222 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
+data class TrainerRankTier(
+    val tierLevel: Int,
+    val classTitle: String,
+    val minXp: Int,
+    val maxXp: Int?, // null for 10,000+ (Champion)
+    val xpRangeLabel: String,
+    val pokemonName: String,
+    val pokemonSubtitle: String,
+    @DrawableRes val pokemonDrawableRes: Int,
+    val xpMultiplier: Double,
+    val dailyCompletionXp: Int,
+    val xpPaceLabel: String,
+    val achievementTitle: String,
+    val rewardTitle: String,
+    val rewardDescription: String,
+    val rarity: String
+)
+
+object TrainerRankProgression {
+    val tiers: List<TrainerRankTier> = listOf(
+        TrainerRankTier(
+            tierLevel = 1,
+            classTitle = "Beginner",
+            minXp = 0,
+            maxXp = 1500,
+            xpRangeLabel = "0 – 1,500 XP",
+            pokemonName = "Pikachu",
+            pokemonSubtitle = "Thunder Spark Partner",
+            pokemonDrawableRes = R.drawable.rank_1_beginner_pikachu,
+            xpMultiplier = 1.60,
+            dailyCompletionXp = 160,
+            xpPaceLabel = "1.6x Early-Stage Boost (Fast XP Gain)",
+            achievementTitle = "Class Achieved: Beginner (Pikachu)",
+            rewardTitle = "Pikachu Spark Badge & +60% Rookie XP Surge",
+            rewardDescription = "Unlocked at 0–1,500 XP. Grants Pikachu Guardian Emblem & 1.6x accelerated XP gain for daily completions.",
+            rarity = "COMMON"
+        ),
+        TrainerRankTier(
+            tierLevel = 2,
+            classTitle = "Challenger",
+            minXp = 1500,
+            maxXp = 3000,
+            xpRangeLabel = "1,500 – 3,000 XP",
+            pokemonName = "Charizard",
+            pokemonSubtitle = "Sky Flame Vanguard",
+            pokemonDrawableRes = R.drawable.rank_2_challenger_charizard,
+            xpMultiplier = 1.30,
+            dailyCompletionXp = 125,
+            xpPaceLabel = "1.3x Challenger Momentum Boost",
+            achievementTitle = "Class Achieved: Challenger (Charizard)",
+            rewardTitle = "Charizard Flame Crest & Challenger Armor",
+            rewardDescription = "Unlocked at 1,500 XP. Unlocks Charizard Guardian Emblem, Flame Wing Buff, and Official Challenger Class Title.",
+            rarity = "RARE"
+        ),
+        TrainerRankTier(
+            tierLevel = 3,
+            classTitle = "Leader",
+            minXp = 3000,
+            maxXp = 5000,
+            xpRangeLabel = "3,000 – 5,000 XP",
+            pokemonName = "Greninja",
+            pokemonSubtitle = "Water Shuriken Tactician",
+            pokemonDrawableRes = R.drawable.rank_3_leader_greninja,
+            xpMultiplier = 1.00,
+            dailyCompletionXp = 95,
+            xpPaceLabel = "1.0x Standard Gym Leader Pace",
+            achievementTitle = "Class Achieved: Leader (Greninja)",
+            rewardTitle = "Greninja Shuriken Seal & Gym Leader Crown",
+            rewardDescription = "Unlocked at 3,000 XP. Unlocks Greninja Guardian Emblem, Shinobi Focus Buff, and Official Leader Class Title.",
+            rarity = "RARE"
+        ),
+        TrainerRankTier(
+            tierLevel = 4,
+            classTitle = "Elite I",
+            minXp = 5000,
+            maxXp = 7500,
+            xpRangeLabel = "5,000 – 7,500 XP",
+            pokemonName = "Mega Lucario",
+            pokemonSubtitle = "Aura Sphere Master",
+            pokemonDrawableRes = R.drawable.rank_4_elite1_lucario,
+            xpMultiplier = 0.80,
+            dailyCompletionXp = 75,
+            xpPaceLabel = "0.80x Elite I Tempering Pace (Slowed XP)",
+            achievementTitle = "Class Achieved: Elite I (Mega Lucario)",
+            rewardTitle = "Mega Lucario Aura Seal & Steel Will Relic",
+            rewardDescription = "Unlocked at 5,000 XP. Unlocks Mega Lucario Guardian Emblem, Aura Mastery Buff, and Elite I Class Title.",
+            rarity = "EPIC"
+        ),
+        TrainerRankTier(
+            tierLevel = 5,
+            classTitle = "Elite II",
+            minXp = 7500,
+            maxXp = 9000,
+            xpRangeLabel = "7,500 – 9,000 XP",
+            pokemonName = "Shadow Mewtwo",
+            pokemonSubtitle = "Obsidian Psystrike Sovereign",
+            pokemonDrawableRes = R.drawable.rank_5_elite2_mewtwo,
+            xpMultiplier = 0.65,
+            dailyCompletionXp = 60,
+            xpPaceLabel = "0.65x Elite II High-Gravity Pace (Slowed XP)",
+            achievementTitle = "Class Achieved: Elite II (Shadow Mewtwo)",
+            rewardTitle = "Shadow Mewtwo Core & Psystrike Mantle",
+            rewardDescription = "Unlocked at 7,500 XP. Unlocks Shadow Mewtwo Guardian Emblem, Obsidian Aura Frame, and Elite II Class Title.",
+            rarity = "EPIC"
+        ),
+        TrainerRankTier(
+            tierLevel = 6,
+            classTitle = "Elite III",
+            minXp = 9000,
+            maxXp = 10000,
+            xpRangeLabel = "9,000 – 10,000 XP",
+            pokemonName = "Yveltal",
+            pokemonSubtitle = "Crimson Oblivion Apex",
+            pokemonDrawableRes = R.drawable.rank_6_elite3_yveltal,
+            xpMultiplier = 0.50,
+            dailyCompletionXp = 45,
+            xpPaceLabel = "0.50x Elite III Crucible Pace (Slowed XP)",
+            achievementTitle = "Class Achieved: Elite III (Yveltal)",
+            rewardTitle = "Yveltal Oblivion Wings & Apex Predator Seal",
+            rewardDescription = "Unlocked at 9,000 XP. Unlocks Yveltal Guardian Emblem, Crimson Wing Buff, and Elite III Class Title.",
+            rarity = "LEGENDARY"
+        ),
+        TrainerRankTier(
+            tierLevel = 7,
+            classTitle = "Champion",
+            minXp = 10000,
+            maxXp = null,
+            xpRangeLabel = "10,000+ XP",
+            pokemonName = "Arceus",
+            pokemonSubtitle = "Mythic Alpha Creator",
+            pokemonDrawableRes = R.drawable.rank_7_champion_arceus,
+            xpMultiplier = 0.40,
+            dailyCompletionXp = 35,
+            xpPaceLabel = "0.40x Mythic Champion Mastery Pace",
+            achievementTitle = "Class Achieved: Champion (Arceus)",
+            rewardTitle = "Arceus Alpha Halo, Sovereign Trophy & Champion Title",
+            rewardDescription = "Unlocked at 10,000+ XP. Unlocks Mythic Arceus Guardian Emblem, Alpha Plates Halo, and Immortal Champion Title.",
+            rarity = "LEGENDARY"
+        )
+    )
+
+    fun tierForXp(totalXp: Int): TrainerRankTier {
+        val safeXp = totalXp.coerceAtLeast(0)
+        return when {
+            safeXp >= 10000 -> tiers[6]
+            safeXp >= 9000 -> tiers[5]
+            safeXp >= 7500 -> tiers[4]
+            safeXp >= 5000 -> tiers[3]
+            safeXp >= 3000 -> tiers[2]
+            safeXp >= 1500 -> tiers[1]
+            else -> tiers[0]
+        }
+    }
+
+    fun nextTierForXp(totalXp: Int): TrainerRankTier? {
+        val current = tierForXp(totalXp)
+        return tiers.getOrNull(current.tierLevel)
+    }
+
+    fun nextThresholdForXp(totalXp: Int): Int {
+        val safeXp = totalXp.coerceAtLeast(0)
+        val tier = tierForXp(safeXp)
+        return tier.maxXp ?: (10000 + (((safeXp - 10000) / 2500 + 1) * 2500))
+    }
+
+    fun progressPercentForXp(totalXp: Int): Double {
+        val safeXp = totalXp.coerceAtLeast(0)
+        val tier = tierForXp(safeXp)
+        val max = tier.maxXp
+        val raw = if (max != null) {
+            ((safeXp - tier.minXp).toDouble() / (max - tier.minXp).coerceAtLeast(1).toDouble()) * 100.0
+        } else {
+            (((safeXp - 10000) % 2500).toDouble() / 2500.0) * 100.0
+        }
+        return ((raw * 10.0).roundToInt() / 10.0).coerceIn(0.0, 100.0)
+    }
+
+    /**
+     * Scales raw XP gain based on the user's current progression tier:
+     * Higher XP in the beginning stage (1.6x in Beginner, 1.3x in Challenger),
+     * slowing down gradually at higher ranks (0.80x -> 0.65x -> 0.50x -> 0.40x)
+     * so users keep using the app consistently to earn higher ranks.
+     */
+    fun scaleActionXp(baseXp: Int, currentTotalXp: Int): Int {
+        if (baseXp <= 0) return baseXp
+        val tier = tierForXp(currentTotalXp)
+        return (baseXp * tier.xpMultiplier).roundToInt().coerceAtLeast(5)
+    }
+
+    fun dailyCheckInBonusXp(currentTotalXp: Int): Int {
+        return tierForXp(currentTotalXp).dailyCompletionXp
+    }
+
+    fun unlockedClassAchievementsForXp(
+        totalXp: Int,
+        existingAchievements: List<AchievementItem>
+    ): List<AchievementItem> {
+        val safeXp = totalXp.coerceAtLeast(0)
+        val earnedTierAchievements = tiers
+            .filter { safeXp >= it.minXp }
+            .map { tier ->
+                AchievementItem(
+                    title = tier.achievementTitle,
+                    description = "${tier.rewardTitle} — ${tier.rewardDescription}",
+                    rarity = tier.rarity
+                )
+            }
+        val existingTitles = earnedTierAchievements.map { it.title }.toSet()
+        val preservedCustom = existingAchievements.filterNot { it.title in existingTitles }
+        return earnedTierAchievements + preservedCustom
+    }
+}
+
 data class HunterBiometrics(
     val hunterName: String = "New Trainer",
-    val hunterTitle: String = "PikaFit Rookie",
+    val hunterTitle: String = "Beginner • Pikachu",
     val avatarBase64: String = "",
     val weightKg: Double = 70.0,
     val heightCm: Double = 172.0,
@@ -24,6 +239,8 @@ data class HunterBiometrics(
     val fitnessGoal: String = "WEIGHT_GAIN", // WEIGHT_GAIN, WEIGHT_LOSS, MAINTENANCE
     val experienceLevel: String = "BEGINNER", // BEGINNER, INTERMEDIATE, PROFESSIONAL
     val onboardingCompleted: Boolean = false,
+    val targetWeightKg: Double = 75.0,
+    val targetPhysique: String = "Athletic & Aesthetic",
     val customBodyFatPercent: Double? = null,
     val customMuscleMassPercent: Double? = null
 ) {
@@ -148,6 +365,16 @@ data class HunterBiometrics(
             else -> "Beginner Trainer"
         }
 
+    val targetWeightDeltaKg: Double
+        get() = round1(targetWeightKg - weightKg)
+
+    val targetWeightSummaryLabel: String
+        get() = when {
+            targetWeightKg > weightKg + 0.2 -> "Gain +${round1(targetWeightKg - weightKg)} kg to reach ${targetWeightKg} kg"
+            targetWeightKg < weightKg - 0.2 -> "Lose ${round1(weightKg - targetWeightKg)} kg to reach ${targetWeightKg} kg"
+            else -> "Target Weight Reached (${targetWeightKg} kg)!"
+        }
+
     fun toJsonObject(): JSONObject = JSONObject().apply {
         put("hunter_name", hunterName)
         put("hunter_title", hunterTitle)
@@ -159,6 +386,8 @@ data class HunterBiometrics(
         put("fitness_goal", fitnessGoal)
         put("experience_level", experienceLevel)
         put("onboarding_completed", onboardingCompleted)
+        put("target_weight_kg", targetWeightKg)
+        put("target_physique", targetPhysique)
         put("bmi", bmi)
         put("body_fat_percent", bodyFatPercent)
         put("muscle_mass_percent", muscleMassPercent)
@@ -169,6 +398,14 @@ data class HunterBiometrics(
     }
 
     companion object {
+        val PHYSIQUE_OPTIONS = listOf(
+            "Lean & Shredded",
+            "Athletic & Aesthetic",
+            "Muscular & Bulked",
+            "Strength & Power",
+            "Toned & Fit"
+        )
+
         fun fromJsonObject(obj: JSONObject?): HunterBiometrics {
             if (obj == null) return HunterBiometrics()
             val customBf = if (obj.has("custom_body_fat_percent") && !obj.isNull("custom_body_fat_percent")) {
@@ -177,24 +414,33 @@ data class HunterBiometrics(
             val customMm = if (obj.has("custom_muscle_mass_percent") && !obj.isNull("custom_muscle_mass_percent")) {
                 obj.optDouble("custom_muscle_mass_percent").takeIf { !it.isNaN() && it > 0.0 }
             } else null
+            val parsedWeight = obj.optDouble("weight_kg", 70.0).coerceIn(20.0, 400.0)
+            val parsedGoal = obj.optString("fitness_goal", "WEIGHT_GAIN").uppercase().let {
+                if (it in setOf("WEIGHT_GAIN", "WEIGHT_LOSS", "MAINTENANCE")) it else "WEIGHT_GAIN"
+            }
+            val defaultTargetW = when (parsedGoal) {
+                "WEIGHT_GAIN" -> parsedWeight + 5.0
+                "WEIGHT_LOSS" -> (parsedWeight - 5.0).coerceAtLeast(40.0)
+                else -> parsedWeight
+            }
 
             return HunterBiometrics(
                 hunterName = obj.optString("hunter_name", "New Trainer").take(60).ifBlank { "New Trainer" },
-                hunterTitle = obj.optString("hunter_title", "PikaFit Rookie").take(60).ifBlank { "PikaFit Rookie" },
+                hunterTitle = obj.optString("hunter_title", "Beginner • Pikachu").take(60).ifBlank { "Beginner • Pikachu" },
                 avatarBase64 = obj.optString("avatar_base64", "").take(18000),
-                weightKg = obj.optDouble("weight_kg", 70.0).coerceIn(20.0, 400.0),
+                weightKg = parsedWeight,
                 heightCm = obj.optDouble("height_cm", 172.0).coerceIn(80.0, 260.0),
                 age = obj.optInt("age", 22).coerceIn(10, 120),
                 biologicalSex = obj.optString("biological_sex", "MALE").uppercase().let {
                     if (it == "FEMALE") "FEMALE" else "MALE"
                 },
-                fitnessGoal = obj.optString("fitness_goal", "WEIGHT_GAIN").uppercase().let {
-                    if (it in setOf("WEIGHT_GAIN", "WEIGHT_LOSS", "MAINTENANCE")) it else "WEIGHT_GAIN"
-                },
+                fitnessGoal = parsedGoal,
                 experienceLevel = obj.optString("experience_level", "BEGINNER").uppercase().let {
                     if (it in setOf("BEGINNER", "INTERMEDIATE", "PROFESSIONAL")) it else "BEGINNER"
                 },
                 onboardingCompleted = obj.optBoolean("onboarding_completed", false),
+                targetWeightKg = obj.optDouble("target_weight_kg", defaultTargetW).coerceIn(25.0, 350.0),
+                targetPhysique = obj.optString("target_physique", "Athletic & Aesthetic").take(60).ifBlank { "Athletic & Aesthetic" },
                 customBodyFatPercent = customBf,
                 customMuscleMassPercent = customMm
             )
@@ -245,44 +491,49 @@ object StreakDateUtils {
     }
 
     fun defaultHistoryDates(nowMillis: Long = System.currentTimeMillis()): List<String> {
-        // Past 4 consecutive days leading up to yesterday (today is NOT checked in until user inputs food or exercise)
-        return (4 downTo 1).map { daysAgoDateString(it, nowMillis) }
+        return emptyList()
     }
 }
 
 data class PlayerStatus(
-    val level: Int = 2,
-    val rank: String = "E-Rank Hunter",
-    val currentXp: Int = 620,
-    val nextLevelXp: Int = 1000,
-    val progressPercent: Double = 62.0,
+    val level: Int = 1,
+    val rank: String = "Beginner",
+    val currentXp: Int = 0,
+    val nextLevelXp: Int = 1500,
+    val progressPercent: Double = 0.0,
     val hpPercent: Double = 100.0,
-    val streakDays: Int = 4,
+    val streakDays: Int = 0,
     val checkedInToday: Boolean = false,
-    val lastProductiveDate: String = StreakDateUtils.daysAgoDateString(1),
+    val lastProductiveDate: String = "",
     val todayFoodInputs: Int = 0,
     val todayExerciseInputs: Int = 0,
-    val lastCheckInTrigger: String = "Unverified today — log any food or exercise data to check in",
-    val productiveHistoryDates: List<String> = StreakDateUtils.defaultHistoryDates(),
-    val activeBuffs: List<String> = listOf("Well-Fed (+50 XP)", "Hydrated", "Hypertrophy Pump"),
+    val lastCheckInTrigger: String = "No activity logged today — input food or exercise data to check in",
+    val productiveHistoryDates: List<String> = emptyList(),
+    val activeBuffs: List<String> = listOf("Pikachu (1.6x XP)"),
     val activeDebuffs: List<String> = emptyList()
-)
+) {
+    val currentTier: TrainerRankTier
+        get() = TrainerRankProgression.tierForXp(currentXp)
+
+    val nextTier: TrainerRankTier?
+        get() = TrainerRankProgression.nextTierForXp(currentXp)
+}
 
 data class VitalityStats(
-    val caloriesLogged: Int = 2000,
+    val caloriesLogged: Int = 0,
     val caloriesTarget: Int = 2588,
-    val proteinG: Double = 112.0,
-    val carbsG: Double = 240.0,
-    val fatsG: Double = 48.0,
-    val fiberG: Double = 22.0,
-    val omega3Mg: Double = 1900.0,
+    val proteinG: Double = 0.0,
+    val carbsG: Double = 0.0,
+    val fatsG: Double = 0.0,
+    val fiberG: Double = 0.0,
+    val omega3Mg: Double = 0.0,
     val targetMet: Boolean = false
 )
 
 data class StaminaStats(
-    val waterLiters: Double = 4.0,
-    val targetLiters: Double = 4.0,
-    val targetMet: Boolean = true
+    val waterLiters: Double = 0.0,
+    val targetLiters: Double = 3.5,
+    val targetMet: Boolean = false
 )
 
 data class ExerciseLogged(
@@ -293,12 +544,8 @@ data class ExerciseLogged(
 )
 
 data class StrengthStats(
-    val workoutCompleted: Boolean = true,
-    val exercisesLogged: List<ExerciseLogged> = listOf(
-        ExerciseLogged("Lateral Raise", 3, "15", true),
-        ExerciseLogged("Declined Pushups", 3, "10", true),
-        ExerciseLogged("Table Rows", 3, "10", true)
-    )
+    val workoutCompleted: Boolean = false,
+    val exercisesLogged: List<ExerciseLogged> = emptyList()
 )
 
 data class StatBreakdown(
@@ -323,30 +570,18 @@ data class HunterSystemState(
     val playerStatus: PlayerStatus = PlayerStatus(),
     val statBreakdown: StatBreakdown = StatBreakdown(),
     val questLog: List<QuestItem> = listOf(
-        QuestItem("Hit 110g Protein", "COMPLETED", 100),
-        QuestItem("Upper Body Progression Routine", "COMPLETED", 250),
-        QuestItem("Drink 3.5L+ Water", "COMPLETED", 70),
-        QuestItem("Clear 2,588 kcal Surplus Target (2,000 / 2,588 logged)", "IN_PROGRESS", 120),
+        QuestItem("Hit Daily Protein Target", "IN_PROGRESS", 100),
+        QuestItem("Complete Progressive Overload Workout", "IN_PROGRESS", 250),
+        QuestItem("Drink 3.5L+ Water", "IN_PROGRESS", 70),
+        QuestItem("Clear Daily Calorie Target", "IN_PROGRESS", 120),
         QuestItem("Daily Productive Streak Check-In (Input Food or Exercise)", "IN_PROGRESS", 50)
     ),
-    val unlockedAchievements: List<AchievementItem> = listOf(
-        AchievementItem(
-            title = "Iron Foundation",
-            description = "Completed your first week of progressive overload without skipping a set.",
-            rarity = "RARE"
-        ),
-        AchievementItem(
-            title = "Caloric Vanguard",
-            description = "Logged 2,000 kcal in a single tactical cycle to fuel myofibrillar synthesis.",
-            rarity = "EPIC"
-        )
-    ),
-    val tacticalBriefing: String = "System online. Logging in alone does not count as a productive day — input any food or exercise data to verify today's check-in and extend your 4-day streak to 5 days!",
+    val unlockedAchievements: List<AchievementItem> = TrainerRankProgression.unlockedClassAchievementsForXp(0, emptyList()),
+    val tacticalBriefing: String = "System online. Input your meals, water, or workout sets to start tracking your daily progress and earn XP!",
     val suggestedActions: List<String> = listOf(
-        "LOG FINAL +588 KCAL MEAL",
-        "LOG TOMORROW'S MEAL PREP",
-        "REST & RECOVER",
-        "VIEW SKILL TREE"
+        "LOG FIRST MEAL",
+        "LOG WORKOUT SET",
+        "LOG WATER INTAKE"
     ),
     val biometrics: HunterBiometrics = HunterBiometrics()
 ) {
@@ -439,7 +674,7 @@ data class HunterSystemState(
         }
 
         val hasStreakAchievement = unlockedAchievements.any { it.title == "Productive Discipline" }
-        val updatedAchievements = if (!alreadyCheckedInToday && !hasStreakAchievement) {
+        val baseAchievements = if (!alreadyCheckedInToday && !hasStreakAchievement) {
             unlockedAchievements + AchievementItem(
                 title = "Productive Discipline",
                 description = "Checked in for your daily streak by logging real food or exercise data rather than just opening the app.",
@@ -449,18 +684,21 @@ data class HunterSystemState(
             unlockedAchievements
         }
 
-        val bonusXp = if (!alreadyCheckedInToday) 50 else 0
-        val rawXp = ps.currentXp + bonusXp
-        val leveledUp = rawXp >= ps.nextLevelXp
-        val newLevel = if (leveledUp) ps.level + 1 else ps.level
-        val finalXp = if (leveledUp) rawXp - ps.nextLevelXp else rawXp
-        val progress = ((finalXp.toDouble() / ps.nextLevelXp.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+        // Dynamic XP scaling: higher daily check-in XP in the beginning stage, slowing down as rank increases
+        val bonusXp = if (!alreadyCheckedInToday) TrainerRankProgression.dailyCheckInBonusXp(ps.currentXp) else 0
+        val newTotalXp = (ps.currentXp + bonusXp).coerceAtLeast(0)
+        val tier = TrainerRankProgression.tierForXp(newTotalXp)
+        val nextXpThreshold = TrainerRankProgression.nextThresholdForXp(newTotalXp)
+        val progress = TrainerRankProgression.progressPercentForXp(newTotalXp)
+        val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForXp(newTotalXp, baseAchievements)
+        val autoTitle = "${tier.classTitle} • ${tier.pokemonName}"
 
         val updatedState = copy(
             playerStatus = ps.copy(
-                level = newLevel,
-                rank = if (newLevel >= 3) "D-Rank Vanguard" else ps.rank,
-                currentXp = finalXp,
+                level = tier.tierLevel,
+                rank = tier.classTitle,
+                currentXp = newTotalXp,
+                nextLevelXp = nextXpThreshold,
                 progressPercent = progress,
                 streakDays = newStreakDays,
                 checkedInToday = true,
@@ -473,10 +711,52 @@ data class HunterSystemState(
                 activeDebuffs = cleanedDebuffs
             ),
             questLog = updatedQuests,
-            unlockedAchievements = updatedAchievements
+            unlockedAchievements = syncedAchievements,
+            biometrics = biometrics.copy(hunterTitle = autoTitle)
         )
 
         return Pair(updatedState, !alreadyCheckedInToday)
+    }
+
+    /**
+     * Applies a raw XP change using the dynamic progression curve (higher in early ranks, slower in higher ranks)
+     * and automatically synchronizes the user's Class/Title, Level, Next Threshold, and Class Achievements.
+     */
+    fun applyScaledXpProgress(rawBaseXpDelta: Int, isRawAlreadyScaled: Boolean = false): Pair<HunterSystemState, Int> {
+        val ps = playerStatus
+        val effectiveDelta = if (rawBaseXpDelta > 0 && !isRawAlreadyScaled) {
+            TrainerRankProgression.scaleActionXp(rawBaseXpDelta, ps.currentXp)
+        } else {
+            rawBaseXpDelta
+        }
+        val newTotalXp = (ps.currentXp + effectiveDelta).coerceAtLeast(0)
+        val tier = TrainerRankProgression.tierForXp(newTotalXp)
+        val nextXpThreshold = TrainerRankProgression.nextThresholdForXp(newTotalXp)
+        val progress = TrainerRankProgression.progressPercentForXp(newTotalXp)
+        val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForXp(newTotalXp, unlockedAchievements)
+        val autoTitle = "${tier.classTitle} • ${tier.pokemonName}"
+
+        val rewardBuff = "${tier.pokemonName} (${tier.xpMultiplier}x XP)"
+        val cleanedBuffs = ps.activeBuffs.filterNot { b ->
+            TrainerRankProgression.tiers.any { t -> b.startsWith(t.pokemonName) }
+        }
+        val updatedBuffs = listOf(rewardBuff) + cleanedBuffs
+
+        return Pair(
+            copy(
+                playerStatus = ps.copy(
+                    level = tier.tierLevel,
+                    rank = tier.classTitle,
+                    currentXp = newTotalXp,
+                    nextLevelXp = nextXpThreshold,
+                    progressPercent = progress,
+                    activeBuffs = updatedBuffs
+                ),
+                unlockedAchievements = syncedAchievements,
+                biometrics = biometrics.copy(hunterTitle = autoTitle)
+            ),
+            effectiveDelta
+        )
     }
 
     fun toStateJson(): String {
@@ -733,20 +1013,17 @@ data class HunterSystemState(
             caloriesTarget: Int = existingBiometrics.recommendedCaloriesTarget,
             waterTargetLiters: Double = existingBiometrics.recommendedWaterLiters
         ): HunterSystemState {
-            val rankLabel = when (existingBiometrics.experienceLevel.uppercase()) {
-                "PROFESSIONAL" -> "Pro Gym Leader"
-                "INTERMEDIATE" -> "Thunder Challenger"
-                else -> "PikaFit Rookie"
-            }
+            val startTier = TrainerRankProgression.tierForXp(0)
+            val autoTitle = "${startTier.classTitle} • ${startTier.pokemonName}"
             val proTarget = existingBiometrics.recommendedProteinG
             val safeCal = caloriesTarget.coerceIn(1000, 15000)
             val safeWater = waterTargetLiters.coerceIn(1.0, 20.0)
             return HunterSystemState(
                 playerStatus = PlayerStatus(
-                    level = 1,
-                    rank = rankLabel,
+                    level = startTier.tierLevel,
+                    rank = startTier.classTitle,
                     currentXp = 0,
-                    nextLevelXp = 1000,
+                    nextLevelXp = startTier.maxXp ?: 1500,
                     progressPercent = 0.0,
                     hpPercent = 100.0,
                     streakDays = 0,
@@ -756,7 +1033,7 @@ data class HunterSystemState(
                     todayExerciseInputs = 0,
                     lastCheckInTrigger = "Fresh calibration — log any meal or exercise set to start Day 1!",
                     productiveHistoryDates = emptyList(),
-                    activeBuffs = listOf("PikaFit Charged", existingBiometrics.goalDisplayLabel),
+                    activeBuffs = listOf("${startTier.pokemonName} (${startTier.xpMultiplier}x XP)", existingBiometrics.goalDisplayLabel),
                     activeDebuffs = emptyList()
                 ),
                 statBreakdown = StatBreakdown(
@@ -787,14 +1064,14 @@ data class HunterSystemState(
                     QuestItem("Clear $safeCal kcal Target (0 / $safeCal logged)", "IN_PROGRESS", 120),
                     QuestItem("Daily Productive Streak Check-In (Input Food or Exercise)", "IN_PROGRESS", 50)
                 ),
-                unlockedAchievements = emptyList(),
-                tacticalBriefing = "Pika-Pika! Welcome to PikaFit, Trainer ${existingBiometrics.hunterName}! Your profile is calibrated for ${existingBiometrics.goalDisplayLabel} (${existingBiometrics.experienceDisplayLabel}) with a $safeCal kcal & ${safeWater}L daily target. Log your first meal or workout set to start Day 1 of your streak!",
+                unlockedAchievements = TrainerRankProgression.unlockedClassAchievementsForXp(0, emptyList()),
+                tacticalBriefing = "Pika-Pika! Welcome to PikaFit, Trainer ${existingBiometrics.hunterName}! You start in Class ${startTier.classTitle} (0–1,500 XP) with ${startTier.pokemonName} and a ${startTier.xpMultiplier}x early-stage XP boost! Log your first meal or workout set to earn boosted XP toward Challenger (Charizard)!",
                 suggestedActions = listOf(
-                    "LOG FIRST MEAL",
+                    "LOG FIRST MEAL (+BOOSTED XP)",
                     "LOG FIRST WORKOUT SET",
                     "DRINK 500ML WATER"
                 ),
-                biometrics = existingBiometrics
+                biometrics = existingBiometrics.copy(hunterTitle = autoTitle)
             )
         }
     }
@@ -804,24 +1081,24 @@ data class HunterSystemState(
 data class HunterSession(
     @DocumentId val id: String = "",
     val userId: String = "",
-    val level: Long = 2L,
-    val rank: String = "E-Rank Hunter",
-    val currentXp: Long = 620L,
-    val nextLevelXp: Long = 1000L,
-    val progressPercent: Double = 62.0,
+    val level: Long = 1L,
+    val rank: String = "Beginner",
+    val currentXp: Long = 0L,
+    val nextLevelXp: Long = 1500L,
+    val progressPercent: Double = 0.0,
     val hpPercent: Double = 100.0,
-    val streakDays: Long = 4L,
-    val caloriesLogged: Long = 2000L,
+    val streakDays: Long = 0L,
+    val caloriesLogged: Long = 0L,
     val caloriesTarget: Long = 2588L,
-    val proteinG: Double = 112.0,
-    val carbsG: Double = 240.0,
-    val fatsG: Double = 48.0,
-    val fiberG: Double = 22.0,
-    val omega3Mg: Double = 1900.0,
-    val waterLiters: Double = 4.0,
-    val targetLiters: Double = 4.0,
-    val workoutCompleted: Boolean = true,
-    val tacticalBriefing: String = "2,000 kcal intake registered! Keep pushing toward your 2,588 kcal target.",
+    val proteinG: Double = 0.0,
+    val carbsG: Double = 0.0,
+    val fatsG: Double = 0.0,
+    val fiberG: Double = 0.0,
+    val omega3Mg: Double = 0.0,
+    val waterLiters: Double = 0.0,
+    val targetLiters: Double = 3.5,
+    val workoutCompleted: Boolean = false,
+    val tacticalBriefing: String = "System ready. Log your first meal, water intake, or workout set to start tracking.",
     val stateJson: String = "{}",
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
@@ -916,52 +1193,82 @@ data class HunterSession(
             defaultState.suggestedActions
         }
 
+        val isLegacyMockExercises = todayExerciseInputs == 0 &&
+            exercises.size == 3 &&
+            exercises[0].exerciseName == "Lateral Raise" &&
+            exercises[1].exerciseName == "Declined Pushups" &&
+            exercises[2].exerciseName == "Table Rows"
+        val cleanExercises = if (isLegacyMockExercises) emptyList() else exercises
+
+        val isLegacyMockNutrition = !checkedInToday &&
+            todayFoodInputs == 0 &&
+            caloriesLogged == 2000L &&
+            proteinG == 112.0
+        val cleanCaloriesLogged = if (isLegacyMockNutrition) 0 else caloriesLogged.toInt()
+        val cleanProteinG = if (isLegacyMockNutrition) 0.0 else proteinG
+        val cleanCarbsG = if (isLegacyMockNutrition) 0.0 else carbsG
+        val cleanFatsG = if (isLegacyMockNutrition) 0.0 else fatsG
+        val cleanFiberG = if (isLegacyMockNutrition) 0.0 else fiberG
+        val cleanOmega3 = if (isLegacyMockNutrition) 0.0 else omega3Mg
+        val cleanWaterLiters = if (isLegacyMockNutrition && waterLiters == 4.0) 0.0 else waterLiters
+        val cleanXp = if (isLegacyMockNutrition && isLegacyMockExercises && currentXp == 620L) 0 else currentXp.toInt().coerceAtLeast(0)
+        val cleanStreak = if (isLegacyMockNutrition && isLegacyMockExercises && streakDays == 4L) 0 else streakDays.toInt()
+
         val biometrics = HunterBiometrics.fromJsonObject(parsedJson.optJSONObject("biometrics"))
+        val syncedXp = cleanXp
+        val tier = TrainerRankProgression.tierForXp(syncedXp)
+        val nextXp = TrainerRankProgression.nextThresholdForXp(syncedXp)
+        val progress = TrainerRankProgression.progressPercentForXp(syncedXp)
+        val cleanAchievements = achievements.filterNot {
+            (it.title == "Iron Foundation" || it.title == "Caloric Vanguard") && syncedXp == 0
+        }
+        val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForXp(syncedXp, cleanAchievements)
+        val autoTitle = "${tier.classTitle} • ${tier.pokemonName}"
 
         return HunterSystemState(
             playerStatus = PlayerStatus(
-                level = level.toInt(),
-                rank = rank,
-                currentXp = currentXp.toInt(),
-                nextLevelXp = nextLevelXp.toInt(),
-                progressPercent = progressPercent,
+                level = tier.tierLevel,
+                rank = tier.classTitle,
+                currentXp = syncedXp,
+                nextLevelXp = nextXp,
+                progressPercent = progress,
                 hpPercent = hpPercent,
-                streakDays = streakDays.toInt(),
+                streakDays = cleanStreak,
                 checkedInToday = checkedInToday,
                 lastProductiveDate = lastProductiveDate,
                 todayFoodInputs = todayFoodInputs,
                 todayExerciseInputs = todayExerciseInputs,
                 lastCheckInTrigger = lastCheckInTrigger,
-                productiveHistoryDates = historyDates,
+                productiveHistoryDates = if (cleanStreak == 0 && !checkedInToday) emptyList() else historyDates,
                 activeBuffs = buffs,
                 activeDebuffs = debuffs
             ),
             statBreakdown = StatBreakdown(
                 vitality = VitalityStats(
-                    caloriesLogged = caloriesLogged.toInt(),
+                    caloriesLogged = cleanCaloriesLogged,
                     caloriesTarget = caloriesTarget.toInt(),
-                    proteinG = proteinG,
-                    carbsG = carbsG,
-                    fatsG = fatsG,
-                    fiberG = fiberG,
-                    omega3Mg = omega3Mg,
-                    targetMet = caloriesLogged >= caloriesTarget && proteinG >= 110.0
+                    proteinG = cleanProteinG,
+                    carbsG = cleanCarbsG,
+                    fatsG = cleanFatsG,
+                    fiberG = cleanFiberG,
+                    omega3Mg = cleanOmega3,
+                    targetMet = cleanCaloriesLogged >= caloriesTarget && cleanProteinG >= 110.0
                 ),
                 stamina = StaminaStats(
-                    waterLiters = waterLiters,
+                    waterLiters = cleanWaterLiters,
                     targetLiters = targetLiters,
-                    targetMet = waterLiters >= targetLiters
+                    targetMet = cleanWaterLiters >= targetLiters
                 ),
                 strength = StrengthStats(
-                    workoutCompleted = workoutCompleted,
-                    exercisesLogged = exercises
+                    workoutCompleted = cleanExercises.isNotEmpty() && workoutCompleted,
+                    exercisesLogged = cleanExercises
                 )
             ),
             questLog = quests,
-            unlockedAchievements = achievements,
+            unlockedAchievements = syncedAchievements,
             tacticalBriefing = tacticalBriefing,
             suggestedActions = actions,
-            biometrics = biometrics
+            biometrics = biometrics.copy(hunterTitle = autoTitle)
         )
     }
 
@@ -1022,5 +1329,15 @@ data class FeedbackEntry(
     val status: String = "OPEN", // OPEN, IN_REVIEW, IMPLEMENTED
     val visibility: String = "PUBLIC",
     @ServerTimestamp val createdAt: Timestamp? = null
+)
+
+@IgnoreExtraProperties
+data class AppReleaseInfo(
+    val latestVersionCode: Long = 1L,
+    val latestVersionName: String = "1.0",
+    val releaseTitle: String = "New PikaFit Update",
+    val releaseNotes: String = "Bug fixes, performance improvements, and updated Pokémon progression features.",
+    val downloadUrl: String = "https://github.com/",
+    val isMandatory: Boolean = false
 )
 

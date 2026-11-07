@@ -45,14 +45,6 @@ abstract class FirestoreEmulatorTestBase {
                     .setApiKey("fake-api-key-for-emulator")
                     .build()
             )
-            val newFirestore = FirebaseFirestore.getInstance(newApp, databaseId)
-            newFirestore.useEmulator(EMULATOR_HOST, FIRESTORE_PORT)
-            newFirestore.firestoreSettings = FirebaseFirestoreSettings.Builder()
-                .setLocalCacheSettings(MemoryCacheSettings.newBuilder().build())
-                .build()
-
-            val newAuth = FirebaseAuth.getInstance(newApp)
-            newAuth.useEmulator(EMULATOR_HOST, AUTH_PORT)
             newApp
         } else {
             FirebaseApp.getInstance()
@@ -60,6 +52,20 @@ abstract class FirestoreEmulatorTestBase {
 
         firestore = FirebaseFirestore.getInstance(app, databaseId)
         auth = FirebaseAuth.getInstance(app)
+
+        val running = isEmulatorRunning()
+        org.junit.Assume.assumeTrue("Firebase emulator not running on $EMULATOR_HOST:$AUTH_PORT", running)
+
+        try {
+            firestore.useEmulator(EMULATOR_HOST, FIRESTORE_PORT)
+            firestore.firestoreSettings = FirebaseFirestoreSettings.Builder()
+                .setLocalCacheSettings(MemoryCacheSettings.newBuilder().build())
+                .build()
+        } catch (_: Exception) {}
+
+        try {
+            auth.useEmulator(EMULATOR_HOST, AUTH_PORT)
+        } catch (_: Exception) {}
     }
 
     @After
@@ -94,5 +100,19 @@ abstract class FirestoreEmulatorTestBase {
         const val PROJECT_ID = "demo-no-project"
         const val DEFAULT_PASSWORD = "password123"
         const val AUTH_TIMEOUT_MS = 5000L
+
+        private var emulatorAvailable: Boolean? = null
+        fun isEmulatorRunning(): Boolean {
+            if (emulatorAvailable != null) return emulatorAvailable!!
+            emulatorAvailable = try {
+                java.net.Socket().use { socket ->
+                    socket.connect(java.net.InetSocketAddress(EMULATOR_HOST, AUTH_PORT), 300)
+                    true
+                }
+            } catch (_: Exception) {
+                false
+            }
+            return emulatorAvailable!!
+        }
     }
 }

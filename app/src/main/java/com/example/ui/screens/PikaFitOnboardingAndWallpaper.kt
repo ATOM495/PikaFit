@@ -37,10 +37,42 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.asImageBitmap
 import com.example.R
 import com.example.data.model.HunterBiometrics
 import com.example.ui.theme.*
 import kotlin.math.roundToInt
+
+private val wallpaperBitmapCache = java.util.concurrent.ConcurrentHashMap<Int, androidx.compose.ui.graphics.ImageBitmap>()
+
+@Composable
+fun rememberAsyncDrawableBitmap(@DrawableRes resId: Int): androidx.compose.ui.graphics.ImageBitmap? {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var bitmap by remember(resId) { mutableStateOf(wallpaperBitmapCache[resId]) }
+    LaunchedEffect(resId) {
+        if (bitmap == null) {
+            val decoded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                wallpaperBitmapCache[resId] ?: try {
+                    val opts = android.graphics.BitmapFactory.Options().apply {
+                        inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                    }
+                    android.graphics.BitmapFactory.decodeResource(context.resources, resId, opts)
+                        ?.let { androidBitmap ->
+                            val img = androidBitmap.asImageBitmap()
+                            wallpaperBitmapCache[resId] = img
+                            img
+                        }
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            if (decoded != null) {
+                bitmap = decoded
+            }
+        }
+    }
+    return bitmap
+}
 
 /**
  * Full-screen Pikachu wallpaper wrapper used across all pages of PikaFit.
@@ -56,36 +88,24 @@ fun PikachuWallpaperBackground(
     content: @Composable BoxScope.() -> Unit
 ) {
     val bgBase = if (isDark) Color(0xFF12141A) else Color(0xFFF8FAFC)
-    val wallpaperPainter = painterResource(id = wallpaperRes)
+    val wallpaperBitmap = rememberAsyncDrawableBitmap(wallpaperRes)
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(bgBase)
     ) {
-        // 1. Full-bleed Pikachu background wallpaper — clearly visible across the entire screen
-        Image(
-            painter = wallpaperPainter,
-            contentDescription = "Pikachu Background Wallpaper",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxSize()
-                .alpha(wallpaperAlpha)
-        )
+        if (wallpaperBitmap != null) {
+            // 1. Full-bleed Pikachu background wallpaper — uses direct Image alpha to avoid offscreen RenderNode layer
+            Image(
+                bitmap = wallpaperBitmap,
+                contentDescription = "Pikachu Background Wallpaper",
+                contentScale = ContentScale.Crop,
+                alpha = wallpaperAlpha,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
-        // 2. Crisp floating Pikachu character medallion in top-right & bottom-right so Pikachu is always visible
-        Image(
-            painter = wallpaperPainter,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .offset(x = 18.dp, y = 18.dp)
-                .size(220.dp)
-                .clip(CircleShape)
-                .alpha(if (isDark) 0.42f else 0.45f)
-        )
-
-        // 3. Light, balanced glass scrim so text is 100% readable while keeping the Pikachu wallpaper vivid
+        // 2. Light, balanced glass scrim so text is 100% readable while keeping the Pikachu wallpaper vivid
         Box(
             modifier = Modifier
                 .fillMaxSize()
