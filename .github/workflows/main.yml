@@ -19,24 +19,66 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Ensure Gradle Wrapper Exists
+    # 1. Automatically generate debug.keystore if not committed
+    - name: Create debug.keystore
+      run: |
+        if [ ! -f debug.keystore ]; then
+          echo "Generating debug.keystore for CI..."
+          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+        fi
+
+    # 2. Automatically generate mock google-services.json to provide default_web_client_id
+    - name: Create mock google-services.json
+      run: |
+        if [ ! -f app/google-services.json ]; then
+          echo "Generating mock google-services.json for CI..."
+          cat << 'EOF' > app/google-services.json
+        {
+          "project_info": {
+            "project_number": "123456789012",
+            "project_id": "pikafit-hunter",
+            "storage_bucket": "pikafit-hunter.appspot.com"
+          },
+          "client": [
+            {
+              "client_info": {
+                "mobilesdk_app_id": "1:123456789012:android:abcdef0123456789",
+                "android_client_info": {
+                  "package_name": "com.example"
+                }
+              },
+              "oauth_client": [
+                {
+                  "client_id": "dummy-web-client-id.apps.googleusercontent.com",
+                  "client_type": 3
+                }
+              ],
+              "api_key": [
+                {
+                  "current_key": "dummy_api_key"
+                }
+              ],
+              "services": {}
+            }
+          ],
+          "configuration_version": "1"
+        }
+        EOF
+        fi
+
+    # 3. Ensure Gradle wrapper script is executable
+    - name: Grant Execute Permission to Gradle
       run: |
         if [ ! -f gradlew ]; then
-          echo "gradlew not found. Generating wrapper..."
           gradle wrapper
         fi
         chmod +x gradlew
 
-    - name: Restore Signing Keystore
-      run: |
-        if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
-          echo "Restoring debug.keystore from debug.keystore.base64 for Google Sign-In certificate matching..."
-          base64 -d debug.keystore.base64 > debug.keystore
-        fi
-
+    # 4. Compile the APK
     - name: Build Debug APK
       run: ./gradlew assembleDebug --no-daemon --stacktrace
 
+    # 5. Upload APK artifact
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
