@@ -47,6 +47,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import com.example.R
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.Firebase
@@ -135,12 +136,6 @@ fun parseAuthError(exception: Exception?): String {
     }
 }
 
-private data class GoogleChooserAccount(
-    val displayName: String,
-    val subtitle: String,
-    val accountUid: String
-)
-
 @Composable
 fun AuthScreen(
     onAuthSuccess: (String) -> Unit
@@ -182,46 +177,11 @@ fun AuthScreen(
     var forgotErrorMsg by rememberSaveable { mutableStateOf<String?>(null) }
     var showTermsDialog by rememberSaveable { mutableStateOf(false) }
 
-    // Interactive Google Account Chooser Modal (Fallback when emulator/device has no OS Google credentials)
-    var showGoogleChooserModal by rememberSaveable { mutableStateOf(false) }
-    var customGoogleAccountInput by rememberSaveable { mutableStateOf("") }
-
-    val presetGoogleAccounts = remember {
-        listOf(
-            GoogleChooserAccount(
-                displayName = "tmcrainbow093",
-                subtitle = "tmcrainbow093@gmail.com",
-                accountUid = deriveAccountUid("tmcrainbow093@gmail.com")
-            ),
-            GoogleChooserAccount(
-                displayName = "Trainer Account 1",
-                subtitle = "trainer1@pikafit.app",
-                accountUid = "google_trainer_acct_1"
-            ),
-            GoogleChooserAccount(
-                displayName = "Trainer Account 2",
-                subtitle = "trainer2@pikafit.app",
-                accountUid = "google_trainer_acct_2"
-            )
-        )
-    }
-
-    var onboardedAccountUids by remember { mutableStateOf<Set<String>>(emptySet()) }
-    LaunchedEffect(showGoogleChooserModal) {
-        val loaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val prefs = context.getSharedPreferences("pikafit_account_onboarding_prefs", Context.MODE_PRIVATE)
-            presetGoogleAccounts.mapNotNull { acct ->
-                if (prefs.getBoolean("onboarded_${acct.accountUid}", false)) acct.accountUid else null
-            }.toSet()
-        }
-        onboardedAccountUids = loaded
-    }
-
     if (authMode > 0) {
         BackHandler { authMode-- }
     }
 
-    // Google Sign-In Routine with CredentialManager & Automatic Chooser Fallback
+    // Google Sign-In Routine with CredentialManager
     fun launchGoogleSignIn(forceAccountSwitch: Boolean = false) {
         val serverClientId = try {
             context.getString(R.string.default_web_client_id).takeIf { it.isNotBlank() }
@@ -230,8 +190,7 @@ fun AuthScreen(
         }
 
         if (serverClientId.isNullOrBlank()) {
-            statusMessage = "Google Services client configuration not found. Select a Trainer profile below."
-            showGoogleChooserModal = true
+            statusMessage = "Google Services configuration not detected. Please enter your email below to log in."
             return
         }
 
@@ -245,12 +204,18 @@ fun AuthScreen(
                     } catch (_: Exception) {}
                 }
 
-                // Build GetCredentialRequest with GetSignInWithGoogleOption as prescribed by Firebase Firestore spec
+                val googleIdOption = GetGoogleIdOption.Builder()
+                    .setFilterByAuthorizedAccounts(false)
+                    .setServerClientId(serverClientId)
+                    .setAutoSelectEnabled(false)
+                    .build()
+
                 val googleSignInOption = GetSignInWithGoogleOption.Builder(serverClientId = serverClientId)
                     .build()
 
                 val request = GetCredentialRequest.Builder()
                     .addCredentialOption(googleSignInOption)
+                    .addCredentialOption(googleIdOption)
                     .build()
 
                 val activityContext = context.findActivity() ?: context
@@ -289,39 +254,30 @@ fun AuthScreen(
                             if (uid != null) {
                                 onAuthSuccess(uid)
                             } else {
-                                showGoogleChooserModal = true
+                                statusMessage = "Sign-in succeeded without UID. Please enter your email below."
                             }
                         }
                         .addOnFailureListener { ex ->
                             isLoading = false
                             android.util.Log.w("Auth", "signInWithCredential failed", ex)
-                            statusMessage = "Google Sign-In failed: ${ex.localizedMessage ?: ex.message}. Choose account below."
-                            showGoogleChooserModal = true
+                            statusMessage = "Google Sign-In failed: ${ex.localizedMessage ?: ex.message}. Enter your email below to log in."
                         }
                 } else {
                     isLoading = false
-                    statusMessage = "No ID token received from Google Account. Choose account below."
-                    showGoogleChooserModal = true
+                    statusMessage = "No ID token received from Google Account. Enter your email below to log in."
                 }
             } catch (e: GetCredentialCancellationException) {
-                android.util.Log.w("Auth", "Google Sign-In cancelled or dismissed: ${e.message}", e)
+                android.util.Log.w("Auth", "Google Sign-In cancelled: ${e.message}", e)
                 isLoading = false
             } catch (e: NoCredentialException) {
-                // Device without OS-level Google account configured or first-time setup:
-                android.util.Log.w("Auth", "No OS Google credentials; launching interactive Google Account Chooser", e)
+                android.util.Log.w("Auth", "No OS Google credentials", e)
                 isLoading = false
-                statusMessage = "No active Google account detected on this device. Select an account or enter username below."
-                showGoogleChooserModal = true
+                statusMessage = "No Google account detected on this device. Enter your email below to log in."
             } catch (e: Exception) {
                 android.util.Log.w("Auth", "CredentialManager exception: ${e.message}", e)
                 isLoading = false
-                val rawMsg = e.localizedMessage ?: e.message ?: ""
-                if (rawMsg.contains("16:") || rawMsg.contains("canceled", ignoreCase = true) || rawMsg.contains("cancelled", ignoreCase = true)) {
-                    // User dismissed the sheet
-                } else {
-                    statusMessage = "Google Sign-In notice: $rawMsg. Select account below."
-                    showGoogleChooserModal = true
-                }
+                val rawMsg = e.localizedMessage ?: e.message ?: "Authentication service unreachable"
+                statusMessage = "Google Sign-In notice: $rawMsg. You can log in directly by entering your email below."
             }
         }
     }
@@ -799,7 +755,7 @@ fun AuthScreen(
                             modifier = Modifier
                                 .clickable {
                                     statusMessage = null
-                                    showGoogleChooserModal = true
+                                    launchGoogleSignIn(forceAccountSwitch = true)
                                 }
                                 .padding(4.dp)
                                 .testTag("switch_google_account_button")
@@ -1115,199 +1071,6 @@ fun AuthScreen(
 
                     TextButton(onClick = { authMode = 1 }) {
                         Text("Back to Account Info", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-        }
-
-        // Interactive Google Account Chooser Overlay (Triggered when device/emulator has no OS Google account configured)
-        if (showGoogleChooserModal) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.72f))
-                    .clickable { showGoogleChooserModal = false },
-                contentAlignment = Alignment.Center
-            ) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 420.dp)
-                        .clickable(enabled = false) { }
-                        .border(1.5.dp, LocalPikaYellow.copy(alpha = 0.6f), RoundedCornerShape(24.dp)),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(22.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        // Google Header
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "G",
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 20.sp,
-                                    color = Color(0xFF4285F4)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Sign in with Google",
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Choose an account to continue to PikaFit",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Preset 1-Tap Google Accounts for testing returning vs new account onboarding
-                        presetGoogleAccounts.forEach { acct ->
-                            val isOnboarded = onboardedAccountUids.contains(acct.accountUid)
-                            Surface(
-                                onClick = {
-                                    val emailToSave = if (acct.subtitle.contains("@")) acct.subtitle.trim() else "${acct.displayName.lowercase().replace(" ", "")}@pikafit.app"
-                                    context.getSharedPreferences("pikafit_auth_session_prefs", Context.MODE_PRIVATE)
-                                        .edit()
-                                        .putString("user_account_email", emailToSave)
-                                        .apply()
-                                    showGoogleChooserModal = false
-                                    onAuthSuccess(acct.accountUid)
-                                },
-                                shape = RoundedCornerShape(14.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (isOnboarded) LocalHunterGreen.copy(alpha = 0.7f) else LocalPikaYellow.copy(alpha = 0.45f)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .testTag("chooser_${acct.accountUid}")
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.AccountCircle,
-                                            contentDescription = null,
-                                            tint = if (isOnboarded) LocalHunterGreen else LocalPikaYellow,
-                                            modifier = Modifier.size(32.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Column {
-                                            Text(
-                                                text = acct.displayName,
-                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Text(
-                                                text = acct.subtitle,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                    Surface(
-                                        shape = RoundedCornerShape(50),
-                                        color = if (isOnboarded) LocalHunterGreen.copy(alpha = 0.18f) else LocalPikaYellow.copy(alpha = 0.18f)
-                                    ) {
-                                        Text(
-                                            text = if (isOnboarded) "Saved" else "New",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = if (isOnboarded) LocalHunterGreen else LocalPikaYellow,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Custom Google Account input
-                        OutlinedTextField(
-                            value = customGoogleAccountInput,
-                            onValueChange = { customGoogleAccountInput = it },
-                            label = { Text("Use another Google account") },
-                            placeholder = { Text("Enter Google email (e.g. user@gmail.com)") },
-                            leadingIcon = { Icon(Icons.Filled.PersonAdd, contentDescription = null, tint = LocalPikaAmber) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            TextButton(
-                                onClick = { showGoogleChooserModal = false },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Button(
-                                onClick = {
-                                    val (chosenUid, chosenEmail) = if (customGoogleAccountInput.isNotBlank()) {
-                                        val input = customGoogleAccountInput.trim()
-                                        val emailToSave = if (input.contains("@")) input else "$input@gmail.com"
-                                        Pair(deriveAccountUid(input), emailToSave)
-                                    } else {
-                                        val first = presetGoogleAccounts.first()
-                                        Pair(first.accountUid, first.subtitle)
-                                    }
-                                    context.getSharedPreferences("pikafit_auth_session_prefs", Context.MODE_PRIVATE)
-                                        .edit()
-                                        .putString("user_account_email", chosenEmail)
-                                        .apply()
-                                    customGoogleAccountInput = ""
-                                    showGoogleChooserModal = false
-                                    onAuthSuccess(chosenUid)
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = LocalPikaYellow,
-                                    contentColor = LocalCharcoal
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1.4f)
-                            ) {
-                                Text("Continue", fontWeight = FontWeight.Bold)
-                            }
-                        }
                     }
                 }
             }
