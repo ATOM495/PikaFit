@@ -44,26 +44,46 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         configureAppCheck(applicationContext, intent)
 
+        // Read immediately without blocking the Choreographer frame loop
+        val initialUserId = try {
+            Firebase.auth.currentUser?.uid
+        } catch (_: Exception) {
+            null
+        } ?: applicationContext
+            .getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
+            .getString("active_account_id", null)
+            ?.takeIf { it.isNotBlank() && !it.contains("@") }
+
         setContent {
             val scope = rememberCoroutineScope()
             var isDarkMode by rememberSaveable { mutableStateOf(true) }
-            var activeAccountId by rememberSaveable { mutableStateOf<String?>(null) }
-            var isWindowSynced by remember { mutableStateOf(false) }
+            var activeAccountId by rememberSaveable { mutableStateOf(initialUserId) }
 
-            // Let WindowManager and ViewRootImpl finish their initial SurfaceSyncGroup transactions
-            // (wmsSync-VRI[MainActivity]#2 and VRI[MainActivity]#3) in <16ms before mounting heavy UI or Firebase I/O.
+            // Observe Firebase Auth state updates
             LaunchedEffect(Unit) {
-                withFrameNanos { }
-                withFrameNanos { }
-                val restoredAccountId = withContext(Dispatchers.IO) {
-                    val firebaseUid = try {
-                        Firebase.auth.currentUser?.uid
-                    } catch (_: Exception) {
-                        null
+                Firebase.auth.authStateFlow().collect { user ->
+                    val uid = user?.uid
+                    if (!uid.isNullOrBlank()) {
+                        try {
+                            user.getIdToken(false).await()
+                        } catch (_: Exception) {}
+                        activeAccountId = uid
+                        withContext(Dispatchers.IO) {
+                            applicationContext
+                                .getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
+                                .edit()
+                                .putString("active_account_id", uid)
+                                .apply()
+                        }
                     }
+                }
+            }
+
+            // Clean legacy/stale SharedPreferences in the background without holding the main thread frame
+            LaunchedEffect(Unit) {
+                withContext(Dispatchers.IO) {
                     val prefs = applicationContext.getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
                     val onboardingPrefs = applicationContext.getSharedPreferences("pikafit_account_onboarding_prefs", MODE_PRIVATE)
-
                     val existingCachedAccount = prefs.getString("active_account_id", null)
                     if (existingCachedAccount != null && existingCachedAccount.contains("@")) {
                         prefs.edit().remove("active_account_id").apply()
@@ -74,43 +94,6 @@ class MainActivity : ComponentActivity() {
                         staleKeys.forEach { editor.remove(it) }
                         editor.apply()
                     }
-                    if (!firebaseUid.isNullOrBlank()) {
-                        prefs.edit().putString("active_account_id", firebaseUid).apply()
-                        firebaseUid
-                    } else {
-                        val cached = prefs.getString("active_account_id", null)
-                        if (cached != null && (cached.startsWith("hunter_uid_") || cached.startsWith("google_trainer_acct_"))) {
-                            cached
-                        } else {
-                            null
-                        }
-                    }
-                }
-                if (activeAccountId.isNullOrBlank() && !restoredAccountId.isNullOrBlank()) {
-                    activeAccountId = restoredAccountId
-                }
-                delay(48L)
-                isWindowSynced = true
-            }
-
-            if (isWindowSynced) {
-                LaunchedEffect(Unit) {
-                    Firebase.auth.authStateFlow().collect { user ->
-                        val uid = user?.uid
-                        if (!uid.isNullOrBlank()) {
-                            try {
-                                user.getIdToken(false).await()
-                            } catch (_: Exception) {}
-                            activeAccountId = uid
-                            withContext(Dispatchers.IO) {
-                                applicationContext
-                                    .getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
-                                    .edit()
-                                    .putString("active_account_id", uid)
-                                    .apply()
-                            }
-                        }
-                    }
                 }
             }
 
@@ -119,14 +102,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    if (!isWindowSynced) {
-                        // Ultra-fast initial surface so wmsSync-VRI[MainActivity]#2 & #3 complete immediately
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(if (isDarkMode) Color(0xFF0A0D14) else Color(0xFFF8FAFC))
-                        )
-                    } else if (activeAccountId.isNullOrBlank()) {
+                    if (activeAccountId.isNullOrBlank()) {
                         AuthScreen(
                             onAuthSuccess = { signedInAccountId ->
                                 val resolvedId = try {
