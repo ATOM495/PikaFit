@@ -176,6 +176,7 @@ fun PikachuTutorialDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
+                        modifier = Modifier.weight(1f, fill = false),
                         color = step.accentColor.copy(alpha = 0.16f),
                         shape = RoundedCornerShape(50),
                         border = BorderStroke(1.5.dp, step.accentColor)
@@ -185,20 +186,27 @@ fun PikachuTutorialDialog(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelMedium.copy(
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.sp
+                                fontSize = 12.5.sp
                             ),
-                            color = step.accentColor
+                            color = step.accentColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
+                    Spacer(modifier = Modifier.width(8.dp))
+
                     TextButton(
                         onClick = onDismiss,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        modifier = Modifier.wrapContentWidth(),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
                     ) {
                         Text(
                             text = "SKIP",
                             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
-                            color = TextSecondary
+                            color = TextSecondary,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -272,13 +280,19 @@ fun PikachuTutorialDialog(
                         OutlinedButton(
                             onClick = { currentStep-- },
                             modifier = Modifier
-                                .weight(0.4f)
+                                .widthIn(min = 94.dp)
                                 .height(54.dp),
-                            shape = RoundedCornerShape(16.dp)
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)
                         ) {
                             Text(
                                 text = "BACK",
-                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                                maxLines = 1,
+                                softWrap = false,
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 14.sp
+                                ),
                                 color = TextPrimary
                             )
                         }
@@ -453,7 +467,7 @@ fun AppUpdateDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Download URL Destination preview card
-                val cleanUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/" }
+                val cleanUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -697,21 +711,31 @@ fun PikaCoachPopupDialog(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
                         onClick = onRefreshTip,
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier
+                            .weight(0.95f)
+                            .heightIn(min = 50.dp),
                         shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         border = BorderStroke(1.5.dp, borderColor)
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
                             contentDescription = "New Gemini Tip",
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(17.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("New Tip", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "New Tip",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.5.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
 
                     Button(
@@ -721,15 +745,22 @@ fun PikaCoachPopupDialog(
                         },
                         modifier = Modifier
                             .weight(1.25f)
-                            .height(48.dp)
+                            .heightIn(min = 50.dp)
                             .testTag("pika_coach_action_button"),
                         shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = PikaCheekCrimson,
                             contentColor = Color.White
                         )
                     ) {
-                        Text("Let's Go, Pika!", fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            text = "Let's Go, Pika!",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.5.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }
@@ -1060,11 +1091,11 @@ fun EmbeddedDashboard(
                         ) {
                             // Left: Crisp White Donut Progress Ring with large bold center numbers
                             Box(
-                                modifier = Modifier.size(134.dp),
+                                modifier = Modifier.size(120.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Canvas(modifier = Modifier.fillMaxSize()) {
-                                    val strokeWidth = 11.dp.toPx()
+                                    val strokeWidth = 10.dp.toPx()
                                     // Subtle translucent white track
                                     drawArc(
                                         color = Color.White.copy(alpha = 0.26f),
@@ -1073,22 +1104,24 @@ fun EmbeddedDashboard(
                                         useCenter = false,
                                         style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                                     )
-                                    // Crisp solid white progress arc (shows minimum 8% arc when 0 so ring cap is visible)
-                                    val displaySweep = (360f * calFraction).coerceAtLeast(24f)
-                                    drawArc(
-                                        color = Color.White,
-                                        startAngle = -90f,
-                                        sweepAngle = displaySweep,
-                                        useCenter = false,
-                                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                                    )
+                                    // Crisp solid white progress arc (only drawn when progress > 0)
+                                    if (calFraction > 0.001f) {
+                                        val displaySweep = (360f * calFraction.coerceIn(0f, 1f)).coerceAtLeast(8f)
+                                        drawArc(
+                                            color = Color.White,
+                                            startAngle = -90f,
+                                            sweepAngle = displaySweep,
+                                            useCenter = false,
+                                            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                                        )
+                                    }
                                 }
 
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
                                         text = "${vit.caloriesLogged}",
                                         style = MaterialTheme.typography.displayMedium.copy(
-                                            fontSize = 29.sp,
+                                            fontSize = 27.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
                                         color = Color.White
@@ -1096,7 +1129,7 @@ fun EmbeddedDashboard(
                                     Text(
                                         text = "Kcal",
                                         style = MaterialTheme.typography.titleMedium.copy(
-                                            fontSize = 16.sp,
+                                            fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold
                                         ),
                                         color = Color.White.copy(alpha = 0.90f)
@@ -1104,7 +1137,7 @@ fun EmbeddedDashboard(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.width(18.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
 
                             // Right: Bold White "Walk & Energy", Goal, and Sub-metrics (Water & Protein)
                             Column(
@@ -1118,7 +1151,7 @@ fun EmbeddedDashboard(
                                     Text(
                                         text = "Energy & Walk",
                                         style = MaterialTheme.typography.headlineMedium.copy(
-                                            fontSize = 22.sp,
+                                            fontSize = 21.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
                                         color = Color.White
@@ -1128,52 +1161,60 @@ fun EmbeddedDashboard(
                                 Text(
                                     text = "Goal: ${vit.caloriesTarget} kcal",
                                     style = MaterialTheme.typography.titleMedium.copy(
-                                        fontSize = 17.sp,
+                                        fontSize = 16.sp,
                                         fontWeight = FontWeight.SemiBold
                                     ),
                                     color = Color.White.copy(alpha = 0.92f)
                                 )
-                                Spacer(modifier = Modifier.height(14.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column {
+                                    Column(modifier = Modifier.weight(1.15f)) {
                                         Text(
                                             text = "${stam.waterLiters}L / ${stam.targetLiters}L",
                                             style = MaterialTheme.typography.titleMedium.copy(
-                                                fontSize = 16.sp,
+                                                fontSize = 15.sp,
                                                 fontWeight = FontWeight.ExtraBold
                                             ),
-                                            color = Color.White
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                         Text(
                                             text = "Water",
                                             style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontSize = 14.sp,
+                                                fontSize = 13.5.sp,
                                                 fontWeight = FontWeight.Medium
                                             ),
-                                            color = Color.White.copy(alpha = 0.85f)
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
 
-                                    Column {
+                                    Column(modifier = Modifier.weight(0.85f)) {
                                         Text(
                                             text = "${vit.proteinG.toInt()}g",
                                             style = MaterialTheme.typography.titleMedium.copy(
-                                                fontSize = 16.sp,
+                                                fontSize = 15.sp,
                                                 fontWeight = FontWeight.ExtraBold
                                             ),
-                                            color = Color.White
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                         Text(
                                             text = "Protein",
                                             style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontSize = 14.sp,
+                                                fontSize = 13.5.sp,
                                                 fontWeight = FontWeight.Medium
                                             ),
-                                            color = Color.White.copy(alpha = 0.85f)
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                 }
@@ -1384,15 +1425,17 @@ fun EmbeddedDashboard(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         horizons.forEachIndexed { idx, label ->
                             val isSelected = selectedGoalHorizon == idx
                             Text(
                                 text = label,
                                 modifier = Modifier.clickable { selectedGoalHorizon = idx },
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontSize = 19.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontSize = 16.sp,
                                     fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
                                 ),
                                 color = if (isSelected) headingTealOrWhite else secondaryDynamic
@@ -1400,7 +1443,9 @@ fun EmbeddedDashboard(
                             if (idx < horizons.lastIndex) {
                                 Text(
                                     text = "•",
-                                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
                                     color = secondaryDynamic
                                 )
                             }
@@ -1427,11 +1472,11 @@ fun EmbeddedDashboard(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Goal Bar 2: Calories / Steps per day (Amber Gold Track + Dot)
+                    // Goal Bar 2: Calories / Steps per day (Amber Gold Track)
                     ReferenceGoalProgressRow(
                         label = if (selectedGoalHorizon == 0) "Calories & steps per day" else "Calories target (${horizons[selectedGoalHorizon]})",
                         valueText = "${vit.caloriesLogged * horizonMultiplier} / ${vit.caloriesTarget * horizonMultiplier} kcal",
-                        progress = calFraction.coerceAtLeast(0.12f),
+                        progress = calFraction.coerceIn(0f, 1f),
                         barColor = Color(0xFFF59E0B),
                         textColor = primaryDynamic,
                         subTextColor = secondaryDynamic
@@ -1439,11 +1484,11 @@ fun EmbeddedDashboard(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Goal Bar 3: Drinking water (Deep Indigo/Purple Track + Dot)
+                    // Goal Bar 3: Drinking water (Deep Indigo/Purple Track)
                     ReferenceGoalProgressRow(
                         label = "Drinking water",
                         valueText = "${(stam.waterLiters * horizonMultiplier * 10.0).roundToInt() / 10.0}L / ${(stam.targetLiters * horizonMultiplier * 10.0).roundToInt() / 10.0}L",
-                        progress = waterFraction.coerceAtLeast(0.15f),
+                        progress = waterFraction.coerceIn(0f, 1f),
                         barColor = PikaDeepIndigo,
                         textColor = primaryDynamic,
                         subTextColor = secondaryDynamic
@@ -1770,7 +1815,7 @@ private fun ReferenceGoalProgressRow(
     textColor: Color,
     subTextColor: Color
 ) {
-    val clamped = progress.coerceIn(0.08f, 1f)
+    val safeProgress = progress.coerceIn(0f, 1f)
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1779,63 +1824,39 @@ private fun ReferenceGoalProgressRow(
         ) {
             Text(
                 text = label,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 17.sp,
+                    fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold
                 ),
                 color = textColor
             )
             Text(
                 text = valueText,
+                maxLines = 1,
+                softWrap = false,
                 style = MaterialTheme.typography.bodyLarge.copy(
-                    fontSize = 15.sp,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.ExtraBold
                 ),
                 color = subTextColor
             )
         }
         Spacer(modifier = Modifier.height(10.dp))
-        Canvas(
+        LinearProgressIndicator(
+            progress = { safeProgress },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(14.dp)
-        ) {
-            val w = size.width
-            val cy = size.height / 2f
-            val trackStroke = 4.dp.toPx()
-            val activeStroke = 5.dp.toPx()
-
-            // Background full track line
-            drawLine(
-                color = barColor.copy(alpha = 0.20f),
-                start = Offset(0f, cy),
-                end = Offset(w, cy),
-                strokeWidth = trackStroke,
-                cap = StrokeCap.Round
-            )
-
-            // Active progress bar line
-            val endX = (w * clamped).coerceIn(8.dp.toPx(), w - 8.dp.toPx())
-            drawLine(
-                color = barColor,
-                start = Offset(0f, cy),
-                end = Offset(endX, cy),
-                strokeWidth = activeStroke,
-                cap = StrokeCap.Round
-            )
-
-            // Circular thumb dot at the end of the progress bar (matching 3rd screen in reference image)
-            drawCircle(
-                color = barColor.copy(alpha = 0.28f),
-                radius = 9.dp.toPx(),
-                center = Offset(endX, cy)
-            )
-            drawCircle(
-                color = barColor,
-                radius = 5.5.dp.toPx(),
-                center = Offset(endX, cy)
-            )
-        }
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp)),
+            color = barColor,
+            trackColor = barColor.copy(alpha = 0.18f),
+            strokeCap = StrokeCap.Round
+        )
     }
 }
 
@@ -2109,8 +2130,11 @@ fun MainHunterScreen(
                                 Text(
                                     text = label,
                                     maxLines = 1,
-                                    style = MaterialTheme.typography.labelLarge.copy(
-                                        fontSize = 11.sp,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Visible,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 10.sp,
+                                        letterSpacing = (-0.2).sp,
                                         fontWeight = if (selectedTab == idx) FontWeight.ExtraBold else FontWeight.SemiBold
                                     )
                                 )
@@ -2240,7 +2264,8 @@ fun MainHunterScreen(
             }
         }
 
-        val isNewVersionAvailable = releaseInfo.latestVersionCode > 1L &&
+        val currentVersionCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 1L }
+        val isNewVersionAvailable = releaseInfo.latestVersionCode > currentVersionCode &&
             dismissedUpdateVersion != releaseInfo.latestVersionCode
 
         if (isNewVersionAvailable) {
@@ -2251,7 +2276,7 @@ fun MainHunterScreen(
                     viewModel.dismissUpdatePrompt(releaseInfo.latestVersionCode)
                 },
                 onDownload = {
-                    val rawUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/" }
+                    val rawUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
                     val targetUri = Uri.parse(
                         if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) "https://$rawUrl" else rawUrl
                     )

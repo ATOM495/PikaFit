@@ -716,6 +716,66 @@ object SmartFoodNutritionEngine {
             gramsPerUnit = 150,
             unitNameSingular = "serving",
             unitNamePlural = "servings"
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("gulab jamun", "jamun", "kala jamun"),
+            displayName = "Gulab Jamun",
+            description = "Traditional Indian sweet made of fried milk-solid balls (khoya) steeped in cardamom-scented sugar syrup. High in rapid-digesting simple carbs and dairy fats with moderate protein; track pieces to fit your daily calories.",
+            caloriesPer100g = 375,
+            carbsPer100g = 52.0,
+            fatsPer100g = 16.5,
+            proteinPer100g = 4.8,
+            fiberPer100g = 0.5,
+            micronutrients = "Calcium (110mg), Phosphorus, Potassium, Quick Glycogen Glucose",
+            pairingTip = "1 standard piece is ~40g (~150 kcal). Best enjoyed right after a high-intensity resistance workout to replenish glycogen or paired with a lean protein meal.",
+            gramsPerUnit = 40,
+            unitNameSingular = "piece",
+            unitNamePlural = "pieces"
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("rasgulla", "roshogolla", "rasbari"),
+            displayName = "Rasgulla",
+            description = "Spongy cottage-cheese (chhena) dumplings cooked in light sugar syrup — lower in fat than fried sweets with healthy milk casein protein.",
+            caloriesPer100g = 186,
+            carbsPer100g = 38.0,
+            fatsPer100g = 1.5,
+            proteinPer100g = 4.2,
+            fiberPer100g = 0.0,
+            micronutrients = "Calcium (90mg), Vitamin D, Dairy Amino Acids",
+            pairingTip = "1 piece is ~50g (~93 kcal). Squeeze out excess syrup to cut calories by 30%.",
+            gramsPerUnit = 50,
+            unitNameSingular = "piece",
+            unitNamePlural = "pieces"
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("jalebi", "imarti"),
+            displayName = "Jalebi",
+            description = "Spiral-shaped deep-fried fermented batter soaked in saffron sugar syrup — quick-absorbing simple sugars ideal for glycogen restoration.",
+            caloriesPer100g = 390,
+            carbsPer100g = 68.0,
+            fatsPer100g = 12.0,
+            proteinPer100g = 2.5,
+            fiberPer100g = 0.4,
+            micronutrients = "Fast Simple Sugars, Potassium, Sodium",
+            pairingTip = "Limit to 1–2 spirals (~50g = ~195 kcal) and pair with a protein shake or boiled eggs.",
+            gramsPerUnit = 30,
+            unitNameSingular = "spiral",
+            unitNamePlural = "spirals"
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("kaju katli", "kaju barfi", "barfi", "laddu", "ladoo", "halwa", "mysore pak", "mithai"),
+            displayName = "Indian Sweet / Mithai (Kaju Katli / Laddu)",
+            description = "Rich festive Indian sweet made with dry fruits (cashews/almonds), besan, or milk solids and ghee — energy-dense with natural nuts or dairy fats.",
+            caloriesPer100g = 430,
+            carbsPer100g = 52.0,
+            fatsPer100g = 21.0,
+            proteinPer100g = 7.5,
+            fiberPer100g = 1.8,
+            micronutrients = "Magnesium, Healthy Nut Fats, Calcium, Zinc, Iron",
+            pairingTip = "1 diamond piece of Kaju Katli is ~20g (~86 kcal). Enjoy as a pre-workout burst of sustained fuel.",
+            gramsPerUnit = 25,
+            unitNameSingular = "piece",
+            unitNamePlural = "pieces"
         )
     )
 
@@ -1033,16 +1093,52 @@ object SmartFoodNutritionEngine {
         proteinLogged: Double
     ): String {
         val qLower = query.lowercase()
-        val isDietPlanRequest = qLower.contains("diet plan") ||
+        val isWeightGainRequest = qLower.contains("weight gain") ||
+            qLower.contains("gain weight") ||
+            qLower.contains("bulk") ||
+            qLower.contains("bulking") ||
+            qLower.contains("hypertrophy")
+        val isWeightLossRequest = qLower.contains("weight loss") ||
+            qLower.contains("fat loss") ||
+            qLower.contains("cutting") ||
+            qLower.contains("shred")
+        val isDietPlanRequest = isWeightGainRequest ||
+            isWeightLossRequest ||
+            qLower.contains("diet plan") ||
             qLower.contains("meal plan") ||
             qLower.contains("full day") ||
             qLower.contains("routine") ||
-            qLower.contains("chart")
+            qLower.contains("chart") ||
+            (qLower.contains("plan") && !qLower.contains("food"))
 
         val calRemaining = (caloriesTarget - caloriesLogged).coerceAtLeast(0)
         val proRemaining = (bio.recommendedProteinG - proteinLogged.toInt()).coerceAtLeast(0)
 
-        return if (isDietPlanRequest) {
+        return if (isWeightGainRequest) {
+            val surplusTarget = (caloriesTarget + 350).coerceAtLeast(2600)
+            val bulkProtein = (bio.weightKg * 2.0).toInt().coerceAtLeast(125)
+            """
+            Lean Muscle & Weight Gain Plan (Pikachu Bulk Blueprint) - Structured progressive overload diet tailored for Trainer ${bio.hunterName} (${bio.weightKg} kg • Target: $surplusTarget kcal & ${bulkProtein}g Protein).
+
+            Nutritional Breakdown (Caloric Surplus Hypertrophy Split) :-
+            • Daily Calorie Target - $surplusTarget kcal (+350 kcal controlled surplus for maximum muscle protein synthesis with minimal adipose gain)
+            • Protein - ${bulkProtein}g (2.0g/kg body weight for repairing muscle micro-tears)
+            • Carbs - ${(surplusTarget * 0.50 / 4).toInt()}g (50% complex carbs for sustained glycogen & heavy lifting power)
+            • Fats - ${(surplusTarget * 0.25 / 9).toInt()}g (25% healthy lipids from nuts, whole eggs, and ghee for hormonal health)
+            • Hydration Target - 3.8L–4.2L Water (hyper-hydrated muscles perform 15% better)
+
+            Daily Hypertrophy Meal Blueprint :-
+            • Meal 1 (Breakfast - 8:00 AM) - 4 Whole Boiled Eggs or 150g Paneer + 3 Chapatis/Dosas + 1 Glass Milk with Oats & Banana (~680 kcal | 38g Protein | 84g Carbs | 20g Fat)
+            • Meal 2 (Mid-Morning Snack - 11:30 AM) - 1 Bowl Thick Curd / Greek Yogurt + Handful of Almonds & Walnuts + 1 Seasonal Fruit (~290 kcal | 12g Protein | 28g Carbs | 14g Fat)
+            • Meal 3 (Power Lunch - 1:30 PM) - 1.5 Bowls Steamed Rice or 4 Chapatis + 180g Chicken Breast / Tofu / Paneer + 1 Bowl Thick Dal + Veggies (~780 kcal | 54g Protein | 92g Carbs | 18g Fat)
+            • Meal 4 (Pre-Workout Surge - 5:00 PM) - 2 Slices Whole Wheat Bread with 2 tbsp Natural Peanut Butter + 1 Banana + Black Coffee (~390 kcal | 13g Protein | 48g Carbs | 16g Fat)
+            • Meal 5 (Post-Workout Dinner - 8:30 PM) - 180g Chicken / Fish / Soya Chunks + 3 Rotis or 1 Bowl Rice + Mixed Greens & Ghee (~690 kcal | 52g Protein | 68g Carbs | 18g Fat)
+
+            Tactical Progression Rules :-
+            1. Progressive Overload: Add 1 rep or +1.25kg to every compound lift each week.
+            2. Sleep Hygiene: Log 7.5–8 hours of uninterrupted sleep for peak testosterone and growth hormone recovery.
+            """.trimIndent()
+        } else if (isDietPlanRequest) {
             """
             ${bio.goalDisplayLabel} Diet Plan - Structured daily nutrition blueprint tailored for Trainer ${bio.hunterName} (${bio.weightKg} kg • Target: $caloriesTarget kcal & ${bio.recommendedProteinG}g Protein).
 

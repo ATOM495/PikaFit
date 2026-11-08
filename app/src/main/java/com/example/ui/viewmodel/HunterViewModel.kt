@@ -420,7 +420,12 @@ class HunterViewModel(
         }
     }
 
-    fun buildContextAwareFallbackTip(state: HunterSystemState): PikaCoachTip {
+    private var tipVariationCounter: Int = 0
+
+    fun buildContextAwareFallbackTip(
+        state: HunterSystemState,
+        variationIndex: Int = tipVariationCounter
+    ): PikaCoachTip {
         val bio = state.biometrics
         val vit = state.statBreakdown.vitality
         val stam = state.statBreakdown.stamina
@@ -429,55 +434,270 @@ class HunterViewModel(
         val calRemaining = (vit.caloriesTarget - vit.caloriesLogged).coerceAtLeast(0)
         val proTarget = bio.recommendedProteinG
         val proRemaining = (proTarget - vit.proteinG.toInt()).coerceAtLeast(0)
+        val waterLeft = ((stam.targetLiters - stam.waterLiters) * 10).toInt() / 10.0
+
+        val slot = (variationIndex.coerceAtLeast(0)) % 6
 
         return when {
-            !ps.checkedInToday && vit.caloriesLogged == 0 && str.exercisesLogged.isEmpty() -> PikaCoachTip(
-                headline = "Pika-Alert! Zero Activity Logged Today ⚡",
-                advice = "Hey Trainer ${bio.hunterName}! You haven't logged a meal or workout set yet today. Opening PikaFit alone doesn't count toward your ${ps.streakDays}-day streak — log your first meal or set now to spark Day ${ps.streakDays + 1} toward your ${bio.goalDisplayLabel} goal!",
-                actionLabel = "Log +350 kcal Starter Meal",
-                actionType = "LOG_FOOD",
-                coachMood = "ALERT_INACTIVE"
-            )
-            str.exercisesLogged.isEmpty() -> PikaCoachTip(
-                headline = "Nutrition Flowing — Time to Lift, Pika! 💪",
-                advice = "Great job logging ${vit.caloriesLogged} kcal today, ${bio.hunterName}! To maximize muscle protein synthesis for your ${bio.goalDisplayLabel} plan at ${bio.weightKg} kg, knock out 3 progressive overload sets now.",
-                actionLabel = "Log Workout Set Now",
-                actionType = "LOG_WORKOUT",
-                coachMood = "TACTICAL"
-            )
-            calRemaining > 400 -> PikaCoachTip(
-                headline = "Fuel Gap: $calRemaining kcal & ${proRemaining}g Protein Left!",
-                advice = "Trainer ${bio.hunterName}, your workout is recorded, but you still need $calRemaining kcal and ~${proRemaining}g protein to hit your ${vit.caloriesTarget} kcal ${bio.goalDisplayLabel} target.",
-                actionLabel = "Quick Log +350 kcal (28g P)",
-                actionType = "LOG_FOOD",
-                coachMood = "ENERGIZED"
-            )
-            stam.waterLiters < stam.targetLiters -> PikaCoachTip(
-                headline = "Hydration Check: ${stam.waterLiters}L / ${stam.targetLiters}L 💧",
-                advice = "Almost at peak output, ${bio.hunterName}! Drink ${((stam.targetLiters - stam.waterLiters) * 10).toInt() / 10.0}L more water to support cellular glycogen storage and joint recovery.",
-                actionLabel = "Drink +0.5L Water",
-                actionType = "LOG_WATER",
-                coachMood = "ENERGIZED"
-            )
-            else -> PikaCoachTip(
-                headline = "100,000 Volts! All Daily Targets Crushed ⚡",
-                advice = "Phenomenal discipline, Trainer ${bio.hunterName}! You cleared ${vit.caloriesLogged} kcal, ${stam.waterLiters}L water, and ${str.exercisesLogged.size} exercises with an active ${ps.streakDays}-day streak!",
-                actionLabel = "Keep Up The Momentum!",
-                actionType = "KEEP_GOING",
-                coachMood = "PROUD"
-            )
+            !ps.checkedInToday && vit.caloriesLogged == 0 && str.exercisesLogged.isEmpty() -> {
+                val inactivePool = listOf(
+                    PikaCoachTip(
+                        headline = "Pika-Alert! Zero Activity Logged Today ⚡",
+                        advice = "Hey Trainer ${bio.hunterName}! You haven't logged a meal or workout set yet today. Opening PikaFit alone doesn't count toward your ${ps.streakDays}-day streak — log your first meal or set now to spark Day ${ps.streakDays + 1} toward your ${bio.goalDisplayLabel} goal!",
+                        actionLabel = "Log +350 kcal Starter Meal",
+                        actionType = "LOG_FOOD",
+                        coachMood = "ALERT_INACTIVE"
+                    ),
+                    PikaCoachTip(
+                        headline = "Anabolic Window Open, ${bio.hunterName}! 🍳",
+                        advice = "After overnight fasting, muscle protein breakdown exceeds synthesis until your first leucine-rich meal. Kickstart your ${vit.caloriesTarget} kcal ${bio.goalDisplayLabel} blueprint with 30g+ protein (eggs, paneer, or Greek yogurt) right now!",
+                        actionLabel = "Log Morning Protein Meal",
+                        actionType = "LOG_FOOD",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Quick-Attack Workout Challenge! 💪",
+                        advice = "Don't wait for motivation, ${bio.hunterName} — action creates momentum! Knock out 3 sets of Pushups, Lateral Raises, or Squats right now to lock in your Day ${ps.streakDays + 1} streak and trigger mTOR hypertrophy signaling.",
+                        actionLabel = "Start 3-Set Progressive Lift",
+                        actionType = "LOG_WORKOUT",
+                        coachMood = "TACTICAL"
+                    ),
+                    PikaCoachTip(
+                        headline = "Cellular Hydration Ignition (${stam.targetLiters}L Goal) 💧",
+                        advice = "Even 2% dehydration drops strength output by 10% and slows nutrient transport. Drink 500ml water right now while planning your first meal to prime your muscles for ${bio.goalDisplayLabel}!",
+                        actionLabel = "Drink +0.5L Water Now",
+                        actionType = "LOG_WATER",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Protein Pacing Strategy: ${proTarget}g Target 🎯",
+                        advice = "At ${bio.weightKg} kg (BMI ${bio.bmi}), hitting ${proTarget}g protein is effortless when split into 4 feedings of ~${(proTarget / 4).coerceAtLeast(25)}g. Log your first meal in Smart Grams to get ahead of the curve!",
+                        actionLabel = "Log First Meal (+350 kcal)",
+                        actionType = "LOG_FOOD",
+                        coachMood = "TACTICAL"
+                    ),
+                    PikaCoachTip(
+                        headline = "100,000 Volts of Discipline Awaits! ⚡",
+                        advice = "Every Gym Leader builds their physique one verified day at a time. You need ${vit.caloriesTarget} kcal and 1 workout session today — tap below to log your first entry and claim +100 XP!",
+                        actionLabel = "Verify Day ${ps.streakDays + 1} Streak Now",
+                        actionType = "LOG_FOOD",
+                        coachMood = "ALERT_INACTIVE"
+                    )
+                )
+                inactivePool[slot]
+            }
+            str.exercisesLogged.isEmpty() -> {
+                val workoutPool = listOf(
+                    PikaCoachTip(
+                        headline = "Nutrition Flowing — Time to Lift, Pika! 💪",
+                        advice = "Great job logging ${vit.caloriesLogged} kcal today, ${bio.hunterName}! To direct those calories into skeletal muscle rather than fat storage at ${bio.weightKg} kg, knock out 3 progressive overload sets now.",
+                        actionLabel = "Log Workout Set Now",
+                        actionType = "LOG_WORKOUT",
+                        coachMood = "TACTICAL"
+                    ),
+                    PikaCoachTip(
+                        headline = "Glycogen Primed (${vit.caloriesLogged} kcal Logged) ⚡",
+                        advice = "Your bloodstream has active energy from today's meals! Use this pre-workout fuel to add +1 rep or +2.5kg over last session's numbers for maximum mechanical tension.",
+                        actionLabel = "Open Workout Logger",
+                        actionType = "LOG_WORKOUT",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Compound Lift Power Hour, ${bio.hunterName}! 🏋️",
+                        advice = "Multi-joint movements (Pushups, Rows, Squats, Overhead Press) recruit the most motor units and burn the highest calories. Log 3 sets today to boost your ${bio.goalDisplayLabel} progress!",
+                        actionLabel = "Log Compound Exercise",
+                        actionType = "LOG_WORKOUT",
+                        coachMood = "TACTICAL"
+                    ),
+                    PikaCoachTip(
+                        headline = "Mind-Muscle Connection Tip 🧠",
+                        advice = "Control the eccentric (lowering) phase for 2–3 full seconds on every rep today, ${bio.hunterName}. Slow eccentrics recruit high-threshold muscle fibers and accelerate lean mass gains!",
+                        actionLabel = "Start Controlled Sets",
+                        actionType = "LOG_WORKOUT",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Protein + Resistance = Hypertrophy 🔥",
+                        advice = "You've logged ${vit.proteinG.toInt()}g protein so far! Pair that dietary amino acid pool with resistance training today so your muscles absorb every gram for growth.",
+                        actionLabel = "Log Today's Workout",
+                        actionType = "LOG_WORKOUT",
+                        coachMood = "TACTICAL"
+                    ),
+                    PikaCoachTip(
+                        headline = "Unleash Pikachu's Iron Tail Session! ⚡",
+                        advice = "Even a focused 20-minute upper or lower body session spikes growth hormone and insulin sensitivity. Head to the Workout tab and record your sets!",
+                        actionLabel = "Go to Workout Tab",
+                        actionType = "LOG_WORKOUT",
+                        coachMood = "ENERGIZED"
+                    )
+                )
+                workoutPool[slot]
+            }
+            calRemaining > 400 -> {
+                val fuelPool = listOf(
+                    PikaCoachTip(
+                        headline = "Fuel Gap: $calRemaining kcal & ${proRemaining}g Protein Left!",
+                        advice = "Trainer ${bio.hunterName}, your workout is recorded, but you still need $calRemaining kcal and ~${proRemaining}g protein to hit your ${vit.caloriesTarget} kcal ${bio.goalDisplayLabel} target.",
+                        actionLabel = "Quick Log +350 kcal (28g P)",
+                        actionType = "LOG_FOOD",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Post-Workout Recovery Meal Needed 🍗",
+                        advice = "After ${str.exercisesLogged.size} exercise(s), muscle insulin sensitivity is elevated! Eat a high-protein meal (150g chicken/paneer/eggs + rice or roti) to close your ${proRemaining}g protein gap.",
+                        actionLabel = "Log Post-Workout Meal",
+                        actionType = "LOG_FOOD",
+                        coachMood = "TACTICAL"
+                    ),
+                    PikaCoachTip(
+                        headline = "Protect Your Muscle Gains, ${bio.hunterName}! 🛡️",
+                        advice = "Falling $calRemaining kcal short on a ${bio.goalDisplayLabel} plan can stall recovery. Add a nutrient-dense snack like Greek yogurt, bananas with peanut butter, or boiled eggs now!",
+                        actionLabel = "Add +350 kcal Recovery Fuel",
+                        actionType = "LOG_FOOD",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Leucine Threshold Check: ${vit.proteinG.toInt()}g / ${proTarget}g 🥩",
+                        advice = "You're ${proRemaining}g away from your daily protein goal! Aim for 30–40g protein in your next meal to maximally stimulate muscle repair overnight.",
+                        actionLabel = "Log High-Protein Meal",
+                        actionType = "LOG_FOOD",
+                        coachMood = "TACTICAL"
+                    ),
+                    PikaCoachTip(
+                        headline = "Smart Grams Macro Tip ⚡",
+                        advice = "Not sure what to eat for your remaining $calRemaining kcal? Ask PikaBot or use the Smart Grams converter in the Workout/Diet tab to log exact portions!",
+                        actionLabel = "Quick Log +350 kcal",
+                        actionType = "LOG_FOOD",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Nighttime Casein & Recovery Prep 🌙",
+                        advice = "Having curd, paneer, milk, or lean protein in your evening meal supplies slow-releasing amino acids while you sleep. Close your $calRemaining kcal gap strong!",
+                        actionLabel = "Log Evening Nutrition",
+                        actionType = "LOG_FOOD",
+                        coachMood = "TACTICAL"
+                    )
+                )
+                fuelPool[slot]
+            }
+            stam.waterLiters < stam.targetLiters -> {
+                val waterPool = listOf(
+                    PikaCoachTip(
+                        headline = "Hydration Check: ${stam.waterLiters}L / ${stam.targetLiters}L 💧",
+                        advice = "Almost at peak output, ${bio.hunterName}! Drink ${waterLeft}L more water to support cellular glycogen storage and joint recovery.",
+                        actionLabel = "Drink +0.5L Water",
+                        actionType = "LOG_WATER",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Flush Metabolic Byproducts (${waterLeft}L Left) 🌊",
+                        advice = "High-protein diets (${proTarget}g/day) and intense lifting require extra renal hydration to clear urea and lactate. Grab a 500ml glass of water now!",
+                        actionLabel = "Add +0.5L Water",
+                        actionType = "LOG_WATER",
+                        coachMood = "TACTICAL"
+                    ),
+                    PikaCoachTip(
+                        headline = "Muscle Fullness & Cell Volumization 💪",
+                        advice = "Skeletal muscle is ~75% water! Hitting your ${stam.targetLiters}L water target drives intracellular hydration, keeping your pump full and joints cushioned.",
+                        actionLabel = "Drink +0.5L Water",
+                        actionType = "LOG_WATER",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Electrolyte & Focus Boost ⚡",
+                        advice = "Feeling afternoon fatigue? Mild dehydration often masquerades as hunger or tiredness. Top up ${waterLeft}L water to finish today's targets at 100%!",
+                        actionLabel = "Log +0.5L Water",
+                        actionType = "LOG_WATER",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Nutrient Transport Optimization 💧",
+                        advice = "You've logged ${vit.caloriesLogged} kcal today — proper hydration ensures amino acids and glucose are efficiently shuttled into recovering muscle fibers.",
+                        actionLabel = "Drink +0.5L Water",
+                        actionType = "LOG_WATER",
+                        coachMood = "TACTICAL"
+                    ),
+                    PikaCoachTip(
+                        headline = "Final Hydration Sprint, Trainer ${bio.hunterName}! 🏆",
+                        advice = "Calories and workouts are on point! Clear the final ${waterLeft}L of water to achieve a 100% flawless PikaFit daily sweep.",
+                        actionLabel = "Complete +0.5L Water",
+                        actionType = "LOG_WATER",
+                        coachMood = "PROUD"
+                    )
+                )
+                waterPool[slot]
+            }
+            else -> {
+                val proudPool = listOf(
+                    PikaCoachTip(
+                        headline = "100,000 Volts! All Daily Targets Crushed ⚡",
+                        advice = "Phenomenal discipline, Trainer ${bio.hunterName}! You cleared ${vit.caloriesLogged} kcal, ${stam.waterLiters}L water, and ${str.exercisesLogged.size} exercises with an active ${ps.streakDays}-day streak!",
+                        actionLabel = "Keep Up The Momentum!",
+                        actionType = "KEEP_GOING",
+                        coachMood = "PROUD"
+                    ),
+                    PikaCoachTip(
+                        headline = "Deep Sleep = Peak Growth Hormone 🌙",
+                        advice = "Your nutrition (${vit.caloriesLogged} kcal) and training (${str.exercisesLogged.size} exercises) are locked in! Aim for 7.5–8 hours of quality sleep tonight when 70% of muscle repair occurs.",
+                        actionLabel = "Rest & Recover Strong",
+                        actionType = "KEEP_GOING",
+                        coachMood = "PROUD"
+                    ),
+                    PikaCoachTip(
+                        headline = "Progressive Overload Blueprint Ready 📈",
+                        advice = "Next session, challenge yourself to beat today's volume by +1 rep per set or +2.5kg on your main lift. Consistent micro-progression is the secret to elite body recomposition!",
+                        actionLabel = "Review Biometric Charts",
+                        actionType = "KEEP_GOING",
+                        coachMood = "ENERGIZED"
+                    ),
+                    PikaCoachTip(
+                        headline = "Active Recovery & Mobility Tip 🧘",
+                        advice = "With all macro and workout goals complete today, spend 5 minutes stretching your chest, hips, and thoracic spine to reduce DOMS and improve posture.",
+                        actionLabel = "Awesome Job, Pika!",
+                        actionType = "KEEP_GOING",
+                        coachMood = "PROUD"
+                    ),
+                    PikaCoachTip(
+                        headline = "Tomorrow's Meal Prep Advantage 🍱",
+                        advice = "Champion trainers win the next day the night before! Pre-plan tomorrow's breakfast so hitting ${bio.recommendedProteinG}g protein on Day ${ps.streakDays + 1} is automatic.",
+                        actionLabel = "Stay Consistent!",
+                        actionType = "KEEP_GOING",
+                        coachMood = "TACTICAL"
+                    ),
+                    PikaCoachTip(
+                        headline = "S-Rank Consistency Unlocked, ${bio.hunterName}! 🏆",
+                        advice = "At ${bio.weightKg} kg (BMI ${bio.bmi}), stacking days like today with ${vit.proteinG.toInt()}g protein and ${stam.waterLiters}L water guarantees visible physique transformation!",
+                        actionLabel = "Let's Go, Pika!",
+                        actionType = "KEEP_GOING",
+                        coachMood = "PROUD"
+                    )
+                )
+                proudPool[slot]
+            }
         }
     }
 
     fun generatePikaCoachTip(showAsPopup: Boolean = true) {
         val snapshot = _systemState.value
-        val preview = buildContextAwareFallbackTip(snapshot)
-        // Immediately show the context-aware tip so the dashboard & popup never stall
+        val previousHeadline = (_pikaCoachState.value as? PikaCoachUiState.Ready)?.tip?.headline.orEmpty()
+        val currentVariation = tipVariationCounter++
+        val preview = buildContextAwareFallbackTip(snapshot, currentVariation)
+        // Immediately show the rotated context-aware tip so clicking "New Tip" updates right away
         _pikaCoachState.value = PikaCoachUiState.Ready(tip = preview, showPopup = showAsPopup)
 
         if (Firebase.auth.currentUser == null) {
             return
         }
+
+        val coachingAngles = listOf(
+            "muscle protein synthesis & leucine meal timing",
+            "progressive overload & mechanical tension in workouts",
+            "intracellular hydration, electrolytes & recovery",
+            "caloric balance, metabolic momentum & streak consistency",
+            "pre/post-workout glycogen fueling & micronutrient density",
+            "sleep optimization, central nervous system recovery & discipline"
+        )
+        val selectedAngle = coachingAngles[currentVariation % coachingAngles.size]
 
         viewModelScope.launch {
             val bio = snapshot.biometrics
@@ -494,7 +714,7 @@ class HunterViewModel(
 
             val prompt = """
                 You are 'Pika-Coach', an energetic, scientifically sharp Pikachu fitness & nutrition coach inside the PikaFit app.
-                Analyze the trainer's live dashboard telemetry and generate a personalized, context-aware coaching tip:
+                Analyze the trainer's live dashboard telemetry and generate a FRESH, non-repetitive coaching tip (Variation #$currentVariation):
                 - Trainer Name: ${bio.hunterName} (${bio.age} yrs, ${bio.biologicalSex}, ${bio.heightCm.toInt()} cm, ${bio.weightKg} kg, BMI ${bio.bmi}, Body Fat ${bio.bodyFatPercent}%, Muscle Mass ${bio.muscleMassPercent}%)
                 - Goal: ${bio.goalDisplayLabel} (${bio.experienceDisplayLabel})
                 - Activity Status: $activityStatus
@@ -503,9 +723,10 @@ class HunterViewModel(
                 - Protein Today: ${vit.proteinG.toInt()}g / ${bio.recommendedProteinG}g target
                 - Water Today: ${stam.waterLiters}L / ${stam.targetLiters}L
                 - Exercises Logged Today: ${str.exercisesLogged.size}
+                - Specific Coaching Focus Angle for this tip: $selectedAngle
+                - Previous Tip Headline to AVOID repeating: "$previousHeadline" ( also avoid "${preview.headline}")
 
-                If the user has a lack of activity (e.g. 0 calories or 0 exercises logged today, or streak unverified), gently call it out and motivate them with a specific immediate first step.
-                If the user has made partial or full progress, praise their specific numbers and tell them exactly what to do next to optimize their ${bio.goalDisplayLabel} plan.
+                CRITICAL: Give a completely fresh headline and actionable scientific advice tailored to "$selectedAngle". Do NOT repeat the previous tip!
             """.trimIndent()
 
             try {
@@ -514,19 +735,23 @@ class HunterViewModel(
                 }
                 val jsonText = response?.text?.takeIf { it.isNotBlank() } ?: return@launch
                 val obj = JSONObject(jsonText)
-                val tip = PikaCoachTip(
-                    headline = obj.optString("headline", preview.headline).take(90).ifBlank { preview.headline },
-                    advice = obj.optString("advice", preview.advice).take(500).ifBlank { preview.advice },
-                    actionLabel = obj.optString("action_label", preview.actionLabel).take(45).ifBlank { preview.actionLabel },
-                    actionType = obj.optString("action_type", preview.actionType),
-                    coachMood = obj.optString("coach_mood", preview.coachMood)
-                )
-                val currentPopupVisible = when (val cur = _pikaCoachState.value) {
-                    is PikaCoachUiState.Ready -> cur.showPopup
-                    is PikaCoachUiState.Error -> cur.showPopup
-                    else -> showAsPopup
+                val newHeadline = obj.optString("headline", "").take(90).trim()
+                val newAdvice = obj.optString("advice", "").take(500).trim()
+                if (newHeadline.isNotBlank() && newAdvice.isNotBlank() && !newHeadline.equals(previousHeadline, ignoreCase = true)) {
+                    val tip = PikaCoachTip(
+                        headline = newHeadline,
+                        advice = newAdvice,
+                        actionLabel = obj.optString("action_label", preview.actionLabel).take(45).ifBlank { preview.actionLabel },
+                        actionType = obj.optString("action_type", preview.actionType),
+                        coachMood = obj.optString("coach_mood", preview.coachMood)
+                    )
+                    val currentPopupVisible = when (val cur = _pikaCoachState.value) {
+                        is PikaCoachUiState.Ready -> cur.showPopup
+                        is PikaCoachUiState.Error -> cur.showPopup
+                        else -> showAsPopup
+                    }
+                    _pikaCoachState.value = PikaCoachUiState.Ready(tip = tip, showPopup = currentPopupVisible)
                 }
-                _pikaCoachState.value = PikaCoachUiState.Ready(tip = tip, showPopup = currentPopupVisible)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -523,13 +523,13 @@ fun DailyProductiveStreakCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     ProductiveCounterPill(
-                        label = "FOOD INPUTS TODAY",
+                        label = "FOOD INPUTS",
                         count = ps.todayFoodInputs,
                         color = if (ps.todayFoodInputs > 0) HunterEmerald else HunterGold,
                         modifier = Modifier.weight(1f).testTag("today_food_inputs_pill")
                     )
                     ProductiveCounterPill(
-                        label = "EXERCISE INPUTS TODAY",
+                        label = "EXERCISE INPUTS",
                         count = ps.todayExerciseInputs,
                         color = if (ps.todayExerciseInputs > 0) HunterEmerald else HunterCyan,
                         modifier = Modifier.weight(1f).testTag("today_exercise_inputs_pill")
@@ -560,16 +560,22 @@ fun DailyProductiveStreakCard(
                     contentColor = ObsidianBg
                 ),
                 shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                 modifier = Modifier
                     .weight(1f)
+                    .heightIn(min = 48.dp)
                     .testTag("streak_open_food_input_button")
             ) {
-                Icon(Icons.Filled.Restaurant, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
+                Icon(Icons.Filled.Restaurant, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(modifier = Modifier.width(5.dp))
                 Text(
                     text = "INPUT FOOD DATA",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold
+                    maxLines = 1,
+                    softWrap = false,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 )
             }
 
@@ -580,16 +586,22 @@ fun DailyProductiveStreakCard(
                     contentColor = ObsidianBg
                 ),
                 shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                 modifier = Modifier
                     .weight(1f)
+                    .heightIn(min = 48.dp)
                     .testTag("streak_open_exercise_input_button")
             ) {
-                Icon(Icons.Filled.FitnessCenter, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
+                Icon(Icons.Filled.FitnessCenter, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(modifier = Modifier.width(5.dp))
                 Text(
                     text = "INPUT EXERCISE",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold
+                    maxLines = 1,
+                    softWrap = false,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 )
             }
         }
@@ -963,9 +975,14 @@ private fun SevenDayStreakStrip(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = dayLabel,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 9.5.sp,
+                        letterSpacing = (-0.3).sp,
+                        fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.SemiBold
+                    ),
                     color = if (isToday) TextPrimary else TextSecondary,
-                    maxLines = 1
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }

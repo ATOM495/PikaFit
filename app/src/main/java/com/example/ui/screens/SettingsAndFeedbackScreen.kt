@@ -588,7 +588,7 @@ fun SettingsAndFeedbackScreen(
                         },
                         testTag = "settings_nav_check_updates",
                         onClick = {
-                            val rawUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/" }
+                            val rawUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
                             val targetUri = Uri.parse(
                                 if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) "https://$rawUrl" else rawUrl
                             )

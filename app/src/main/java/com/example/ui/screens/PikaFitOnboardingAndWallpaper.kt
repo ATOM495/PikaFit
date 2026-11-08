@@ -234,7 +234,8 @@ fun PikaFitOnboardingScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(horizontal = 28.dp, vertical = 24.dp),
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
@@ -245,23 +246,30 @@ fun PikaFitOnboardingScreen(
                     border = BorderStroke(1.5.dp, PikaYellow)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Bolt,
                             contentDescription = null,
                             tint = PikaYellow,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "PIKAFIT • TRAINER INTRODUCTION",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
-                            color = Color.White
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 12.5.sp
+                            ),
+                            color = Color.White,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Center Waving Pikachu Logo + Speech Bubble
                 Column(
@@ -269,7 +277,7 @@ fun PikaFitOnboardingScreen(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(200.dp)
+                            .size(164.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF6792A4))
                             .border(4.dp, PikaYellow, CircleShape),
@@ -283,7 +291,7 @@ fun PikaFitOnboardingScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     Surface(
                         color = Color.White,
@@ -294,15 +302,17 @@ fun PikaFitOnboardingScreen(
                             text = "\"Pika-Pika! Welcome, Trainer! ⚡\nTell me your name, age, height, weight & goals one by one!\"",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 17.sp,
-                                lineHeight = 23.sp
+                                fontSize = 16.sp,
+                                lineHeight = 22.sp
                             ),
                             color = Color(0xFF0F172A),
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Bottom Hero Copy & "Let's start ->" CTA matching the left screen in the reference image
                 Column(
@@ -313,28 +323,29 @@ fun PikaFitOnboardingScreen(
                         text = "Hey there,\nAre you ready?",
                         style = MaterialTheme.typography.displayLarge.copy(
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 38.sp,
-                            lineHeight = 44.sp
+                            fontSize = 32.sp,
+                            lineHeight = 38.sp
                         ),
                         color = Color.White
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Keep your vitality. A life without health is like a river without water — let's calibrate your PikaFit profile!",
-                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp),
-                        color = Color(0xFF1E1E24).copy(alpha = 0.88f),
+                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.5.sp),
+                        color = Color(0xFF1E1E24).copy(alpha = 0.90f),
                         fontWeight = FontWeight.SemiBold,
-                        lineHeight = 23.sp
+                        lineHeight = 21.sp
                     )
-                    Spacer(modifier = Modifier.height(22.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
                     Button(
                         onClick = { step = 1 },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(60.dp)
+                            .heightIn(min = 56.dp)
                             .testTag("onboarding_lets_start_button"),
                         shape = RoundedCornerShape(20.dp),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = PikaYellow,
                             contentColor = Color(0xFF0F172A)
@@ -342,9 +353,11 @@ fun PikaFitOnboardingScreen(
                     ) {
                         Text(
                             text = "Let's start   →",
+                            maxLines = 1,
+                            softWrap = false,
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 21.sp
+                                fontSize = 19.sp
                             )
                         )
                     }
@@ -961,22 +974,38 @@ fun PikaFitOnboardingScreen(
                                         Spacer(modifier = Modifier.height(10.dp))
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
                                                 text = "${previewBio.recommendedCaloriesTarget} kcal",
-                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                                                color = PikaCheekRed
+                                                style = MaterialTheme.typography.titleSmall.copy(
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 13.5.sp
+                                                ),
+                                                color = PikaCheekRed,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                             Text(
                                                 text = "${previewBio.recommendedProteinG}g Protein",
-                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                                                color = HunterEmerald
+                                                style = MaterialTheme.typography.titleSmall.copy(
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 13.5.sp
+                                                ),
+                                                color = HunterEmerald,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                             Text(
                                                 text = "${previewBio.recommendedWaterLiters}L Water",
-                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                                                color = accentGold
+                                                style = MaterialTheme.typography.titleSmall.copy(
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 13.5.sp
+                                                ),
+                                                color = accentGold,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                         }
                                     }
@@ -984,7 +1013,7 @@ fun PikaFitOnboardingScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(22.dp))
 
                         Button(
                             onClick = {
@@ -1004,9 +1033,10 @@ fun PikaFitOnboardingScreen(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(58.dp)
+                                .heightIn(min = 56.dp)
                                 .testTag("onboarding_next_button"),
                             shape = RoundedCornerShape(18.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = PikaCheekRed,
                                 contentColor = Color.White
@@ -1018,7 +1048,12 @@ fun PikaFitOnboardingScreen(
                                 } else {
                                     "NEXT QUESTION (${currentStep}/$totalSteps) →"
                                 },
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
+                                maxLines = 1,
+                                softWrap = false,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.5.sp
+                                )
                             )
                         }
                     }

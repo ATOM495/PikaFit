@@ -1337,7 +1337,7 @@ data class AppReleaseInfo(
     val latestVersionName: String = "1.0",
     val releaseTitle: String = "New PikaFit Update",
     val releaseNotes: String = "Bug fixes, performance improvements, and updated Pokémon progression features.",
-    val downloadUrl: String = "https://github.com/",
+    val downloadUrl: String = "https://github.com/ATOM495/PikaFit/releases",
     val isMandatory: Boolean = false
 )
 
