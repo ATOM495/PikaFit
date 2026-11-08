@@ -3,11 +3,17 @@ name: Build Android APK
 on:
   push:
     branches: [ "main", "master" ]
+    tags:
+      - 'v*'
+  release:
+    types: [published]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout Repository
@@ -46,9 +52,23 @@ jobs:
     - name: Build Debug APK
       run: ./gradlew assembleDebug --no-daemon --stacktrace
 
+    - name: Prepare PikaFit APK
+      run: cp app/build/outputs/apk/debug/app-debug.apk PikaFit.apk
+
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: PikaFit-Debug-APK
-        path: app/build/outputs/apk/debug/app-debug.apk
-        retention-days: 7
+        name: PikaFit-APK
+        path: PikaFit.apk
+        retention-days: 14
+
+    - name: Publish or Attach APK to GitHub Release
+      if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: PikaFit.apk
+        name: PikaFit ${{ github.ref_name || github.event.release.tag_name }}
+        tag_name: ${{ github.ref_name || github.event.release.tag_name }}
+        draft: false
+        prerelease: false
+        generate_release_notes: true
