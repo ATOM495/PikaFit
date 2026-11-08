@@ -188,9 +188,15 @@ fun SettingsAndFeedbackScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentUserEmail = remember {
-        FirebaseAuth.getInstance().currentUser?.email?.lowercase(Locale.US) ?: ""
+        val fbEmail = FirebaseAuth.getInstance().currentUser?.email?.lowercase(Locale.US)
+        if (!fbEmail.isNullOrBlank()) {
+            fbEmail
+        } else {
+            context.getSharedPreferences("pikafit_auth_session_prefs", Context.MODE_PRIVATE)
+                .getString("user_account_email", "")?.lowercase(Locale.US) ?: ""
+        }
     }
-    val isAppCreator = currentUserEmail == CREATOR_EMAIL
+    val isAppCreator = currentUserEmail == "tmcrainbow093@gmail.com" || currentUserEmail == CREATOR_EMAIL
 
     var activePage by rememberSaveable { mutableIntStateOf(initialFocusSection) }
     LaunchedEffect(initialFocusSection) {

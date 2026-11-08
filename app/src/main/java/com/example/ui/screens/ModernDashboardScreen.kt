@@ -72,8 +72,15 @@ fun ModernDashboardScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
+                    val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                    val dynamicGreeting = when (currentHour) {
+                        in 5..11 -> "Good morning"
+                        in 12..16 -> "Good afternoon"
+                        in 17..20 -> "Good evening"
+                        else -> "Good night"
+                    }
                     Text(
-                        text = "Good morning,",
+                        text = "$dynamicGreeting,",
                         style = MaterialTheme.typography.bodyMedium,
                         color = textSecondary
                     )

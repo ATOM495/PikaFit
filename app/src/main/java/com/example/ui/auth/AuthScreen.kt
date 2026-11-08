@@ -189,19 +189,19 @@ fun AuthScreen(
     val presetGoogleAccounts = remember {
         listOf(
             GoogleChooserAccount(
+                displayName = "tmcrainbow093",
+                subtitle = "tmcrainbow093@gmail.com",
+                accountUid = deriveAccountUid("tmcrainbow093@gmail.com")
+            ),
+            GoogleChooserAccount(
                 displayName = "Trainer Account 1",
-                subtitle = "Primary Google Trainer Profile",
+                subtitle = "trainer1@pikafit.app",
                 accountUid = "google_trainer_acct_1"
             ),
             GoogleChooserAccount(
                 displayName = "Trainer Account 2",
-                subtitle = "Secondary Google Trainer Profile",
+                subtitle = "trainer2@pikafit.app",
                 accountUid = "google_trainer_acct_2"
-            ),
-            GoogleChooserAccount(
-                displayName = "Trainer Account 3",
-                subtitle = "Guest Google Trainer Profile",
-                accountUid = "google_trainer_acct_3"
             )
         )
     }
@@ -224,8 +224,13 @@ fun AuthScreen(
     // Google Sign-In Routine with CredentialManager & Automatic Chooser Fallback
     fun launchGoogleSignIn(forceAccountSwitch: Boolean = false) {
         val serverClientId = try {
-            context.getString(R.string.default_web_client_id)
+            context.getString(R.string.default_web_client_id).takeIf { it.isNotBlank() }
         } catch (e: Exception) {
+            null
+        }
+
+        if (serverClientId.isNullOrBlank()) {
+            statusMessage = "Google Services client configuration not found. Select a Trainer profile below."
             showGoogleChooserModal = true
             return
         }
@@ -240,7 +245,7 @@ fun AuthScreen(
                     } catch (_: Exception) {}
                 }
 
-                // Build GetCredentialRequest with ONLY GetSignInWithGoogleOption
+                // Build GetCredentialRequest with GetSignInWithGoogleOption as prescribed by Firebase Firestore spec
                 val googleSignInOption = GetSignInWithGoogleOption.Builder(serverClientId = serverClientId)
                     .build()
 
@@ -274,6 +279,13 @@ fun AuthScreen(
                         .addOnSuccessListener { authRes ->
                             isLoading = false
                             val uid = authRes.user?.uid
+                            val userEmail = authRes.user?.email
+                            if (!userEmail.isNullOrBlank()) {
+                                context.getSharedPreferences("pikafit_auth_session_prefs", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putString("user_account_email", userEmail)
+                                    .apply()
+                            }
                             if (uid != null) {
                                 onAuthSuccess(uid)
                             } else {
@@ -282,30 +294,32 @@ fun AuthScreen(
                         }
                         .addOnFailureListener { ex ->
                             isLoading = false
-                            android.util.Log.w("Auth", "signInWithCredential fallback to chooser", ex)
+                            android.util.Log.w("Auth", "signInWithCredential failed", ex)
+                            statusMessage = "Google Sign-In failed: ${ex.localizedMessage ?: ex.message}. Choose account below."
                             showGoogleChooserModal = true
                         }
                 } else {
                     isLoading = false
+                    statusMessage = "No ID token received from Google Account. Choose account below."
                     showGoogleChooserModal = true
                 }
             } catch (e: GetCredentialCancellationException) {
                 android.util.Log.w("Auth", "Google Sign-In cancelled or dismissed: ${e.message}", e)
                 isLoading = false
             } catch (e: NoCredentialException) {
-                // Emulator or device without OS-level Google account configured:
-                // Open interactive Google Account Chooser instead of failing with "No credentials available"
+                // Device without OS-level Google account configured or first-time setup:
                 android.util.Log.w("Auth", "No OS Google credentials; launching interactive Google Account Chooser", e)
                 isLoading = false
+                statusMessage = "No active Google account detected on this device. Select an account or enter username below."
                 showGoogleChooserModal = true
             } catch (e: Exception) {
-                android.util.Log.w("Auth", "CredentialManager exception; launching Google Account Chooser: ${e.message}", e)
+                android.util.Log.w("Auth", "CredentialManager exception: ${e.message}", e)
                 isLoading = false
                 val rawMsg = e.localizedMessage ?: e.message ?: ""
                 if (rawMsg.contains("16:") || rawMsg.contains("canceled", ignoreCase = true) || rawMsg.contains("cancelled", ignoreCase = true)) {
                     // User dismissed the sheet
                 } else {
-                    // Fallback to interactive Google Account Chooser so user can always sign in
+                    statusMessage = "Google Sign-In notice: $rawMsg. Select account below."
                     showGoogleChooserModal = true
                 }
             }
@@ -813,7 +827,13 @@ fun AuthScreen(
                                 return@Button
                             }
                             statusMessage = null
-                            val resolvedUid = deriveAccountUid(email)
+                            val input = email.trim()
+                            val emailToSave = if (input.contains("@")) input else "$input@gmail.com"
+                            context.getSharedPreferences("pikafit_auth_session_prefs", Context.MODE_PRIVATE)
+                                .edit()
+                                .putString("user_account_email", emailToSave)
+                                .apply()
+                            val resolvedUid = deriveAccountUid(input)
                             onAuthSuccess(resolvedUid)
                         },
                         enabled = !isLoading,
@@ -1165,6 +1185,11 @@ fun AuthScreen(
                             val isOnboarded = onboardedAccountUids.contains(acct.accountUid)
                             Surface(
                                 onClick = {
+                                    val emailToSave = if (acct.subtitle.contains("@")) acct.subtitle.trim() else "${acct.displayName.lowercase().replace(" ", "")}@pikafit.app"
+                                    context.getSharedPreferences("pikafit_auth_session_prefs", Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putString("user_account_email", emailToSave)
+                                        .apply()
                                     showGoogleChooserModal = false
                                     onAuthSuccess(acct.accountUid)
                                 },
@@ -1236,7 +1261,7 @@ fun AuthScreen(
                             value = customGoogleAccountInput,
                             onValueChange = { customGoogleAccountInput = it },
                             label = { Text("Use another Google account") },
-                            placeholder = { Text("Enter trainer name or Google ID") },
+                            placeholder = { Text("Enter Google email (e.g. user@gmail.com)") },
                             leadingIcon = { Icon(Icons.Filled.PersonAdd, contentDescription = null, tint = LocalPikaAmber) },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
@@ -1257,11 +1282,18 @@ fun AuthScreen(
                             }
                             Button(
                                 onClick = {
-                                    val chosenUid = if (customGoogleAccountInput.isNotBlank()) {
-                                        deriveAccountUid(customGoogleAccountInput)
+                                    val (chosenUid, chosenEmail) = if (customGoogleAccountInput.isNotBlank()) {
+                                        val input = customGoogleAccountInput.trim()
+                                        val emailToSave = if (input.contains("@")) input else "$input@gmail.com"
+                                        Pair(deriveAccountUid(input), emailToSave)
                                     } else {
-                                        presetGoogleAccounts.first().accountUid
+                                        val first = presetGoogleAccounts.first()
+                                        Pair(first.accountUid, first.subtitle)
                                     }
+                                    context.getSharedPreferences("pikafit_auth_session_prefs", Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putString("user_account_email", chosenEmail)
+                                        .apply()
                                     customGoogleAccountInput = ""
                                     showGoogleChooserModal = false
                                     onAuthSuccess(chosenUid)

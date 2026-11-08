@@ -918,8 +918,15 @@ fun EmbeddedDashboard(
                 verticalAlignment = Alignment.Top
             ) {
                 Column(modifier = Modifier.weight(1f)) {
+                    val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                    val dynamicGreeting = when (currentHour) {
+                        in 5..11 -> "Good Morning"
+                        in 12..16 -> "Good Afternoon"
+                        in 17..20 -> "Good Evening"
+                        else -> "Good Night"
+                    }
                     Text(
-                        text = "Good Morning,\n${bio.hunterName}",
+                        text = "$dynamicGreeting,\n${bio.hunterName}",
                         style = MaterialTheme.typography.displayMedium.copy(
                             fontSize = 31.sp,
                             lineHeight = 37.sp,

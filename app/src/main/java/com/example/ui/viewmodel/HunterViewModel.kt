@@ -329,9 +329,14 @@ class HunterViewModel(
         viewModelScope.launch {
             val (wasAlreadyOnboardedLocally, restoredBio) = withContext(Dispatchers.IO) {
                 val onboarded = repository.isOnboardingCompletedForUser(currentUserId)
+                val savedEmail = repository.getSavedAccountEmail()
+                val preferredName = if (!savedEmail.isNullOrBlank() && savedEmail.contains("@")) {
+                    savedEmail.substringBefore("@")
+                } else null
+
                 val bio = if (onboarded) {
                     val cachedStateJson = repository.getCachedStateJsonForUser(currentUserId)
-                    if (!cachedStateJson.isNullOrBlank()) {
+                    val rawBio = if (!cachedStateJson.isNullOrBlank()) {
                         try {
                             val root = JSONObject(cachedStateJson)
                             HunterBiometrics.fromJsonObject(root.optJSONObject("biometrics")).copy(onboardingCompleted = true)
@@ -341,6 +346,12 @@ class HunterViewModel(
                     } else {
                         HunterBiometrics(onboardingCompleted = true)
                     }
+                    val finalName = if ((rawBio.hunterName == "Trainer" || rawBio.hunterName.isBlank()) && !preferredName.isNullOrBlank()) {
+                        preferredName
+                    } else {
+                        rawBio.hunterName
+                    }
+                    rawBio.copy(hunterName = finalName)
                 } else null
                 Pair(onboarded, bio)
             }
@@ -357,12 +368,22 @@ class HunterViewModel(
                     if (session != null) {
                         val evaluated = withContext(Dispatchers.IO) {
                             val loaded = session.toHunterSystemState()
+                            val savedEmail = repository.getSavedAccountEmail()
+                            val preferredName = if (!savedEmail.isNullOrBlank() && savedEmail.contains("@")) {
+                                savedEmail.substringBefore("@")
+                            } else null
+
                             val effectiveBiometrics = if (loaded.biometrics.onboardingCompleted || session.stateJson.isNotBlank()) {
                                 loaded.biometrics.copy(onboardingCompleted = true)
                             } else {
                                 loaded.biometrics
                             }
-                            val eval = loaded.copy(biometrics = effectiveBiometrics).evaluateStreakOnLogin()
+                            val finalHunterName = if ((effectiveBiometrics.hunterName == "Trainer" || effectiveBiometrics.hunterName.isBlank()) && !preferredName.isNullOrBlank()) {
+                                preferredName
+                            } else {
+                                effectiveBiometrics.hunterName
+                            }
+                            val eval = loaded.copy(biometrics = effectiveBiometrics.copy(hunterName = finalHunterName)).evaluateStreakOnLogin()
                             if (effectiveBiometrics.onboardingCompleted) {
                                 repository.setOnboardingCompletedForUser(currentUserId, true, eval.toStateJson())
                             }

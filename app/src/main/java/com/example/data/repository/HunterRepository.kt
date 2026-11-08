@@ -125,14 +125,26 @@ class HunterRepository(
         }
     }
 
+    fun getSavedAccountEmail(): String? {
+        return context?.getSharedPreferences("pikafit_auth_session_prefs", Context.MODE_PRIVATE)
+            ?.getString("user_account_email", null)
+    }
+
     fun observeActiveSession(sessionId: String = DEFAULT_SESSION_ID): Flow<HunterSession?> = flow {
-        val firebaseUid = currentUserIdOrNull()
+        val user = auth.currentUser
         val effUid = effectiveUserId()
         val localFlow = getSessionFlowForUid(effUid)
-        if (firebaseUid == null) {
+        if (user == null) {
             emitAll(localFlow)
             return@flow
         }
+        try {
+            user.getIdToken(false).await()
+        } catch (_: Exception) {
+            emitAll(localFlow)
+            return@flow
+        }
+        val firebaseUid = user.uid
         val path = "users/$firebaseUid/sessions/$sessionId"
         val docRef = db.collection("users").document(firebaseUid).collection("sessions").document(sessionId)
         emitAll(
@@ -151,7 +163,8 @@ class HunterRepository(
                     }
                 }
                 .catch { error ->
-                    if (error is Exception) {
+                    val isUnauth = auth.currentUser == null
+                    if (!isUnauth && error is Exception) {
                         handleFirestoreError(error, OperationType.GET, path)
                     }
                     emitAll(localFlow)
@@ -160,13 +173,20 @@ class HunterRepository(
     }
 
     fun observeLogs(): Flow<List<TacticalLog>> = flow {
-        val firebaseUid = currentUserIdOrNull()
+        val user = auth.currentUser
         val effUid = effectiveUserId()
         val localFlow = getLogsFlowForUid(effUid)
-        if (firebaseUid == null) {
+        if (user == null) {
             emitAll(localFlow)
             return@flow
         }
+        try {
+            user.getIdToken(false).await()
+        } catch (_: Exception) {
+            emitAll(localFlow)
+            return@flow
+        }
+        val firebaseUid = user.uid
         val path = "users/$firebaseUid/logs"
         val colRef = db.collection("users").document(firebaseUid).collection("logs")
         emitAll(
@@ -177,7 +197,8 @@ class HunterRepository(
                         .sortedByDescending { it.createdAt?.seconds ?: 0L }
                 }
                 .catch { error ->
-                    if (error is Exception) {
+                    val isUnauth = auth.currentUser == null
+                    if (!isUnauth && error is Exception) {
                         handleFirestoreError(error, OperationType.LIST, path)
                     }
                     emitAll(localFlow)
@@ -186,13 +207,20 @@ class HunterRepository(
     }
 
     fun observeJournalEntries(): Flow<List<JournalEntry>> = flow {
-        val firebaseUid = currentUserIdOrNull()
+        val user = auth.currentUser
         val effUid = effectiveUserId()
         val localFlow = getJournalFlowForUid(effUid)
-        if (firebaseUid == null) {
+        if (user == null) {
             emitAll(localFlow)
             return@flow
         }
+        try {
+            user.getIdToken(false).await()
+        } catch (_: Exception) {
+            emitAll(localFlow)
+            return@flow
+        }
+        val firebaseUid = user.uid
         val path = "users/$firebaseUid/journal"
         val colRef = db.collection("users").document(firebaseUid).collection("journal")
         emitAll(
@@ -203,7 +231,8 @@ class HunterRepository(
                         .sortedByDescending { it.createdAt?.seconds ?: 0L }
                 }
                 .catch { error ->
-                    if (error is Exception) {
+                    val isUnauth = auth.currentUser == null
+                    if (!isUnauth && error is Exception) {
                         handleFirestoreError(error, OperationType.LIST, path)
                     }
                     emitAll(localFlow)
@@ -212,8 +241,14 @@ class HunterRepository(
     }
 
     fun observePublicFeedback(): Flow<List<FeedbackEntry>> = flow {
-        val firebaseUid = currentUserIdOrNull()
-        if (firebaseUid == null) {
+        val user = auth.currentUser
+        if (user == null) {
+            emitAll(localFeedbackFlow)
+            return@flow
+        }
+        try {
+            user.getIdToken(false).await()
+        } catch (_: Exception) {
             emitAll(localFeedbackFlow)
             return@flow
         }
@@ -227,7 +262,8 @@ class HunterRepository(
                         .sortedByDescending { it.createdAt?.seconds ?: 0L }
                 }
                 .catch { error ->
-                    if (error is Exception) {
+                    val isUnauth = auth.currentUser == null
+                    if (!isUnauth && error is Exception) {
                         handleFirestoreError(error, OperationType.LIST, path)
                     }
                     emitAll(localFeedbackFlow)

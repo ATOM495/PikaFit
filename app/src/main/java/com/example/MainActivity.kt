@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
@@ -77,7 +78,12 @@ class MainActivity : ComponentActivity() {
                         prefs.edit().putString("active_account_id", firebaseUid).apply()
                         firebaseUid
                     } else {
-                        prefs.getString("active_account_id", null)?.takeIf { !it.contains("@") }
+                        val cached = prefs.getString("active_account_id", null)
+                        if (cached != null && (cached.startsWith("hunter_uid_") || cached.startsWith("google_trainer_acct_"))) {
+                            cached
+                        } else {
+                            null
+                        }
                     }
                 }
                 if (activeAccountId.isNullOrBlank() && !restoredAccountId.isNullOrBlank()) {
@@ -92,6 +98,9 @@ class MainActivity : ComponentActivity() {
                     Firebase.auth.authStateFlow().collect { user ->
                         val uid = user?.uid
                         if (!uid.isNullOrBlank()) {
+                            try {
+                                user.getIdToken(false).await()
+                            } catch (_: Exception) {}
                             activeAccountId = uid
                             withContext(Dispatchers.IO) {
                                 applicationContext
