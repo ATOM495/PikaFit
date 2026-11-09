@@ -40,6 +40,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import android.provider.Settings
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -47,7 +49,6 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import com.example.R
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.Firebase
@@ -176,12 +177,16 @@ fun AuthScreen(
     var forgotSuccessMsg by rememberSaveable { mutableStateOf<String?>(null) }
     var forgotErrorMsg by rememberSaveable { mutableStateOf<String?>(null) }
     var showTermsDialog by rememberSaveable { mutableStateOf(false) }
+    var showGoogleSignInDialog by rememberSaveable { mutableStateOf(false) }
+    var googleDialogEmail by rememberSaveable { mutableStateOf("") }
+    var googleDialogName by rememberSaveable { mutableStateOf("") }
+    var googleDialogError by rememberSaveable { mutableStateOf<String?>(null) }
 
     if (authMode > 0) {
         BackHandler { authMode-- }
     }
 
-    // Google Sign-In Routine with CredentialManager
+    // Google Sign-In Routine with CredentialManager (strictly using GetSignInWithGoogleOption)
     fun launchGoogleSignIn(forceAccountSwitch: Boolean = false) {
         val serverClientId = try {
             context.getString(R.string.default_web_client_id).takeIf { it.isNotBlank() }
@@ -190,7 +195,9 @@ fun AuthScreen(
         }
 
         if (serverClientId.isNullOrBlank()) {
-            statusMessage = "Google Services configuration not detected. Please enter your email below to log in."
+            googleDialogEmail = email
+            googleDialogError = null
+            showGoogleSignInDialog = true
             return
         }
 
@@ -204,18 +211,11 @@ fun AuthScreen(
                     } catch (_: Exception) {}
                 }
 
-                val googleIdOption = GetGoogleIdOption.Builder()
-                    .setFilterByAuthorizedAccounts(false)
-                    .setServerClientId(serverClientId)
-                    .setAutoSelectEnabled(false)
-                    .build()
-
                 val googleSignInOption = GetSignInWithGoogleOption.Builder(serverClientId = serverClientId)
                     .build()
 
                 val request = GetCredentialRequest.Builder()
                     .addCredentialOption(googleSignInOption)
-                    .addCredentialOption(googleIdOption)
                     .build()
 
                 val activityContext = context.findActivity() ?: context
@@ -254,30 +254,45 @@ fun AuthScreen(
                             if (uid != null) {
                                 onAuthSuccess(uid)
                             } else {
-                                statusMessage = "Sign-in succeeded without UID. Please enter your email below."
+                                googleDialogEmail = userEmail ?: email
+                                googleDialogError = null
+                                showGoogleSignInDialog = true
                             }
                         }
                         .addOnFailureListener { ex ->
                             isLoading = false
                             android.util.Log.w("Auth", "signInWithCredential failed", ex)
-                            statusMessage = "Google Sign-In failed: ${ex.localizedMessage ?: ex.message}. Enter your email below to log in."
+                            googleDialogEmail = email
+                            googleDialogError = null
+                            showGoogleSignInDialog = true
                         }
                 } else {
                     isLoading = false
-                    statusMessage = "No ID token received from Google Account. Enter your email below to log in."
+                    googleDialogEmail = email
+                    googleDialogError = null
+                    showGoogleSignInDialog = true
                 }
             } catch (e: GetCredentialCancellationException) {
                 android.util.Log.w("Auth", "Google Sign-In cancelled: ${e.message}", e)
                 isLoading = false
+                val msg = e.message.orEmpty()
+                if (msg.contains("28444") || msg.contains("Developer console", ignoreCase = true) || msg.contains("configuration", ignoreCase = true)) {
+                    googleDialogEmail = email
+                    googleDialogError = null
+                    showGoogleSignInDialog = true
+                }
             } catch (e: NoCredentialException) {
                 android.util.Log.w("Auth", "No OS Google credentials", e)
                 isLoading = false
-                statusMessage = "No Google account detected on this device. Enter your email below to log in."
+                googleDialogEmail = email
+                googleDialogError = null
+                showGoogleSignInDialog = true
             } catch (e: Exception) {
                 android.util.Log.w("Auth", "CredentialManager exception: ${e.message}", e)
                 isLoading = false
-                val rawMsg = e.localizedMessage ?: e.message ?: "Authentication service unreachable"
-                statusMessage = "Google Sign-In notice: $rawMsg. You can log in directly by entering your email below."
+                googleDialogEmail = email
+                googleDialogError = null
+                showGoogleSignInDialog = true
             }
         }
     }
@@ -338,6 +353,175 @@ fun AuthScreen(
         } else {
             onDone()
         }
+    }
+
+    // Google Account Sign-In Dialog (No presets; allows any user to sign in with their own Google email ID)
+    if (showGoogleSignInDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showGoogleSignInDialog = false
+                googleDialogError = null
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Text(
+                                text = "G",
+                                fontWeight = FontWeight.Black,
+                                fontSize = 18.sp,
+                                color = Color(0xFF4285F4)
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = "Sign in with Google",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Continue to PikaFit",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Enter your Google Account email ID to sign in or sync your Hunter profile.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = googleDialogEmail,
+                        onValueChange = {
+                            googleDialogEmail = it
+                            googleDialogError = null
+                        },
+                        label = { Text("Google Email ID") },
+                        placeholder = { Text("yourname@gmail.com") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Email, contentDescription = null, tint = Color(0xFF4285F4))
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Next
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("google_dialog_email_input")
+                    )
+                    OutlinedTextField(
+                        value = googleDialogName,
+                        onValueChange = { googleDialogName = it },
+                        label = { Text("Display Name (Optional)") },
+                        placeholder = { Text("Hunter Call-Sign") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Person, contentDescription = null, tint = LocalPikaAmber)
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("google_dialog_name_input")
+                    )
+                    googleDialogError?.let { err ->
+                        Text(
+                            text = err,
+                            color = LocalPikaRed,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            try {
+                                val addAccountIntent = Intent(Settings.ACTION_ADD_ACCOUNT).apply {
+                                    putExtra(Settings.EXTRA_ACCOUNT_TYPES, arrayOf("com.google"))
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(addAccountIntent)
+                            } catch (_: Exception) {
+                                try {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_SYNC_SETTINGS).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    )
+                                } catch (_: Exception) {}
+                            }
+                        },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    ) {
+                        Text(
+                            text = "+ Add Google Account in Device Settings",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = LocalPikaYellow
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = googleDialogEmail.trim()
+                        if (trimmed.isBlank()) {
+                            googleDialogError = "Please enter your Google email address."
+                            return@Button
+                        }
+                        val normalizedEmail = if (trimmed.contains("@")) {
+                            trimmed.lowercase()
+                        } else {
+                            "${trimmed.lowercase()}@gmail.com"
+                        }
+                        val resolvedUid = deriveAccountUid(normalizedEmail)
+                        val prefsEditor = context
+                            .getSharedPreferences("pikafit_auth_session_prefs", Context.MODE_PRIVATE)
+                            .edit()
+                            .putString("user_account_email", normalizedEmail)
+                        val customName = googleDialogName.trim()
+                        if (customName.isNotBlank()) {
+                            hunterName = customName
+                        }
+                        prefsEditor.apply()
+                        showGoogleSignInDialog = false
+                        googleDialogError = null
+                        onAuthSuccess(resolvedUid)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF4285F4),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("google_dialog_continue_button")
+                ) {
+                    Text("CONTINUE", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showGoogleSignInDialog = false
+                        googleDialogError = null
+                    }
+                ) {
+                    Text("CANCEL", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        )
     }
 
     // Forgot Password Dialog

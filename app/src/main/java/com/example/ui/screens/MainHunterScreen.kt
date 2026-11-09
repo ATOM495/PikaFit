@@ -863,7 +863,8 @@ fun PikaCoachDashboardCard(
                             lineHeight = 19.sp
                         ),
                         color = TextSecondary,
-                        maxLines = 2
+                        maxLines = 5,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -1091,11 +1092,11 @@ fun EmbeddedDashboard(
                         ) {
                             // Left: Crisp White Donut Progress Ring with large bold center numbers
                             Box(
-                                modifier = Modifier.size(120.dp),
+                                modifier = Modifier.size(106.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Canvas(modifier = Modifier.fillMaxSize()) {
-                                    val strokeWidth = 10.dp.toPx()
+                                    val strokeWidth = 9.5.dp.toPx()
                                     // Subtle translucent white track
                                     drawArc(
                                         color = Color.White.copy(alpha = 0.26f),
@@ -1121,62 +1122,65 @@ fun EmbeddedDashboard(
                                     Text(
                                         text = "${vit.caloriesLogged}",
                                         style = MaterialTheme.typography.displayMedium.copy(
-                                            fontSize = 27.sp,
+                                            fontSize = 24.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
-                                        color = Color.White
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                     Text(
                                         text = "Kcal",
                                         style = MaterialTheme.typography.titleMedium.copy(
-                                            fontSize = 15.sp,
+                                            fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold
                                         ),
-                                        color = Color.White.copy(alpha = 0.90f)
+                                        color = Color.White.copy(alpha = 0.90f),
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.width(14.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
 
-                            // Right: Bold White "Walk & Energy", Goal, and Sub-metrics (Water & Protein)
+                            // Right: Bold White "Energy & Walk", Goal, and Sub-metrics (Water & Protein)
                             Column(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text(
-                                        text = "Energy & Walk",
-                                        style = MaterialTheme.typography.headlineMedium.copy(
-                                            fontSize = 21.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        ),
-                                        color = Color.White
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Energy & Walk",
+                                    style = MaterialTheme.typography.headlineMedium.copy(
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    ),
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = "Goal: ${vit.caloriesTarget} kcal",
                                     style = MaterialTheme.typography.titleMedium.copy(
-                                        fontSize = 16.sp,
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.SemiBold
                                     ),
-                                    color = Color.White.copy(alpha = 0.92f)
+                                    color = Color.White.copy(alpha = 0.92f),
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(10.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(modifier = Modifier.weight(1.15f)) {
+                                    Column(modifier = Modifier.weight(1.25f)) {
                                         Text(
                                             text = "${stam.waterLiters}L / ${stam.targetLiters}L",
                                             style = MaterialTheme.typography.titleMedium.copy(
-                                                fontSize = 15.sp,
+                                                fontSize = 14.sp,
                                                 fontWeight = FontWeight.ExtraBold
                                             ),
                                             color = Color.White,
@@ -1186,7 +1190,7 @@ fun EmbeddedDashboard(
                                         Text(
                                             text = "Water",
                                             style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontSize = 13.5.sp,
+                                                fontSize = 12.5.sp,
                                                 fontWeight = FontWeight.Medium
                                             ),
                                             color = Color.White.copy(alpha = 0.85f),
@@ -1195,11 +1199,11 @@ fun EmbeddedDashboard(
                                         )
                                     }
 
-                                    Column(modifier = Modifier.weight(0.85f)) {
+                                    Column(modifier = Modifier.weight(0.75f)) {
                                         Text(
                                             text = "${vit.proteinG.toInt()}g",
                                             style = MaterialTheme.typography.titleMedium.copy(
-                                                fontSize = 15.sp,
+                                                fontSize = 14.sp,
                                                 fontWeight = FontWeight.ExtraBold
                                             ),
                                             color = Color.White,
@@ -1209,7 +1213,7 @@ fun EmbeddedDashboard(
                                         Text(
                                             text = "Protein",
                                             style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontSize = 13.5.sp,
+                                                fontSize = 12.5.sp,
                                                 fontWeight = FontWeight.Medium
                                             ),
                                             color = Color.White.copy(alpha = 0.85f),
@@ -1237,7 +1241,7 @@ fun EmbeddedDashboard(
                                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.55f))
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
                                     horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -1245,13 +1249,15 @@ fun EmbeddedDashboard(
                                         Icons.Filled.Restaurant,
                                         contentDescription = null,
                                         tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(5.dp))
                                     Text(
                                         text = "+350 kcal",
+                                        maxLines = 1,
+                                        softWrap = false,
                                         style = MaterialTheme.typography.labelLarge.copy(
-                                            fontSize = 15.sp,
+                                            fontSize = 13.5.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
                                         color = Color.White
@@ -1268,7 +1274,7 @@ fun EmbeddedDashboard(
                                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.55f))
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
                                     horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -1276,13 +1282,15 @@ fun EmbeddedDashboard(
                                         Icons.Filled.WaterDrop,
                                         contentDescription = null,
                                         tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(5.dp))
                                     Text(
                                         text = "+0.5L Water",
+                                        maxLines = 1,
+                                        softWrap = false,
                                         style = MaterialTheme.typography.labelLarge.copy(
-                                            fontSize = 15.sp,
+                                            fontSize = 13.5.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
                                         color = Color.White
@@ -1474,7 +1482,7 @@ fun EmbeddedDashboard(
 
                     // Goal Bar 2: Calories / Steps per day (Amber Gold Track)
                     ReferenceGoalProgressRow(
-                        label = if (selectedGoalHorizon == 0) "Calories & steps per day" else "Calories target (${horizons[selectedGoalHorizon]})",
+                        label = if (selectedGoalHorizon == 0) "Daily Calories Target" else "Calories target (${horizons[selectedGoalHorizon]})",
                         valueText = "${vit.caloriesLogged * horizonMultiplier} / ${vit.caloriesTarget * horizonMultiplier} kcal",
                         progress = calFraction.coerceIn(0f, 1f),
                         barColor = Color(0xFFF59E0B),
@@ -1705,18 +1713,26 @@ fun EmbeddedDashboard(
             ) {
                 Text(
                     text = "Daily Trainer Quests",
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.headlineSmall.copy(
-                        fontSize = 21.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold
                     ),
                     color = headingTealOrWhite
                 )
-                TextButton(onClick = onAddTaskClick) {
+                TextButton(
+                    onClick = onAddTaskClick,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
                     Text(
                         text = "Open Log →",
+                        maxLines = 1,
+                        softWrap = false,
                         color = PikaCheekCrimson,
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 16.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.ExtraBold
                         )
                     )
@@ -1826,11 +1842,11 @@ private fun ReferenceGoalProgressRow(
                 text = label,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(end = 8.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                    .padding(end = 6.dp),
+                maxLines = 2,
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 14.5.sp,
+                    fontSize = 13.5.sp,
+                    lineHeight = 17.sp,
                     fontWeight = FontWeight.Bold
                 ),
                 color = textColor
@@ -1840,13 +1856,13 @@ private fun ReferenceGoalProgressRow(
                 maxLines = 1,
                 softWrap = false,
                 style = MaterialTheme.typography.bodyLarge.copy(
-                    fontSize = 13.5.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.ExtraBold
                 ),
                 color = subTextColor
             )
         }
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         LinearProgressIndicator(
             progress = { safeProgress },
             modifier = Modifier
@@ -2232,7 +2248,17 @@ fun MainHunterScreen(
                             isLoading = isNutritionChatLoading,
                             onSendMessage = viewModel::sendNutritionChatMessage,
                             onClearChat = viewModel::clearNutritionChat,
-                            onLogRecommendedFood = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) }
+                            onLogRecommendedFood = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
+                            onApplyDietPlan = { msgId, goalKey, planTitle, calTarget, proTarget, waterTarget ->
+                                viewModel.applyDietPlanFromPikaBot(
+                                    messageId = msgId,
+                                    goalKey = goalKey,
+                                    planTitle = planTitle,
+                                    caloriesTarget = calTarget,
+                                    proteinTargetG = proTarget,
+                                    waterTargetLiters = waterTarget
+                                )
+                            }
                         )
                         5 -> SettingsAndFeedbackScreen(
                             state = state,
@@ -2417,22 +2443,26 @@ fun StatsBreakdownTab(
     val canUndoFood = vit.caloriesLogged > 0 || vit.proteinG > 0.0 || foodHistory.isNotEmpty()
     val canUndoWater = stam.waterLiters > 0.0 || waterHistory.isNotEmpty()
 
-    // Quick presets for Quantity/Pieces vs Grams
+    // Quick presets for Quantity/Pieces vs Grams (South Indian, North Indian & Global staples)
     val quickQuantityFoods = remember {
         listOf(
             Triple("3 Dosa 4 Idly", 1, true),
+            Triple("Chicken Gravy", 180, false),
+            Triple("Poha", 150, false),
             Triple("Idli", 4, true),
             Triple("Dosa", 3, true),
             Triple("Masala Dosa", 2, true),
+            Triple("Ven Pongal", 180, false),
+            Triple("Puttu", 2, true),
+            Triple("Kadala Curry", 160, false),
+            Triple("Parotta", 2, true),
             Triple("Roti", 3, true),
+            Triple("Paneer Butter Masala", 180, false),
+            Triple("Dal Tadka", 150, false),
+            Triple("Chicken Biryani", 280, false),
             Triple("Boiled Eggs", 3, true),
-            Triple("Tea", 1, true),
-            Triple("Banana", 2, true),
             Triple("Chicken Breast", 150, false),
-            Triple("Cooked Rice", 200, false),
-            Triple("Paneer", 100, false),
-            Triple("Dal", 150, false),
-            Triple("Oats", 80, false)
+            Triple("Cooked Rice", 200, false)
         )
     }
 
@@ -2654,7 +2684,7 @@ fun StatsBreakdownTab(
                             // Food Name (or combo e.g. "3 dosa 4 idly") & Quantity/Grams Input Row
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 OutlinedTextField(
                                     value = smartFoodQuery,
@@ -2662,16 +2692,18 @@ fun StatsBreakdownTab(
                                     label = {
                                         Text(
                                             text = if (isQuantityMode) {
-                                                "Food / Combo (e.g. 3 Dosa 4 Idly, Idli)"
+                                                "Dish (e.g. Chicken Gravy, 3 Dosa)"
                                             } else {
-                                                "Food Name (e.g. Chicken, Rice, Tea)"
+                                                "Dish (e.g. Chicken Gravy, Poha)"
                                             },
-                                            fontSize = 12.5.sp
+                                            fontSize = 11.5.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     },
                                     singleLine = true,
                                     modifier = Modifier
-                                        .weight(1.5f)
+                                        .weight(1.65f)
                                         .testTag("smart_food_name_input")
                                 )
                                 OutlinedTextField(
@@ -2681,13 +2713,15 @@ fun StatsBreakdownTab(
                                     },
                                     label = {
                                         Text(
-                                            text = if (isQuantityMode) "Qty / Pcs" else "Grams (g)",
-                                            fontSize = 12.5.sp
+                                            text = if (isQuantityMode) "Qty" else "Grams",
+                                            fontSize = 11.5.sp,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     },
                                     singleLine = true,
                                     modifier = Modifier
-                                        .weight(0.8f)
+                                        .weight(0.75f)
                                         .testTag("smart_food_grams_input")
                                 )
                             }
@@ -2761,23 +2795,25 @@ fun StatsBreakdownTab(
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         Text(
-                                            text = "• Calories - ${smartCalc.calories} kcal\n• Carbs - ${smartCalc.carbsG}g\n• Fats - ${smartCalc.fatsG}g",
+                                            text = "• Calories: ${smartCalc.calories} kcal\n• Carbs: ${smartCalc.carbsG}g\n• Fats: ${smartCalc.fatsG}g",
+                                            modifier = Modifier.weight(1f),
                                             style = MaterialTheme.typography.bodySmall.copy(
-                                                fontSize = 13.sp,
+                                                fontSize = 12.5.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                lineHeight = 19.sp
+                                                lineHeight = 18.sp
                                             ),
                                             color = TextPrimary
                                         )
                                         Text(
-                                            text = "• Protein - ${smartCalc.proteinG}g\n• Fiber - ${smartCalc.fiberG}g\n• Weight - ${smartCalc.grams}g",
+                                            text = "• Protein: ${smartCalc.proteinG}g\n• Fiber: ${smartCalc.fiberG}g\n• Weight: ${smartCalc.grams}g",
+                                            modifier = Modifier.weight(1f),
                                             style = MaterialTheme.typography.bodySmall.copy(
-                                                fontSize = 13.sp,
+                                                fontSize = 12.5.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                lineHeight = 19.sp
+                                                lineHeight = 18.sp
                                             ),
                                             color = HunterDoneGreen
                                         )
@@ -2796,7 +2832,11 @@ fun StatsBreakdownTab(
                             // 1-Tap Log Converted Food to Daily Meal Button
                             Button(
                                 onClick = {
-                                    val label = "${smartCalc.foodName} (${smartCalc.servingLabel})"
+                                    val label = if (smartCalc.foodName.contains("(${smartCalc.grams}g)")) {
+                                        smartCalc.foodName
+                                    } else {
+                                        "${smartCalc.foodName} (${smartCalc.grams}g)"
+                                    }
                                     onLogSmartFoodItem(
                                         label,
                                         smartCalc.calories,
@@ -3117,15 +3157,23 @@ fun StatsBreakdownTab(
                     ) {
                         Text(
                             text = "Logged: ${stam.waterLiters}L / ${stam.targetLiters}L (${(stam.waterLiters * 1000).roundToInt()} ml)",
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp),
                             style = MaterialTheme.typography.titleMedium.copy(
-                                fontSize = 16.sp,
+                                fontSize = 14.5.sp,
                                 fontWeight = FontWeight.ExtraBold
                             ),
                             color = TextPrimary
                         )
                         Text(
                             text = if (remainingLiters <= 0.0) "Goal Met! ✓" else "${remainingLiters}L left",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                            maxLines = 1,
+                            softWrap = false,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            ),
                             color = if (remainingLiters <= 0.0) HunterDoneGreen else waterAccent
                         )
                     }
@@ -3218,7 +3266,13 @@ fun StatsBreakdownTab(
                             ) {
                                 Text(
                                     text = "CUSTOM WATER AMOUNT",
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 11.5.sp,
                                         fontWeight = FontWeight.ExtraBold
                                     ),
                                     color = waterAccent
@@ -3240,6 +3294,8 @@ fun StatsBreakdownTab(
                                     ) {
                                         Text(
                                             text = "ml",
+                                            maxLines = 1,
+                                            softWrap = false,
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
                                             color = if (waterUnitIsMl) Color.White else TextPrimary
@@ -3259,7 +3315,9 @@ fun StatsBreakdownTab(
                                         border = BorderStroke(1.dp, waterAccent)
                                     ) {
                                         Text(
-                                            text = "Liters (L)",
+                                            text = "Liters",
+                                            maxLines = 1,
+                                            softWrap = false,
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
                                             color = if (!waterUnitIsMl) Color.White else TextPrimary

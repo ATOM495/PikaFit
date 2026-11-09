@@ -80,7 +80,15 @@ fun PikaBotScreen(
     isLoading: Boolean,
     onSendMessage: (String) -> Unit,
     onClearChat: () -> Unit,
-    onLogRecommendedFood: (mealName: String, calories: Int, proteinG: Double) -> Unit
+    onLogRecommendedFood: (mealName: String, calories: Int, proteinG: Double) -> Unit,
+    onApplyDietPlan: (
+        messageId: String,
+        goalKey: String,
+        planTitle: String,
+        caloriesTarget: Int,
+        proteinTargetG: Int,
+        waterTargetLiters: Double
+    ) -> Unit = { _, _, _, _, _, _ -> }
 ) {
     val isDark = AppThemeIsDark
     val bio = state.biometrics
@@ -102,14 +110,18 @@ fun PikaBotScreen(
     }
 
     val quickPrompts = listOf(
-        "Tea" to "Tea",
-        "3 Dosa 4 Idly" to "3 dosa 4 idly",
-        "4 Idli" to "4 idli",
-        "3 Dosa" to "3 dosa",
-        "150g Chicken" to "150g chicken breast",
-        "3 Boiled Eggs" to "3 boiled eggs",
-        "100g Paneer" to "100g paneer",
-        "Full Day Diet Plan" to "Create a full day ${bio.goalDisplayLabel} diet plan for my ${vit.caloriesTarget} kcal target"
+        "South Indian Diet Plan" to "Switch to South Indian ${bio.goalDisplayLabel} diet plan",
+        "North Indian Diet Plan" to "Switch to North Indian ${bio.goalDisplayLabel} diet plan",
+        "Weight Gain Plan" to "Weight gain diet plan",
+        "Weight Loss Plan" to "Weight loss diet plan",
+        "Pure Veg Plan" to "Vegetarian ${bio.goalDisplayLabel} diet plan",
+        "Chicken Gravy" to "180g chicken gravy",
+        "150g Poha" to "150g poha",
+        "3 Dosa 4 Idli" to "3 dosa 4 idli",
+        "Ven Pongal" to "180g ven pongal",
+        "Puttu & Kadala" to "1 puttu and 150g kadala curry",
+        "Paneer Butter Masala" to "180g paneer butter masala",
+        "Chicken Biryani" to "1 plate chicken biryani"
     )
 
     Column(
@@ -179,7 +191,7 @@ fun PikaBotScreen(
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Ask any food (e.g. Tea, 3 Dosa 4 Idly, 150g Chicken) or full Diet Plans",
+                            text = "All-India (South & North Indian) Food Database + Custom Diet Plan Changer",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
@@ -355,7 +367,52 @@ fun PikaBotScreen(
                                 color = if (isUser) Color.White else TextPrimary
                             )
 
-                            if (!isUser && !msg.isStreaming && msg.suggestedMealName != null && msg.suggestedCalories != null) {
+                            // Interactive Apply Diet Plan Button when PikaBot generates a custom Diet Plan
+                            if (!isUser && !msg.isStreaming && msg.suggestedPlanGoalKey != null && msg.suggestedPlanCaloriesTarget != null) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onApplyDietPlan(
+                                                msg.id,
+                                                msg.suggestedPlanGoalKey,
+                                                msg.suggestedPlanTitle ?: "Custom Diet Plan",
+                                                msg.suggestedPlanCaloriesTarget,
+                                                msg.suggestedPlanProteinG ?: 115,
+                                                msg.suggestedPlanWaterLiters ?: 3.5
+                                            )
+                                        }
+                                        .testTag("pikabot_apply_diet_plan_button"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (msg.planApplied) HunterEmerald.copy(alpha = 0.22f) else accentYellow.copy(alpha = 0.20f),
+                                    border = BorderStroke(1.5.dp, if (msg.planApplied) HunterEmerald else accentYellow)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Bolt,
+                                            contentDescription = null,
+                                            tint = if (msg.planApplied) HunterEmerald else accentYellow,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (msg.planApplied) {
+                                                "✓ Applied (${msg.suggestedPlanCaloriesTarget} kcal • ${msg.suggestedPlanProteinG ?: 115}g P)"
+                                            } else {
+                                                "⚡ Apply Plan (${msg.suggestedPlanCaloriesTarget} kcal • ${msg.suggestedPlanProteinG ?: 115}g P)"
+                                            },
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = if (msg.planApplied) HunterEmerald else accentYellow,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+                                }
+                            } else if (!isUser && !msg.isStreaming && msg.suggestedMealName != null && msg.suggestedCalories != null) {
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Surface(
                                     modifier = Modifier

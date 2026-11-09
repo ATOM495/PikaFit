@@ -77,7 +77,13 @@ data class NutritionChatMessage(
     val isError: Boolean = false,
     val suggestedMealName: String? = null,
     val suggestedCalories: Int? = null,
-    val suggestedProteinG: Double? = null
+    val suggestedProteinG: Double? = null,
+    val suggestedPlanGoalKey: String? = null,
+    val suggestedPlanTitle: String? = null,
+    val suggestedPlanCaloriesTarget: Int? = null,
+    val suggestedPlanProteinG: Int? = null,
+    val suggestedPlanWaterLiters: Double? = null,
+    val planApplied: Boolean = false
 )
 
 data class FoodEntryRecord(
@@ -783,23 +789,94 @@ class HunterViewModel(
         _nutritionChatMessages.value = listOf(
             NutritionChatMessage(
                 role = "model",
-                text = "Pika-Pika! I'm Pika-Dietitian, your Smart Nutrition & Diet Plan Bot! ⚡\n\n" +
-                    "Type ANY food name (e.g., \"tea\", \"150g chicken breast\", \"200g rice\", \"idli\", \"paneer\", \"oats\", \"banana\") or ask for a \"diet plan\" and I will give you:\n" +
-                    "• Food overview & fitness benefits\n" +
-                    "• Nutritional Breakdown :- (Calories, Carbs, Fats, Protein, Fiber)\n" +
-                    "• Diet Plan Ideas :- tailored to your ${bio.goalDisplayLabel} target (${vit.caloriesTarget} kcal & ${bio.recommendedProteinG}g protein/day)!",
-                suggestedMealName = "High-Protein Greek Yogurt & Berry Bowl (200g)",
-                suggestedCalories = 260,
-                suggestedProteinG = 20.0
+                text = "Pika-Pika! I'm Pika-Dietitian, your All-India (South & North Indian) Nutrition & Custom Diet Plan Bot! ⚡\n\n" +
+                    "1️⃣ Ask about ANY Indian food (e.g., \"chicken gravy\", \"150g poha\", \"3 dosa 4 idli\", \"ven pongal\", \"puttu kadala curry\", \"paneer butter masala\", \"dal tadka\", \"chicken biryani\") for exact macros.\n" +
+                    "2️⃣ Ask me to create or change your Diet Plan (e.g., \"weight gain diet plan\", \"switch to South Indian fat loss plan\", \"North Indian vegetarian muscle gain plan\", or \"set 2500 kcal diet plan\") and apply it directly to your dashboard!",
+                suggestedMealName = "Chicken Gravy / Curry (180g)",
+                suggestedCalories = 302,
+                suggestedProteinG = 31.5
             )
         )
+    }
+
+    fun applyDietPlanFromPikaBot(
+        messageId: String? = null,
+        goalKey: String,
+        planTitle: String,
+        caloriesTarget: Int,
+        proteinTargetG: Int,
+        waterTargetLiters: Double
+    ) {
+        viewModelScope.launch {
+            val current = _systemState.value.evaluateStreakOnLogin()
+            val cleanGoal = when (goalKey.uppercase()) {
+                "WEIGHT_GAIN" -> "WEIGHT_GAIN"
+                "WEIGHT_LOSS" -> "WEIGHT_LOSS"
+                else -> "RECOMP"
+            }
+            val safeCalTarget = caloriesTarget.coerceIn(1200, 5500)
+            val safeWaterTarget = round(waterTargetLiters.coerceIn(1.5, 8.0) * 10.0) / 10.0
+            val updatedBio = current.biometrics.copy(fitnessGoal = cleanGoal)
+            val curVit = current.statBreakdown.vitality
+            val curStam = current.statBreakdown.stamina
+
+            val updatedQuests = current.questLog.map { q ->
+                when {
+                    q.questName.contains("Protein", ignoreCase = true) ->
+                        q.copy(
+                            questName = "Hit ${proteinTargetG}g Daily Protein Target",
+                            status = if (curVit.proteinG >= proteinTargetG * 0.9) "COMPLETED" else "IN_PROGRESS"
+                        )
+                    q.questName.contains("Calorie", ignoreCase = true) || q.questName.contains("kcal", ignoreCase = true) || q.questName.contains("Surplus", ignoreCase = true) ->
+                        q.copy(
+                            questName = "Clear $safeCalTarget kcal Daily Target (${curVit.caloriesLogged} / $safeCalTarget logged)",
+                            status = if (curVit.caloriesLogged >= safeCalTarget * 0.9) "COMPLETED" else "IN_PROGRESS"
+                        )
+                    q.questName.contains("Water", ignoreCase = true) ->
+                        q.copy(
+                            questName = "Drink ${safeWaterTarget}L+ Water",
+                            status = if (curStam.waterLiters >= safeWaterTarget) "COMPLETED" else "IN_PROGRESS"
+                        )
+                    else -> q
+                }
+            }
+
+            val updatedState = current.copy(
+                biometrics = updatedBio,
+                statBreakdown = current.statBreakdown.copy(
+                    vitality = curVit.copy(
+                        caloriesTarget = safeCalTarget,
+                        targetMet = curVit.caloriesLogged >= (safeCalTarget * 0.90).toInt()
+                    ),
+                    stamina = curStam.copy(
+                        targetLiters = safeWaterTarget,
+                        targetMet = curStam.waterLiters >= safeWaterTarget
+                    )
+                ),
+                questLog = updatedQuests,
+                tacticalBriefing = "PikaBot applied your new \"$planTitle\"! Daily targets updated to $safeCalTarget kcal, ${proteinTargetG}g Protein, and ${safeWaterTarget}L Water."
+            )
+
+            _systemState.value = updatedState
+            repository.saveOrUpdateSession(updatedState)
+
+            if (messageId != null) {
+                _nutritionChatMessages.value = _nutritionChatMessages.value.map { msg ->
+                    if (msg.id == messageId) msg.copy(planApplied = true) else msg
+                }
+            }
+
+            _aiSyncState.value = AiSyncState.Success(
+                "Applied $planTitle ($safeCalTarget kcal • ${proteinTargetG}g P • ${safeWaterTarget}L Water) ⚡"
+            )
+        }
     }
 
     fun sendNutritionChatMessage(userQuery: String) {
         val cleanQuery = userQuery.trim()
         if (cleanQuery.isBlank() || _isNutritionChatLoading.value) return
 
-        val snapshot = _systemState.value
+        val snapshot = _systemState.value.evaluateStreakOnLogin()
         val bio = snapshot.biometrics
         val vit = snapshot.statBreakdown.vitality
         val stam = snapshot.statBreakdown.stamina
@@ -808,10 +885,22 @@ class HunterViewModel(
 
         val userMsg = NutritionChatMessage(role = "user", text = cleanQuery)
         val placeholderId = UUID.randomUUID().toString()
+        val detectedDietPlan = SmartFoodNutritionEngine.detectAndBuildDietPlanForQuery(
+            query = cleanQuery,
+            bio = bio,
+            currentCaloriesTarget = vit.caloriesTarget,
+            caloriesLogged = vit.caloriesLogged,
+            proteinLogged = vit.proteinG
+        )
+
         val streamingPlaceholder = NutritionChatMessage(
             id = placeholderId,
             role = "model",
-            text = "Pika-Dietitian is analyzing nutrition facts for your ${bio.goalDisplayLabel} plan...",
+            text = if (detectedDietPlan != null) {
+                "Pika-Dietitian is building your customized ${detectedDietPlan.planTitle} (${detectedDietPlan.caloriesTarget} kcal & ${detectedDietPlan.proteinTargetG}g protein)..."
+            } else {
+                "Pika-Dietitian is analyzing Indian & global nutrition facts for \"$cleanQuery\"..."
+            },
             isStreaming = true
         )
 
@@ -820,31 +909,76 @@ class HunterViewModel(
         _isNutritionChatLoading.value = true
 
         viewModelScope.launch {
+            // If the user asked for a Diet Plan or asked to change their Diet Plan, use the calibrated DietPlanRecommendation
+            // so the caloriesTarget never gets +350 kcal added twice and we attach the interactive Apply Plan button!
+            if (detectedDietPlan != null) {
+                if (detectedDietPlan.shouldAutoApply) {
+                    applyDietPlanFromPikaBot(
+                        messageId = placeholderId,
+                        goalKey = detectedDietPlan.goalKey,
+                        planTitle = detectedDietPlan.planTitle,
+                        caloriesTarget = detectedDietPlan.caloriesTarget,
+                        proteinTargetG = detectedDietPlan.proteinTargetG,
+                        waterTargetLiters = detectedDietPlan.waterTargetLiters
+                    )
+                }
+                _nutritionChatMessages.value = _nutritionChatMessages.value.map { msg ->
+                    if (msg.id == placeholderId) {
+                        msg.copy(
+                            text = detectedDietPlan.formattedPlanText,
+                            isStreaming = false,
+                            isError = false,
+                            suggestedMealName = null,
+                            suggestedCalories = null,
+                            suggestedProteinG = null,
+                            suggestedPlanGoalKey = detectedDietPlan.goalKey,
+                            suggestedPlanTitle = detectedDietPlan.planTitle,
+                            suggestedPlanCaloriesTarget = detectedDietPlan.caloriesTarget,
+                            suggestedPlanProteinG = detectedDietPlan.proteinTargetG,
+                            suggestedPlanWaterLiters = detectedDietPlan.waterTargetLiters,
+                            planApplied = detectedDietPlan.shouldAutoApply
+                        )
+                    } else msg
+                }
+                _isNutritionChatLoading.value = false
+                return@launch
+            }
+
+            val calcPreview = SmartFoodNutritionEngine.formatChatbotResponseForQuery(
+                query = cleanQuery,
+                bio = bio,
+                caloriesTarget = vit.caloriesTarget,
+                caloriesLogged = vit.caloriesLogged,
+                proteinLogged = vit.proteinG,
+                waterLogged = stam.waterLiters,
+                waterTarget = stam.targetLiters
+            )
+
             val systemContextPrompt = """
-                You are 'Pika-Dietitian', an expert sports nutritionist, clinical dietitian, and food scientist bot inside the PikaFit app's Biometric Charts section.
+                You are 'Pika-Dietitian', an expert Indian (South Indian & North Indian) and global sports nutritionist inside the PikaFit app.
                 Trainer Profile & Biometric Telemetry:
                 - Name: ${bio.hunterName}, Age: ${bio.age}, Sex: ${bio.biologicalSex}
                 - Weight: ${bio.weightKg} kg, Height: ${bio.heightCm.toInt()} cm, BMI: ${bio.bmi} (${bio.bmiCategory})
-                - Body Fat: ${bio.bodyFatPercent}%, Skeletal Muscle Mass: ${bio.muscleMassPercent}% (${bio.muscleMassKg} kg)
                 - Fitness Plan: ${bio.goalDisplayLabel} (${bio.experienceDisplayLabel})
                 - Daily Targets: ${vit.caloriesTarget} kcal (Logged today: ${vit.caloriesLogged} kcal), Protein Target: ${bio.recommendedProteinG}g (Logged today: ${vit.proteinG.toInt()}g), Water: ${stam.waterLiters}L / ${stam.targetLiters}L
+                - Matched Database Food Reference for "$cleanQuery": ${calcPreview.foodName} [${calcPreview.servingLabel}] -> ${calcPreview.calories} kcal, Protein: ${calcPreview.proteinG}g, Carbs: ${calcPreview.carbsG}g, Fats: ${calcPreview.fatsG}g, Fiber: ${calcPreview.fiberG}g
 
-                MANDATORY OUTPUT FORMAT FOR ANY FOOD OR DIET QUERY ("$cleanQuery"):
+                MANDATORY OUTPUT FORMAT FOR FOOD QUERY ("$cleanQuery"):
                 Always format your response strictly using this clean, structured layout:
 
-                <Food Name> - <1-2 sentence description of the food, its energy profile, and fitness benefits>
+                ${calcPreview.foodName} [${calcPreview.servingLabel}] - <1-2 sentence description of the dish and its fitness benefits>
 
-                Nutritional Breakdown (per serving / 100g) :-
-                • Calories - <kcal>
-                • Carbs - <grams>g
-                • Fats - <grams>g
-                • Protein - <grams>g
-                • Fiber - <grams>g
-                • Micronutrients - <key vitamins, minerals, antioxidants>
+                Nutritional Breakdown (${calcPreview.servingLabel}) :-
+                • Calories - ${calcPreview.calories} kcal
+                • Carbs - ${calcPreview.carbsG}g
+                • Fats - ${calcPreview.fatsG}g
+                • Protein - ${calcPreview.proteinG}g
+                • Fiber - ${calcPreview.fiberG}g
+                • Micronutrients - ${calcPreview.micronutrients}
 
-                Diet Plan Ideas (${bio.goalDisplayLabel}) :-
-                • <Morning / Pre-Workout Idea with portion in grams>
-                • <Lunch / Post-Workout Idea with portion in grams>
+                Diet Plan Ideas (${bio.goalDisplayLabel} • Target: ${vit.caloriesTarget} kcal) :-
+                • <Morning / South or North Indian Combo Idea>
+                • <Lunch / Post-Workout Pairing Idea>
                 • <Dinner / Daily Balance Tip tailored to ${vit.caloriesTarget} kcal & ${bio.recommendedProteinG}g protein>
             """.trimIndent()
 
@@ -864,13 +998,13 @@ class HunterViewModel(
                     appendLine(recentContext)
                 }
                 appendLine()
-                appendLine("User Food / Diet Input: \"$cleanQuery\"")
-                appendLine("Respond immediately following the exact '<Food> - ... \\nNutritional Breakdown :-\\n• Calories - ...\\n• Carbs - ...\\n• Fats - ...\\n• Protein - ...\\nDiet Plan Ideas :-' structure.")
+                appendLine("User Food Input: \"$cleanQuery\"")
+                appendLine("Respond immediately following the exact structure above.")
             }
 
             val accumulated = StringBuilder()
             try {
-                withTimeoutOrNull(20_000L) {
+                withTimeoutOrNull(16_000L) {
                     nutritionChatModel.generateContentStream(fullPrompt).collect { chunk ->
                         val part = chunk.text.orEmpty()
                         if (part.isNotEmpty()) {
@@ -897,11 +1031,6 @@ class HunterViewModel(
                     waterTarget = stam.targetLiters
                 )
                 val finalText = accumulated.toString().trim().ifEmpty { fallbackReply }
-                val resolvedMeal = if (accumulated.isNotBlank()) {
-                    extractSuggestedMealFromQuery(cleanQuery, bio)
-                } else {
-                    Triple(sugMeal, sugCal, sugPro)
-                }
 
                 _nutritionChatMessages.value = _nutritionChatMessages.value.map { msg ->
                     if (msg.id == placeholderId) {
@@ -909,21 +1038,15 @@ class HunterViewModel(
                             text = finalText,
                             isStreaming = false,
                             isError = false,
-                            suggestedMealName = resolvedMeal.first,
-                            suggestedCalories = resolvedMeal.second,
-                            suggestedProteinG = resolvedMeal.third
+                            suggestedMealName = sugMeal,
+                            suggestedCalories = sugCal,
+                            suggestedProteinG = sugPro
                         )
                     } else msg
                 }
                 _isNutritionChatLoading.value = false
             }
         }
-    }
-
-    private fun extractSuggestedMealFromQuery(query: String, bio: HunterBiometrics): Triple<String, Int, Double> {
-        val (foodPart, grams) = SmartFoodNutritionEngine.extractGramsFromQuery(query)
-        val calc = SmartFoodNutritionEngine.calculateForGrams(foodPart, grams)
-        return Triple("${calc.foodName} (${calc.grams}g)", calc.calories, calc.proteinG)
     }
 
     private data class NutritionReplyResult(
@@ -959,9 +1082,14 @@ class HunterViewModel(
             caloriesLogged = caloriesLogged,
             proteinLogged = proteinLogged
         )
+        val cleanMealLabel = if (calc.foodName.contains("(${calc.grams}g)")) {
+            calc.foodName
+        } else {
+            "${calc.foodName} (${calc.grams}g)"
+        }
         return NutritionReplyResult(
             replyText = formattedText,
-            mealName = "${calc.foodName} (${calc.grams}g)",
+            mealName = cleanMealLabel,
             calories = calc.calories,
             proteinG = calc.proteinG
         )
@@ -1229,7 +1357,9 @@ class HunterViewModel(
     ) {
         if (calories <= 0 && mealName.isBlank()) return
         viewModelScope.launch {
-            val cleanMeal = mealName.trim().ifBlank { "Tactical Ration" }
+            val cleanMeal = mealName.trim()
+                .replace(Regex("""\(\d+g\)\s*(\(\d+g\))"""), "$1")
+                .ifBlank { "Tactical Ration" }
             val safeCals = calories.coerceIn(1, 10000)
             val safePro = round(proteinG.coerceIn(0.0, 500.0) * 10.0) / 10.0
             val safeCarbs = round(carbsG.coerceIn(0.0, 1000.0) * 10.0) / 10.0
@@ -1237,7 +1367,12 @@ class HunterViewModel(
             val safeFiber = round(fiberG.coerceIn(0.0, 200.0) * 10.0) / 10.0
             val safeGrams = grams.coerceIn(1, 5000)
 
-            val current = _systemState.value
+            val rawCurrent = _systemState.value
+            val current = rawCurrent.evaluateStreakOnLogin()
+            if (!current.playerStatus.checkedInToday && rawCurrent.playerStatus.checkedInToday) {
+                _foodHistory.value = emptyList()
+                _waterHistory.value = emptyList()
+            }
             val vit = current.statBreakdown.vitality
             val newKcal = (vit.caloriesLogged + safeCals).coerceIn(0, 50000)
             val newProtein = round((vit.proteinG + safePro).coerceIn(0.0, 2000.0) * 10.0) / 10.0
@@ -1409,7 +1544,12 @@ class HunterViewModel(
 
     fun quickAdjustCalories(deltaKcal: Int, deltaProteinG: Double = 0.0) {
         viewModelScope.launch {
-            val current = _systemState.value
+            val rawCurrent = _systemState.value
+            val current = rawCurrent.evaluateStreakOnLogin()
+            if (!current.playerStatus.checkedInToday && rawCurrent.playerStatus.checkedInToday) {
+                _foodHistory.value = emptyList()
+                _waterHistory.value = emptyList()
+            }
             val vit = current.statBreakdown.vitality
             val newKcal = (vit.caloriesLogged + deltaKcal).coerceIn(0, 50000)
             val newProtein = (vit.proteinG + deltaProteinG).coerceIn(0.0, 2000.0)
@@ -1498,7 +1638,12 @@ class HunterViewModel(
         if (litersDelta == 0.0) return
         viewModelScope.launch {
             val safeDelta = round(litersDelta.coerceIn(-10.0, 15.0) * 100.0) / 100.0
-            val current = _systemState.value
+            val rawCurrent = _systemState.value
+            val current = rawCurrent.evaluateStreakOnLogin()
+            if (!current.playerStatus.checkedInToday && rawCurrent.playerStatus.checkedInToday) {
+                _foodHistory.value = emptyList()
+                _waterHistory.value = emptyList()
+            }
             val stam = current.statBreakdown.stamina
             val newWater = round((stam.waterLiters + safeDelta) * 100.0) / 100.0
             val clampedWater = newWater.coerceIn(0.0, 50.0)

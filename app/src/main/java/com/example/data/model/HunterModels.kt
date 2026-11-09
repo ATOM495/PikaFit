@@ -586,7 +586,7 @@ data class HunterSystemState(
     val biometrics: HunterBiometrics = HunterBiometrics()
 ) {
     /**
-     * Evaluates the daily streak when the user logs in or opens the app.
+     * Evaluates the daily streak and resets daily nutrition/hydration/workout intake when a new calendar day starts.
      * CRITICAL RULE: Logging into the app NEVER counts as a productive day and NEVER marks checkedInToday = true.
      * A user is ONLY checked in when they actively input food or exercise data via applyProductiveInput().
      */
@@ -595,27 +595,104 @@ data class HunterSystemState(
         yesterdayDate: String = StreakDateUtils.daysAgoDateString(1)
     ): HunterSystemState {
         val ps = playerStatus
+
+        // Helper to reset daily food, water, workout, and quest trackers for a fresh calendar day
+        fun resetDailyIntakeStats(): Pair<StatBreakdown, List<QuestItem>> {
+            val freshStatBreakdown = statBreakdown.copy(
+                vitality = statBreakdown.vitality.copy(
+                    caloriesLogged = 0,
+                    proteinG = 0.0,
+                    carbsG = 0.0,
+                    fatsG = 0.0,
+                    fiberG = 0.0,
+                    targetMet = false
+                ),
+                stamina = statBreakdown.stamina.copy(
+                    waterLiters = 0.0,
+                    targetMet = false
+                ),
+                strength = statBreakdown.strength.copy(
+                    workoutCompleted = false,
+                    exercisesLogged = emptyList()
+                )
+            )
+            val freshQuests = questLog.map { q ->
+                when {
+                    q.questName.contains("Streak Check-In", ignoreCase = true) ->
+                        q.copy(
+                            questName = "Daily Productive Streak Check-In (Input Food or Exercise)",
+                            status = "IN_PROGRESS"
+                        )
+                    else -> q.copy(status = "IN_PROGRESS")
+                }
+            }
+            return Pair(freshStatBreakdown, freshQuests)
+        }
+
         return if (ps.lastProductiveDate == todayDate && ps.checkedInToday) {
-            // Already verified via food or exercise input earlier today
-            this
+            // Already verified via food or exercise input earlier today.
+            // Reconcile if yesterday's calories carried over into today before the daily-reset fix
+            // (e.g., todayFoodInputs == 1 and lastCheckInTrigger contains "(+198 kcal, 5.1g P, 19.8g C, 5.9g F)"
+            // while caloriesLogged is still 1437 from yesterday + today).
+            val cleanedTrigger = ps.lastCheckInTrigger
+                .replace(Regex("""\(\d+g\)\s*(\(\d+g\))"""), "$1")
+                .replace("Poha / Upma / Pongal (Cooked)", "Poha (Flattened Rice)")
+            val triggerFoodRegex = Regex("""\(\+(\d+)\s*kcal,\s*([\d.]+)g\s*P(?:,\s*([\d.]+)g\s*C,\s*([\d.]+)g\s*F)?\)""")
+            val match = triggerFoodRegex.find(cleanedTrigger)
+            val curVit = statBreakdown.vitality
+
+            if (ps.todayFoodInputs == 1 && match != null) {
+                val triggerKcal = match.groupValues[1].toIntOrNull() ?: curVit.caloriesLogged
+                val triggerPro = match.groupValues[2].toDoubleOrNull() ?: curVit.proteinG
+                val triggerCarbs = match.groupValues.getOrNull(3)?.toDoubleOrNull()
+                val triggerFats = match.groupValues.getOrNull(4)?.toDoubleOrNull()
+
+                if (curVit.caloriesLogged > triggerKcal) {
+                    val reconciledVit = curVit.copy(
+                        caloriesLogged = triggerKcal,
+                        proteinG = triggerPro,
+                        carbsG = triggerCarbs ?: curVit.carbsG.coerceAtMost(triggerKcal / 4.0),
+                        fatsG = triggerFats ?: curVit.fatsG.coerceAtMost(triggerKcal / 9.0),
+                        targetMet = triggerKcal >= (curVit.caloriesTarget * 0.90).toInt()
+                    )
+                    return copy(
+                        playerStatus = ps.copy(lastCheckInTrigger = cleanedTrigger),
+                        statBreakdown = statBreakdown.copy(vitality = reconciledVit)
+                    )
+                }
+            }
+
+            if (cleanedTrigger != ps.lastCheckInTrigger) {
+                copy(playerStatus = ps.copy(lastCheckInTrigger = cleanedTrigger))
+            } else {
+                this
+            }
         } else if (ps.lastProductiveDate == yesterdayDate || ps.lastProductiveDate.isBlank()) {
-            // Yesterday was productive, so streak is preserved but today is UNVERIFIED until food/exercise is logged
+            // Yesterday was productive (or new profile), so streak is preserved AND daily calories/macros/water reset to 0 for the new day!
+            val (freshStats, freshQuests) = if (ps.lastProductiveDate.isNotBlank() && ps.lastProductiveDate != todayDate) {
+                resetDailyIntakeStats()
+            } else {
+                Pair(statBreakdown, questLog)
+            }
             copy(
                 playerStatus = ps.copy(
                     checkedInToday = false,
                     todayFoodInputs = 0,
                     todayExerciseInputs = 0,
                     lastCheckInTrigger = "Unverified today — log any food or exercise data to check in"
-                )
+                ),
+                statBreakdown = freshStats,
+                questLog = freshQuests
             )
         } else {
-            // Missed a full calendar day without logging food or exercise -> streak resets to 0
+            // Missed a full calendar day without logging food or exercise -> streak resets to 0 and daily intake resets to 0
             val debuffLabel = "Streak Reset (Missed Productive Day)"
             val updatedDebuffs = if (ps.activeDebuffs.contains(debuffLabel)) {
                 ps.activeDebuffs
             } else {
                 ps.activeDebuffs + debuffLabel
             }
+            val (freshStats, freshQuests) = resetDailyIntakeStats()
             copy(
                 playerStatus = ps.copy(
                     streakDays = 0,
@@ -624,7 +701,9 @@ data class HunterSystemState(
                     todayExerciseInputs = 0,
                     lastCheckInTrigger = "Streak reset — input food or exercise data to start Day 1",
                     activeDebuffs = updatedDebuffs
-                )
+                ),
+                statBreakdown = freshStats,
+                questLog = freshQuests
             )
         }
     }

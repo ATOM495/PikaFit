@@ -560,7 +560,7 @@ fun DailyProductiveStreakCard(
                     contentColor = ObsidianBg
                 ),
                 shape = RoundedCornerShape(10.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
@@ -569,12 +569,12 @@ fun DailyProductiveStreakCard(
                 Icon(Icons.Filled.Restaurant, contentDescription = null, modifier = Modifier.size(15.dp))
                 Spacer(modifier = Modifier.width(5.dp))
                 Text(
-                    text = "INPUT FOOD DATA",
+                    text = "LOG FOOD",
                     maxLines = 1,
                     softWrap = false,
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold
                     )
                 )
             }
@@ -586,7 +586,7 @@ fun DailyProductiveStreakCard(
                     contentColor = ObsidianBg
                 ),
                 shape = RoundedCornerShape(10.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
@@ -595,12 +595,12 @@ fun DailyProductiveStreakCard(
                 Icon(Icons.Filled.FitnessCenter, contentDescription = null, modifier = Modifier.size(15.dp))
                 Spacer(modifier = Modifier.width(5.dp))
                 Text(
-                    text = "INPUT EXERCISE",
+                    text = "LOG EXERCISE",
                     maxLines = 1,
                     softWrap = false,
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold
                     )
                 )
             }
@@ -1459,25 +1459,28 @@ private fun RechartsInspectTooltip(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             TooltipMetricColumn(
                 label = "WEIGHT",
                 value = "${entry.weightKg} kg",
-                sub = "${if (weightDiff >= 0) "+" else ""}$weightDiff kg vs start",
-                color = HunterCyan
+                sub = "${if (weightDiff >= 0) "+" else ""}$weightDiff kg",
+                color = HunterCyan,
+                modifier = Modifier.weight(1f)
             )
             TooltipMetricColumn(
                 label = "BODY FAT %",
                 value = "${entry.bodyFatPercent}%",
-                sub = "${entry.fatMassKg} kg (${if (bfDiff >= 0) "+" else ""}$bfDiff%)",
-                color = HunterGold
+                sub = "${entry.fatMassKg}kg (${if (bfDiff >= 0) "+" else ""}$bfDiff%)",
+                color = HunterGold,
+                modifier = Modifier.weight(1f)
             )
             TooltipMetricColumn(
                 label = "MUSCLE MASS",
                 value = "${entry.muscleMassPercent}%",
-                sub = "${entry.muscleMassKg} kg (${if (muscleDiff >= 0) "+" else ""}$muscleDiff%)",
-                color = HunterEmerald
+                sub = "${entry.muscleMassKg}kg (${if (muscleDiff >= 0) "+" else ""}$muscleDiff%)",
+                color = HunterEmerald,
+                modifier = Modifier.weight(1f)
             )
         }
     }
@@ -1488,17 +1491,35 @@ private fun TooltipMetricColumn(
     label: String,
     value: String,
     sub: String,
-    color: Color
+    color: Color,
+    modifier: Modifier = Modifier
 ) {
-    Column {
-        Text(text = label, style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Bold
+            ),
+            color = TextSecondary,
+            maxLines = 1,
+            softWrap = false
+        )
         Text(
             text = value,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
             color = color,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false
         )
-        Text(text = sub, style = MaterialTheme.typography.labelMedium, color = TextMuted)
+        Text(
+            text = sub,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+            color = TextMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -1515,19 +1536,30 @@ private fun DeltaSummaryTile(
             .clip(RoundedCornerShape(12.dp))
             .background(ObsidianBg)
             .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
-            .padding(10.dp)
+            .padding(horizontal = 8.dp, vertical = 10.dp)
     ) {
-        Text(text = title, style = MaterialTheme.typography.labelMedium, color = accentColor)
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Bold
+            ),
+            color = accentColor,
+            maxLines = 1,
+            softWrap = false
+        )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = currentValue,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
             color = TextPrimary,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false
         )
         Text(
             text = deltaText,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
             color = TextSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
