@@ -220,15 +220,18 @@ fun PikaFitOnboardingScreen(
                     )
                 )
         ) {
-            // Visible Pikachu wallpaper in the background
-            Image(
-                painter = painterResource(id = R.drawable.pika_orange_wave),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(0.32f)
-            )
+            // Visible Pikachu wallpaper in the background (decoded asynchronously off main thread)
+            val stepZeroBgBitmap = rememberAsyncDrawableBitmap(R.drawable.pika_orange_wave)
+            if (stepZeroBgBitmap != null) {
+                Image(
+                    bitmap = stepZeroBgBitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(0.32f)
+                )
+            }
 
             Column(
                 modifier = Modifier
@@ -283,10 +286,8 @@ fun PikaFitOnboardingScreen(
                             .border(4.dp, PikaYellow, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.pika_logo_hi),
-                            contentDescription = "Pikachu saying hi",
-                            contentScale = ContentScale.Crop,
+                        PikachuMascotBadge(
+                            drawableRes = R.drawable.pika_logo_hi,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -464,10 +465,8 @@ fun PikaFitOnboardingScreen(
                         .padding(18.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Image(
-                        painter = painterResource(id = pikaImageRes),
-                        contentDescription = "Pikachu Coach",
-                        contentScale = ContentScale.Crop,
+                    PikachuMascotBadge(
+                        drawableRes = pikaImageRes,
                         modifier = Modifier
                             .size(82.dp)
                             .clip(CircleShape)

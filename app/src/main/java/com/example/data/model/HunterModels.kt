@@ -505,6 +505,7 @@ data class PlayerStatus(
     val streakDays: Int = 0,
     val checkedInToday: Boolean = false,
     val lastProductiveDate: String = "",
+    val lastDailyResetDate: String = "",
     val todayFoodInputs: Int = 0,
     val todayExerciseInputs: Int = 0,
     val lastCheckInTrigger: String = "No activity logged today — input food or exercise data to check in",
@@ -586,9 +587,11 @@ data class HunterSystemState(
     val biometrics: HunterBiometrics = HunterBiometrics()
 ) {
     /**
-     * Evaluates the daily streak and resets daily nutrition/hydration/workout intake when a new calendar day starts.
-     * CRITICAL RULE: Logging into the app NEVER counts as a productive day and NEVER marks checkedInToday = true.
-     * A user is ONLY checked in when they actively input food or exercise data via applyProductiveInput().
+     * Evaluates the daily streak and resets daily nutrition/hydration/workout intake ONCE when a new calendar day starts.
+     * CRITICAL RULE:
+     * 1. Logging into the app NEVER counts as a productive day and NEVER marks checkedInToday = true.
+     * 2. Once today's reset has been recorded (lastDailyResetDate == todayDate), subsequent state updates on the same day
+     *    (such as logging water before logging food/workout) MUST NEVER reset waterLiters or daily stats back to 0!
      */
     fun evaluateStreakOnLogin(
         todayDate: String = StreakDateUtils.todayDateString(),
@@ -629,11 +632,8 @@ data class HunterSystemState(
             return Pair(freshStatBreakdown, freshQuests)
         }
 
-        return if (ps.lastProductiveDate == todayDate && ps.checkedInToday) {
-            // Already verified via food or exercise input earlier today.
-            // Reconcile if yesterday's calories carried over into today before the daily-reset fix
-            // (e.g., todayFoodInputs == 1 and lastCheckInTrigger contains "(+198 kcal, 5.1g P, 19.8g C, 5.9g F)"
-            // while caloriesLogged is still 1437 from yesterday + today).
+        // Case 1: Already verified via food or exercise input earlier today
+        if (ps.lastProductiveDate == todayDate && ps.checkedInToday) {
             val cleanedTrigger = ps.lastCheckInTrigger
                 .replace(Regex("""\(\d+g\)\s*(\(\d+g\))"""), "$1")
                 .replace("Poha / Upma / Pongal (Cooked)", "Poha (Flattened Rice)")
@@ -641,7 +641,7 @@ data class HunterSystemState(
             val match = triggerFoodRegex.find(cleanedTrigger)
             val curVit = statBreakdown.vitality
 
-            if (ps.todayFoodInputs == 1 && match != null) {
+            if (ps.todayFoodInputs == 1 && match != null && ps.lastDailyResetDate != todayDate) {
                 val triggerKcal = match.groupValues[1].toIntOrNull() ?: curVit.caloriesLogged
                 val triggerPro = match.groupValues[2].toDoubleOrNull() ?: curVit.proteinG
                 val triggerCarbs = match.groupValues.getOrNull(3)?.toDoubleOrNull()
@@ -656,27 +656,48 @@ data class HunterSystemState(
                         targetMet = triggerKcal >= (curVit.caloriesTarget * 0.90).toInt()
                     )
                     return copy(
-                        playerStatus = ps.copy(lastCheckInTrigger = cleanedTrigger),
+                        playerStatus = ps.copy(
+                            lastCheckInTrigger = cleanedTrigger,
+                            lastDailyResetDate = todayDate
+                        ),
                         statBreakdown = statBreakdown.copy(vitality = reconciledVit)
                     )
                 }
             }
 
-            if (cleanedTrigger != ps.lastCheckInTrigger) {
-                copy(playerStatus = ps.copy(lastCheckInTrigger = cleanedTrigger))
+            return if (cleanedTrigger != ps.lastCheckInTrigger || ps.lastDailyResetDate != todayDate) {
+                copy(
+                    playerStatus = ps.copy(
+                        lastCheckInTrigger = cleanedTrigger,
+                        lastDailyResetDate = todayDate
+                    )
+                )
             } else {
                 this
             }
-        } else if (ps.lastProductiveDate == yesterdayDate || ps.lastProductiveDate.isBlank()) {
-            // Yesterday was productive (or new profile), so streak is preserved AND daily calories/macros/water reset to 0 for the new day!
-            val (freshStats, freshQuests) = if (ps.lastProductiveDate.isNotBlank() && ps.lastProductiveDate != todayDate) {
-                resetDailyIntakeStats()
-            } else {
-                Pair(statBreakdown, questLog)
-            }
+        }
+
+        // Case 2: Already performed the daily rollover reset for todayDate (e.g. user logged water today before logging food/workout)
+        if (ps.lastDailyResetDate == todayDate) {
+            return this
+        }
+
+        // Case 3: First evaluation on a new calendar day (or brand-new Day 1 account)
+        return if (ps.lastProductiveDate.isBlank()) {
+            // Brand-new Day 1 profile — do NOT wipe any water/stats logged today; just stamp lastDailyResetDate = todayDate
             copy(
                 playerStatus = ps.copy(
                     checkedInToday = false,
+                    lastDailyResetDate = todayDate
+                )
+            )
+        } else if (ps.lastProductiveDate == yesterdayDate) {
+            // Yesterday was productive -> preserve streakDays, reset daily intake stats ONCE for todayDate
+            val (freshStats, freshQuests) = resetDailyIntakeStats()
+            copy(
+                playerStatus = ps.copy(
+                    checkedInToday = false,
+                    lastDailyResetDate = todayDate,
                     todayFoodInputs = 0,
                     todayExerciseInputs = 0,
                     lastCheckInTrigger = "Unverified today — log any food or exercise data to check in"
@@ -685,7 +706,7 @@ data class HunterSystemState(
                 questLog = freshQuests
             )
         } else {
-            // Missed a full calendar day without logging food or exercise -> streak resets to 0 and daily intake resets to 0
+            // Missed a full calendar day without logging food or exercise -> streak resets to 0 and daily intake resets ONCE for todayDate
             val debuffLabel = "Streak Reset (Missed Productive Day)"
             val updatedDebuffs = if (ps.activeDebuffs.contains(debuffLabel)) {
                 ps.activeDebuffs
@@ -697,6 +718,7 @@ data class HunterSystemState(
                 playerStatus = ps.copy(
                     streakDays = 0,
                     checkedInToday = false,
+                    lastDailyResetDate = todayDate,
                     todayFoodInputs = 0,
                     todayExerciseInputs = 0,
                     lastCheckInTrigger = "Streak reset — input food or exercise data to start Day 1",
@@ -782,6 +804,7 @@ data class HunterSystemState(
                 streakDays = newStreakDays,
                 checkedInToday = true,
                 lastProductiveDate = todayDate,
+                lastDailyResetDate = todayDate,
                 todayFoodInputs = newFoodCount,
                 todayExerciseInputs = newExerciseCount,
                 lastCheckInTrigger = "Checked in via $categoryLabel: $inputSummary",
@@ -844,10 +867,26 @@ data class HunterSystemState(
         root.put("active_debuffs", JSONArray(playerStatus.activeDebuffs))
         root.put("checked_in_today", playerStatus.checkedInToday)
         root.put("last_productive_date", playerStatus.lastProductiveDate)
+        root.put("last_daily_reset_date", playerStatus.lastDailyResetDate)
         root.put("today_food_inputs", playerStatus.todayFoodInputs)
         root.put("today_exercise_inputs", playerStatus.todayExerciseInputs)
         root.put("last_check_in_trigger", playerStatus.lastCheckInTrigger)
         root.put("productive_history_dates", JSONArray(playerStatus.productiveHistoryDates))
+
+        // Persist core stats inside stateJson as well so local sessions restored from cachedJson retain 100% of water, calories, macros, and XP
+        root.put("current_xp", playerStatus.currentXp)
+        root.put("streak_days", playerStatus.streakDays)
+        root.put("calories_logged", statBreakdown.vitality.caloriesLogged)
+        root.put("calories_target", statBreakdown.vitality.caloriesTarget)
+        root.put("protein_g", statBreakdown.vitality.proteinG)
+        root.put("carbs_g", statBreakdown.vitality.carbsG)
+        root.put("fats_g", statBreakdown.vitality.fatsG)
+        root.put("fiber_g", statBreakdown.vitality.fiberG)
+        root.put("omega3_mg", statBreakdown.vitality.omega3Mg)
+        root.put("water_liters", statBreakdown.stamina.waterLiters)
+        root.put("target_liters", statBreakdown.stamina.targetLiters)
+        root.put("workout_completed", statBreakdown.strength.workoutCompleted)
+        root.put("tactical_briefing", tacticalBriefing)
 
         val exercisesArr = JSONArray()
         statBreakdown.strength.exercisesLogged.forEach { ex ->
@@ -1008,6 +1047,7 @@ data class HunterSystemState(
                 streakDays = existingPlayerStatus.streakDays,
                 checkedInToday = existingPlayerStatus.checkedInToday,
                 lastProductiveDate = existingPlayerStatus.lastProductiveDate,
+                lastDailyResetDate = existingPlayerStatus.lastDailyResetDate,
                 todayFoodInputs = existingPlayerStatus.todayFoodInputs,
                 todayExerciseInputs = existingPlayerStatus.todayExerciseInputs,
                 lastCheckInTrigger = existingPlayerStatus.lastCheckInTrigger,
@@ -1108,6 +1148,7 @@ data class HunterSystemState(
                     streakDays = 0,
                     checkedInToday = false,
                     lastProductiveDate = "",
+                    lastDailyResetDate = StreakDateUtils.todayDateString(),
                     todayFoodInputs = 0,
                     todayExerciseInputs = 0,
                     lastCheckInTrigger = "Fresh calibration — log any meal or exercise set to start Day 1!",
@@ -1209,6 +1250,10 @@ data class HunterSession(
             "last_productive_date",
             defaultState.playerStatus.lastProductiveDate
         )
+        val lastDailyResetDate = parsedJson.optString(
+            "last_daily_reset_date",
+            defaultState.playerStatus.lastDailyResetDate
+        )
         val todayFoodInputs = parsedJson.optInt("today_food_inputs", 0)
         val todayExerciseInputs = parsedJson.optInt("today_exercise_inputs", 0)
         val lastCheckInTrigger = parsedJson.optString(
@@ -1272,6 +1317,30 @@ data class HunterSession(
             defaultState.suggestedActions
         }
 
+        val biometrics = HunterBiometrics.fromJsonObject(parsedJson.optJSONObject("biometrics"))
+
+        val resolvedCaloriesLogged = if (caloriesLogged != 0L) caloriesLogged else parsedJson.optLong("calories_logged", 0L)
+        val resolvedCaloriesTarget = if (caloriesTarget != 2588L || !parsedJson.has("calories_target")) {
+            if (caloriesTarget != 2588L) caloriesTarget else biometrics.recommendedCaloriesTarget.toLong()
+        } else {
+            parsedJson.optLong("calories_target", biometrics.recommendedCaloriesTarget.toLong())
+        }
+        val resolvedProteinG = if (proteinG != 0.0) proteinG else parsedJson.optDouble("protein_g", 0.0)
+        val resolvedCarbsG = if (carbsG != 0.0) carbsG else parsedJson.optDouble("carbs_g", 0.0)
+        val resolvedFatsG = if (fatsG != 0.0) fatsG else parsedJson.optDouble("fats_g", 0.0)
+        val resolvedFiberG = if (fiberG != 0.0) fiberG else parsedJson.optDouble("fiber_g", 0.0)
+        val resolvedOmega3 = if (omega3Mg != 0.0) omega3Mg else parsedJson.optDouble("omega3_mg", 0.0)
+        val resolvedWaterLiters = if (waterLiters != 0.0) waterLiters else parsedJson.optDouble("water_liters", 0.0)
+        val resolvedTargetLiters = if (targetLiters != 3.5 || !parsedJson.has("target_liters")) {
+            if (targetLiters != 3.5) targetLiters else biometrics.recommendedWaterLiters
+        } else {
+            parsedJson.optDouble("target_liters", biometrics.recommendedWaterLiters)
+        }
+        val resolvedXp = if (currentXp != 0L) currentXp else parsedJson.optLong("current_xp", 0L)
+        val resolvedStreak = if (streakDays != 0L) streakDays else parsedJson.optLong("streak_days", 0L)
+        val resolvedWorkoutCompleted = workoutCompleted || parsedJson.optBoolean("workout_completed", false)
+        val resolvedBriefing = parsedJson.optString("tactical_briefing", "").ifBlank { tacticalBriefing }
+
         val isLegacyMockExercises = todayExerciseInputs == 0 &&
             exercises.size == 3 &&
             exercises[0].exerciseName == "Lateral Raise" &&
@@ -1281,19 +1350,18 @@ data class HunterSession(
 
         val isLegacyMockNutrition = !checkedInToday &&
             todayFoodInputs == 0 &&
-            caloriesLogged == 2000L &&
-            proteinG == 112.0
-        val cleanCaloriesLogged = if (isLegacyMockNutrition) 0 else caloriesLogged.toInt()
-        val cleanProteinG = if (isLegacyMockNutrition) 0.0 else proteinG
-        val cleanCarbsG = if (isLegacyMockNutrition) 0.0 else carbsG
-        val cleanFatsG = if (isLegacyMockNutrition) 0.0 else fatsG
-        val cleanFiberG = if (isLegacyMockNutrition) 0.0 else fiberG
-        val cleanOmega3 = if (isLegacyMockNutrition) 0.0 else omega3Mg
-        val cleanWaterLiters = if (isLegacyMockNutrition && waterLiters == 4.0) 0.0 else waterLiters
-        val cleanXp = if (isLegacyMockNutrition && isLegacyMockExercises && currentXp == 620L) 0 else currentXp.toInt().coerceAtLeast(0)
-        val cleanStreak = if (isLegacyMockNutrition && isLegacyMockExercises && streakDays == 4L) 0 else streakDays.toInt()
+            resolvedCaloriesLogged == 2000L &&
+            resolvedProteinG == 112.0
+        val cleanCaloriesLogged = if (isLegacyMockNutrition) 0 else resolvedCaloriesLogged.toInt()
+        val cleanProteinG = if (isLegacyMockNutrition) 0.0 else resolvedProteinG
+        val cleanCarbsG = if (isLegacyMockNutrition) 0.0 else resolvedCarbsG
+        val cleanFatsG = if (isLegacyMockNutrition) 0.0 else resolvedFatsG
+        val cleanFiberG = if (isLegacyMockNutrition) 0.0 else resolvedFiberG
+        val cleanOmega3 = if (isLegacyMockNutrition) 0.0 else resolvedOmega3
+        val cleanWaterLiters = if (isLegacyMockNutrition && resolvedWaterLiters == 4.0) 0.0 else resolvedWaterLiters
+        val cleanXp = if (isLegacyMockNutrition && isLegacyMockExercises && resolvedXp == 620L) 0 else resolvedXp.toInt().coerceAtLeast(0)
+        val cleanStreak = if (isLegacyMockNutrition && isLegacyMockExercises && resolvedStreak == 4L) 0 else resolvedStreak.toInt()
 
-        val biometrics = HunterBiometrics.fromJsonObject(parsedJson.optJSONObject("biometrics"))
         val syncedXp = cleanXp
         val tier = TrainerRankProgression.tierForXp(syncedXp)
         val nextXp = TrainerRankProgression.nextThresholdForXp(syncedXp)
@@ -1315,6 +1383,7 @@ data class HunterSession(
                 streakDays = cleanStreak,
                 checkedInToday = checkedInToday,
                 lastProductiveDate = lastProductiveDate,
+                lastDailyResetDate = lastDailyResetDate.ifBlank { StreakDateUtils.todayDateString() },
                 todayFoodInputs = todayFoodInputs,
                 todayExerciseInputs = todayExerciseInputs,
                 lastCheckInTrigger = lastCheckInTrigger,
@@ -1325,27 +1394,27 @@ data class HunterSession(
             statBreakdown = StatBreakdown(
                 vitality = VitalityStats(
                     caloriesLogged = cleanCaloriesLogged,
-                    caloriesTarget = caloriesTarget.toInt(),
+                    caloriesTarget = resolvedCaloriesTarget.toInt().coerceIn(500, 50000),
                     proteinG = cleanProteinG,
                     carbsG = cleanCarbsG,
                     fatsG = cleanFatsG,
                     fiberG = cleanFiberG,
                     omega3Mg = cleanOmega3,
-                    targetMet = cleanCaloriesLogged >= caloriesTarget && cleanProteinG >= 110.0
+                    targetMet = cleanCaloriesLogged >= resolvedCaloriesTarget && cleanProteinG >= 110.0
                 ),
                 stamina = StaminaStats(
                     waterLiters = cleanWaterLiters,
-                    targetLiters = targetLiters,
-                    targetMet = cleanWaterLiters >= targetLiters
+                    targetLiters = resolvedTargetLiters.coerceIn(0.5, 50.0),
+                    targetMet = cleanWaterLiters >= resolvedTargetLiters
                 ),
                 strength = StrengthStats(
-                    workoutCompleted = cleanExercises.isNotEmpty() && workoutCompleted,
+                    workoutCompleted = cleanExercises.isNotEmpty() && resolvedWorkoutCompleted,
                     exercisesLogged = cleanExercises
                 )
             ),
             questLog = quests,
             unlockedAchievements = syncedAchievements,
-            tacticalBriefing = tacticalBriefing,
+            tacticalBriefing = resolvedBriefing,
             suggestedActions = actions,
             biometrics = biometrics.copy(hunterTitle = autoTitle)
         )

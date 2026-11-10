@@ -1152,12 +1152,12 @@ fun EmbeddedDashboard(
                                 Text(
                                     text = "Energy & Walk",
                                     style = MaterialTheme.typography.headlineMedium.copy(
-                                        fontSize = 20.sp,
+                                        fontSize = 18.sp,
                                         fontWeight = FontWeight.ExtraBold
                                     ),
                                     color = Color.White,
                                     maxLines = 1,
-                                    softWrap = false
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
@@ -1288,9 +1288,9 @@ fun EmbeddedDashboard(
                                     Text(
                                         text = "+0.5L Water",
                                         maxLines = 1,
-                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.labelLarge.copy(
-                                            fontSize = 13.5.sp,
+                                            fontSize = 12.5.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
                                         color = Color.White
@@ -1886,16 +1886,14 @@ fun MainHunterScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val credentialManager = remember { CredentialManager.create(context) }
+    val credentialManager by remember { lazy { CredentialManager.create(context) } }
 
     val viewModel: HunterViewModel = viewModel(
         key = currentUserId,
         factory = viewModelFactory {
             initializer {
                 val app = checkNotNull(this[androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])
-                val databaseId = app.getString(R.string.firestore_database_id)
-                val db = FirebaseFirestore.getInstance(databaseId)
-                HunterViewModel(HunterRepository(db, app, currentUserId), currentUserId)
+                HunterViewModel(HunterRepository(app, currentUserId), currentUserId)
             }
         }
     )
@@ -3265,7 +3263,7 @@ fun StatsBreakdownTab(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "CUSTOM WATER AMOUNT",
+                                    text = "CUSTOM WATER",
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(end = 8.dp),

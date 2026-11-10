@@ -4,7 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -12,7 +11,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import com.example.ui.auth.AuthScreen
 import com.example.ui.screens.MainHunterScreen
 import com.example.ui.theme.HunterSystemTheme
@@ -23,9 +21,9 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -36,7 +34,7 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
     }
     addAuthStateListener(listener)
     awaitClose { removeAuthStateListener(listener) }
-}
+}.flowOn(Dispatchers.IO)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,44 +42,17 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         configureAppCheck(applicationContext, intent)
 
-        // Read immediately without blocking the Choreographer frame loop
-        val initialUserId = try {
-            Firebase.auth.currentUser?.uid
-        } catch (_: Exception) {
-            null
-        } ?: applicationContext
-            .getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
-            .getString("active_account_id", null)
-            ?.takeIf { it.isNotBlank() && !it.contains("@") }
-
         setContent {
             val scope = rememberCoroutineScope()
             var isDarkMode by rememberSaveable { mutableStateOf(true) }
-            var activeAccountId by rememberSaveable { mutableStateOf(initialUserId) }
+            var activeAccountId by rememberSaveable { mutableStateOf<String?>(null) }
+            var isStartupReady by remember { mutableStateOf(false) }
 
-            // Observe Firebase Auth state updates
+            // Let the very first frame commit to SurfaceFlinger immediately so SurfaceSyncGroup
+            // never waits on SharedPreferences, FirebaseAuth, or Firestore initialization.
             LaunchedEffect(Unit) {
-                Firebase.auth.authStateFlow().collect { user ->
-                    val uid = user?.uid
-                    if (!uid.isNullOrBlank()) {
-                        try {
-                            user.getIdToken(false).await()
-                        } catch (_: Exception) {}
-                        activeAccountId = uid
-                        withContext(Dispatchers.IO) {
-                            applicationContext
-                                .getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
-                                .edit()
-                                .putString("active_account_id", uid)
-                                .apply()
-                        }
-                    }
-                }
-            }
-
-            // Clean legacy/stale SharedPreferences in the background without holding the main thread frame
-            LaunchedEffect(Unit) {
-                withContext(Dispatchers.IO) {
+                withFrameNanos { }
+                val resolvedInitialAccount = withContext(Dispatchers.IO) {
                     val prefs = applicationContext.getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
                     val onboardingPrefs = applicationContext.getSharedPreferences("pikafit_account_onboarding_prefs", MODE_PRIVATE)
                     val existingCachedAccount = prefs.getString("active_account_id", null)
@@ -94,7 +65,40 @@ class MainActivity : ComponentActivity() {
                         staleKeys.forEach { editor.remove(it) }
                         editor.apply()
                     }
+
+                    val firebaseUid = try {
+                        Firebase.auth.currentUser?.uid
+                    } catch (_: Exception) {
+                        null
+                    }
+                    firebaseUid ?: prefs
+                        .getString("active_account_id", null)
+                        ?.takeIf { it.isNotBlank() && !it.contains("@") }
                 }
+                if (activeAccountId == null && !resolvedInitialAccount.isNullOrBlank()) {
+                    activeAccountId = resolvedInitialAccount
+                }
+                isStartupReady = true
+
+                // Observe Firebase Auth state updates on IO after first frame
+                try {
+                    Firebase.auth.authStateFlow().collect { user ->
+                        val uid = user?.uid
+                        if (!uid.isNullOrBlank()) {
+                            withContext(Dispatchers.IO) {
+                                try {
+                                    user.getIdToken(false).await()
+                                } catch (_: Exception) {}
+                                applicationContext
+                                    .getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
+                                    .edit()
+                                    .putString("active_account_id", uid)
+                                    .apply()
+                            }
+                            activeAccountId = uid
+                        }
+                    }
+                } catch (_: Exception) {}
             }
 
             HunterSystemTheme(darkTheme = isDarkMode) {
@@ -102,21 +106,27 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    if (activeAccountId.isNullOrBlank()) {
+                    if (!isStartupReady) {
+                        Box(modifier = Modifier.fillMaxSize())
+                    } else if (activeAccountId.isNullOrBlank()) {
                         AuthScreen(
                             onAuthSuccess = { signedInAccountId ->
-                                val resolvedId = try {
-                                    Firebase.auth.currentUser?.uid
-                                } catch (_: Exception) {
-                                    null
-                                } ?: signedInAccountId.ifBlank { "google_trainer_default" }
-                                activeAccountId = resolvedId
-                                scope.launch(Dispatchers.IO) {
-                                    applicationContext
-                                        .getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
-                                        .edit()
-                                        .putString("active_account_id", resolvedId)
-                                        .apply()
+                                scope.launch {
+                                    val resolvedId = withContext(Dispatchers.IO) {
+                                        val fbUid = try {
+                                            Firebase.auth.currentUser?.uid
+                                        } catch (_: Exception) {
+                                            null
+                                        }
+                                        val finalId = fbUid ?: signedInAccountId.ifBlank { "google_trainer_default" }
+                                        applicationContext
+                                            .getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
+                                            .edit()
+                                            .putString("active_account_id", finalId)
+                                            .apply()
+                                        finalId
+                                    }
+                                    activeAccountId = resolvedId
                                 }
                             }
                         )

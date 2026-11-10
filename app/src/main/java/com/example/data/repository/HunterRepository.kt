@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -32,20 +33,30 @@ import java.util.Date
 import java.util.UUID
 
 class HunterRepository(
-    private val db: FirebaseFirestore,
+    dbInstance: FirebaseFirestore? = null,
     private val context: Context? = null,
     private val activeAccountId: String = LOCAL_DEV_USER_ID
 ) {
 
     constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        ),
-        context.applicationContext,
-        LOCAL_DEV_USER_ID
+        dbInstance = null,
+        context = context.applicationContext,
+        activeAccountId = LOCAL_DEV_USER_ID
     )
 
-    private val auth = Firebase.auth
+    constructor(context: Context, activeAccountId: String) : this(
+        dbInstance = null,
+        context = context.applicationContext,
+        activeAccountId = activeAccountId
+    )
+
+    private val db: FirebaseFirestore by lazy {
+        dbInstance ?: FirebaseFirestore.getInstance(
+            requireNotNull(context).applicationContext.getString(R.string.firestore_database_id)
+        )
+    }
+
+    private val auth by lazy { Firebase.auth }
 
     private fun currentUserIdOrNull(): String? = auth.currentUser?.uid
 
@@ -140,37 +151,25 @@ class HunterRepository(
         }
         try {
             user.getIdToken(false).await()
-        } catch (_: Exception) {
-            emitAll(localFlow)
-            return@flow
-        }
-        val firebaseUid = user.uid
-        val path = "users/$firebaseUid/sessions/$sessionId"
-        val docRef = db.collection("users").document(firebaseUid).collection("sessions").document(sessionId)
-        emitAll(
-            docRef.snapshots()
-                .map { snapshot ->
-                    if (snapshot.exists()) {
-                        snapshot.toObject(HunterSession::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                            ?.also { session ->
-                                if (session.stateJson.isNotBlank()) {
-                                    setOnboardingCompletedForUser(firebaseUid, true, session.stateJson)
-                                    localFlow.value = session
-                                }
+            val firebaseUid = user.uid
+            if (localFlow.value == null) {
+                val docRef = db.collection("users").document(firebaseUid).collection("sessions").document(sessionId)
+                val snap = docRef.get().await()
+                if (snap.exists()) {
+                    snap.toObject(HunterSession::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                        ?.also { session ->
+                            if (session.stateJson.isNotBlank()) {
+                                setOnboardingCompletedForUser(firebaseUid, true, session.stateJson)
+                                localFlow.value = session
                             }
-                    } else {
-                        localFlow.value
-                    }
+                        }
                 }
-                .catch { error ->
-                    val isUnauth = auth.currentUser == null
-                    if (!isUnauth && error is Exception) {
-                        handleFirestoreError(error, OperationType.GET, path)
-                    }
-                    emitAll(localFlow)
-                }
-        )
-    }
+            }
+        } catch (_: Exception) {
+            // Fall through to localFlow
+        }
+        emitAll(localFlow)
+    }.flowOn(Dispatchers.IO)
 
     fun observeLogs(): Flow<List<TacticalLog>> = flow {
         val user = auth.currentUser
@@ -204,7 +203,7 @@ class HunterRepository(
                     emitAll(localFlow)
                 }
         )
-    }
+    }.flowOn(Dispatchers.IO)
 
     fun observeJournalEntries(): Flow<List<JournalEntry>> = flow {
         val user = auth.currentUser
@@ -238,7 +237,7 @@ class HunterRepository(
                     emitAll(localFlow)
                 }
         )
-    }
+    }.flowOn(Dispatchers.IO)
 
     fun observePublicFeedback(): Flow<List<FeedbackEntry>> = flow {
         val user = auth.currentUser
@@ -269,7 +268,7 @@ class HunterRepository(
                     emitAll(localFeedbackFlow)
                 }
         )
-    }
+    }.flowOn(Dispatchers.IO)
 
     suspend fun saveOrUpdateSession(
         state: HunterSystemState,
@@ -286,9 +285,7 @@ class HunterRepository(
             existingCreatedAt = existingCreatedAt
         ).copy(updatedAt = nowTs)
         localFlow.value = localModel
-        if (state.biometrics.onboardingCompleted) {
-            setOnboardingCompletedForUser(effUid, true, localModel.stateJson)
-        }
+        setOnboardingCompletedForUser(effUid, true, localModel.stateJson)
 
         val firebaseUid = currentUserIdOrNull() ?: return Result.success(localModel)
         val docRef = db.collection("users").document(firebaseUid).collection("sessions").document(sessionId)
@@ -562,7 +559,7 @@ class HunterRepository(
                 }
             }
         awaitClose { listener.remove() }
-    }
+    }.flowOn(Dispatchers.IO)
 
     suspend fun setAppReleaseInfo(releaseInfo: AppReleaseInfo): Boolean = withContext(Dispatchers.IO) {
         try {

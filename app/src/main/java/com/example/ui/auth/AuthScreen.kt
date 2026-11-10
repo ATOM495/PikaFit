@@ -144,12 +144,14 @@ fun AuthScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
-    val credentialManager = remember { CredentialManager.create(context) }
-    val auth = remember { Firebase.auth }
-    val db = remember {
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        )
+    val credentialManager by remember { lazy { CredentialManager.create(context) } }
+    val auth by remember { lazy { Firebase.auth } }
+    val db by remember {
+        lazy {
+            FirebaseFirestore.getInstance(
+                context.applicationContext.getString(R.string.firestore_database_id)
+            )
+        }
     }
 
     // Navigation & Form State

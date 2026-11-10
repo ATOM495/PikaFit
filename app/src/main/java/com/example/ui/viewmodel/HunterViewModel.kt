@@ -1355,12 +1355,12 @@ class HunterViewModel(
         fiberG: Double = 0.0,
         grams: Int = 100
     ) {
-        if (calories <= 0 && mealName.isBlank()) return
+        if (calories < 0 || (calories == 0 && mealName.isBlank())) return
         viewModelScope.launch {
             val cleanMeal = mealName.trim()
                 .replace(Regex("""\(\d+g\)\s*(\(\d+g\))"""), "$1")
                 .ifBlank { "Tactical Ration" }
-            val safeCals = calories.coerceIn(1, 10000)
+            val safeCals = calories.coerceIn(0, 10000)
             val safePro = round(proteinG.coerceIn(0.0, 500.0) * 10.0) / 10.0
             val safeCarbs = round(carbsG.coerceIn(0.0, 1000.0) * 10.0) / 10.0
             val safeFats = round(fatsG.coerceIn(0.0, 500.0) * 10.0) / 10.0
@@ -1657,6 +1657,17 @@ class HunterViewModel(
                 ?: "+${safeDelta}L (${mlEquivalent}ml) Water"
 
             val briefing = "Hydration reserves at ${clampedWater}L / ${stam.targetLiters}L ($entryLabel). Cellular nutrient transport and joint lubrication optimized."
+            val updatedQuests = xpUpdatedState.questLog.map { q ->
+                if (q.questName.contains("Water", ignoreCase = true)) {
+                    QuestItem(
+                        questName = "Drink ${stam.targetLiters}L Water (${clampedWater}L / ${stam.targetLiters}L)",
+                        status = if (targetMet) "COMPLETED" else "IN_PROGRESS",
+                        xpAwarded = q.xpAwarded
+                    )
+                } else {
+                    q
+                }
+            }
             val updated = xpUpdatedState.copy(
                 statBreakdown = xpUpdatedState.statBreakdown.copy(
                     stamina = stam.copy(
@@ -1664,6 +1675,7 @@ class HunterViewModel(
                         targetMet = targetMet
                     )
                 ),
+                questLog = updatedQuests,
                 tacticalBriefing = briefing
             )
             if (safeDelta > 0) {
