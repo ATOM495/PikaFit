@@ -550,26 +550,25 @@ class HunterRepository(
     }
 
     fun getInstalledVersionName(): String {
-        val buildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.1" }
         val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
         val savedVer = prefs?.getString(KEY_INSTALLED_VERSION_NAME, null)?.trim().orEmpty()
-        return if (savedVer.isNotBlank() && compareVersionStrings(savedVer, buildVer) >= 0) {
-            savedVer
-        } else {
-            buildVer
+        if (savedVer.isNotBlank() && savedVer != "1.1") {
+            return savedVer
         }
+        val rawBuildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.0.2" }
+        return if (rawBuildVer == "1.1" || rawBuildVer == "1.0") "1.0.2" else rawBuildVer
     }
 
     fun getInstalledVersionCode(): Long {
         val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 2L }
         val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
         val savedCode = prefs?.getLong(KEY_INSTALLED_VERSION_CODE, 0L) ?: 0L
-        return maxOf(buildCode, savedCode)
+        return if (savedCode > 0L) savedCode else buildCode
     }
 
     fun markVersionInstalled(versionName: String, versionCode: Long, publishedAt: String = "") {
         val cleanVer = versionName.trim().removePrefix("v").removePrefix("V").ifBlank { getInstalledVersionName() }
-        val cleanCode = maxOf(versionCode, getInstalledVersionCode())
+        val cleanCode = deriveVersionCode(cleanVer, maxOf(versionCode, getInstalledVersionCode()))
         val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
         prefs?.edit()?.apply {
             putString(KEY_INSTALLED_VERSION_NAME, cleanVer)
@@ -699,13 +698,12 @@ class HunterRepository(
                                 lastAckPublishedAt.isNotBlank() &&
                                 publishedAt > lastAckPublishedAt
                             val isDifferentUnacknowledgedTag = cleanTag != installedVer &&
-                                lastAckPublishedAt != publishedAt &&
-                                semCompare >= 0
+                                (lastAckPublishedAt.isBlank() || lastAckPublishedAt != publishedAt)
                             val updateAvailable = semCompare > 0 || isNewerTimestamp || isDifferentUnacknowledgedTag
                             val computedCode = if (updateAvailable) {
                                 maxOf(installedCode + 1L, deriveVersionCode(cleanTag, installedCode + 1L))
                             } else {
-                                installedCode
+                                deriveVersionCode(cleanTag, installedCode)
                             }
 
                             return AppReleaseInfo(

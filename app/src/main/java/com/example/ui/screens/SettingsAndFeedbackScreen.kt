@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.text.style.TextAlign
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -147,7 +148,7 @@ fun SettingsAndFeedbackScreen(
     currentUserId: String,
     initialFocusSection: Int = 0,
     releaseInfo: com.example.data.model.AppReleaseInfo = com.example.data.model.AppReleaseInfo(),
-    installedVersionName: String = "1.1",
+    installedVersionName: String = "1.0.2",
     installedVersionCode: Long = 2L,
     isDark: Boolean = AppThemeIsDark,
     onToggleTheme: () -> Unit = {},
@@ -392,14 +393,20 @@ fun SettingsAndFeedbackScreen(
                 Text(
                     text = pageTitle,
                     style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 20.sp,
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.ExtraBold
                     ),
-                    color = TextPrimary
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 6.dp)
                 )
 
                 // Balance spacer so title stays centered
-                Spacer(modifier = Modifier.width(64.dp))
+                Spacer(modifier = Modifier.width(48.dp))
             }
         }
 
@@ -1092,7 +1099,7 @@ fun SettingsAndFeedbackScreen(
                             IconButton(
                                 onClick = { feedbackRating = star },
                                 modifier = Modifier
-                                    .size(42.dp)
+                                    .size(38.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(if (filled) HunterGold.copy(alpha = 0.16f) else ObsidianBg)
                                     .border(1.dp, if (filled) HunterGold else BorderSubtle, RoundedCornerShape(10.dp))
@@ -1102,15 +1109,17 @@ fun SettingsAndFeedbackScreen(
                                     imageVector = if (filled) Icons.Filled.Star else Icons.Filled.StarBorder,
                                     contentDescription = "Rate $star stars",
                                     tint = if (filled) HunterGold else TextSecondary,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "$feedbackRating / 5 STARS",
                             style = MaterialTheme.typography.labelLarge,
-                            color = HunterGold
+                            color = HunterGold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
 

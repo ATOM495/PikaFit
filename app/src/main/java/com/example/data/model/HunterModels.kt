@@ -1585,7 +1585,7 @@ data class FeedbackEntry(
 @IgnoreExtraProperties
 data class AppReleaseInfo(
     val latestVersionCode: Long = 2L,
-    val latestVersionName: String = "1.1",
+    val latestVersionName: String = "1.0.2",
     val releaseTitle: String = "PikaFit Update",
     val releaseNotes: String = "South/North Indian & Fast Food databases, PikaBot muscle exercise & workout plans, editable streak food logs, and automatic GitHub release notifications.",
     val downloadUrl: String = "https://github.com/ATOM495/PikaFit/releases",

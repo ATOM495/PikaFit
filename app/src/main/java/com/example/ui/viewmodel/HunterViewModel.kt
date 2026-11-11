@@ -187,7 +187,7 @@ class HunterViewModel(
             initialValue = AppReleaseInfo()
         )
 
-    private val _installedVersionName = MutableStateFlow("1.1")
+    private val _installedVersionName = MutableStateFlow("1.0.2")
     val installedVersionName: StateFlow<String> = _installedVersionName.asStateFlow()
 
     private val _installedVersionCode = MutableStateFlow(2L)

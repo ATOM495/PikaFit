@@ -1052,7 +1052,10 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
                 Icon(
                     imageVector = Icons.Filled.EmojiEvents,
                     contentDescription = null,
@@ -1060,7 +1063,7 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "POKÉMON CLASS HIERARCHY & REWARDS",
                         style = MaterialTheme.typography.titleMedium,
@@ -1074,6 +1077,7 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                     )
                 }
             }
+            Spacer(modifier = Modifier.width(8.dp))
             Surface(
                 color = HunterCyan.copy(alpha = 0.16f),
                 shape = RoundedCornerShape(50),
@@ -1084,6 +1088,8 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                     style = MaterialTheme.typography.labelMedium,
                     color = HunterCyan,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
@@ -1191,8 +1197,12 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                 },
                 style = MaterialTheme.typography.labelMedium,
                 color = HunterCyan,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = if (nextTier != null) {
                     "${(nextTier.minXp - totalXp).coerceAtLeast(0)} XP TO PROMOTION"
@@ -1201,7 +1211,9 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                 },
                 style = MaterialTheme.typography.labelMedium,
                 color = HunterGold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
             )
         }
         Spacer(modifier = Modifier.height(6.dp))
@@ -1389,8 +1401,12 @@ private fun PokemonTierRoadmapRow(
                     text = "${tier.classTitle} • ${tier.pokemonName}",
                     style = MaterialTheme.typography.titleSmall,
                     color = if (isUnlocked) TextPrimary else TextMuted,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Surface(
                     color = when {
                         isCurrent -> HunterGold.copy(alpha = 0.2f)
@@ -1430,7 +1446,9 @@ private fun PokemonTierRoadmapRow(
                                 isUnlocked -> HunterEmerald
                                 else -> TextMuted
                             },
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }

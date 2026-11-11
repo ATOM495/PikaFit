@@ -1773,12 +1773,18 @@ private fun RechartsInspectTooltip(
             Text(
                 text = "INSPECTED POINT ($pointNumber / $totalPoints) • $formattedDate",
                 style = MaterialTheme.typography.labelMedium,
-                color = HunterCyan
+                color = HunterCyan,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = entry.poseTag.uppercase(),
-                style = MaterialTheme.typography.labelMedium,
-                color = TextSecondary
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+                maxLines = 1,
+                softWrap = false
             )
         }
 

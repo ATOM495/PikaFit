@@ -2041,21 +2041,23 @@ fun MainHunterScreen(
                                 val streakLabel = if (state.playerStatus.checkedInToday) {
                                     "🔥 ${state.playerStatus.streakDays}D Streak"
                                 } else {
-                                    "🔥 ${state.playerStatus.streakDays}D • Edit Log"
+                                    "🔥 ${state.playerStatus.streakDays}D • Edit"
                                 }
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
                                     Text(
-                                        text = "Lvl ${state.playerStatus.level} (${state.playerStatus.rank})",
+                                        text = "Lvl ${state.playerStatus.level} • ${state.playerStatus.currentTier.classTitle}",
                                         style = MaterialTheme.typography.labelLarge.copy(
-                                            fontSize = 11.5.sp,
+                                            fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold
                                         ),
                                         maxLines = 1,
+                                        softWrap = false,
                                         overflow = TextOverflow.Ellipsis,
-                                        color = TextSecondary
+                                        color = TextSecondary,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
                                     Surface(
                                         modifier = Modifier
@@ -2070,9 +2072,9 @@ fun MainHunterScreen(
                                     ) {
                                         Text(
                                             text = streakLabel,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                             style = MaterialTheme.typography.labelSmall.copy(
-                                                fontSize = 10.5.sp,
+                                                fontSize = 10.sp,
                                                 fontWeight = FontWeight.ExtraBold
                                             ),
                                             maxLines = 1,
