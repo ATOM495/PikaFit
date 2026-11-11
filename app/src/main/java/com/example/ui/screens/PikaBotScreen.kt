@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
@@ -88,7 +89,13 @@ fun PikaBotScreen(
         caloriesTarget: Int,
         proteinTargetG: Int,
         waterTargetLiters: Double
-    ) -> Unit = { _, _, _, _, _, _ -> }
+    ) -> Unit = { _, _, _, _, _, _ -> },
+    onLogRecommendedExercise: (
+        messageId: String,
+        exerciseName: String,
+        sets: Int,
+        reps: String
+    ) -> Unit = { _, _, _, _ -> }
 ) {
     val isDark = AppThemeIsDark
     val bio = state.biometrics
@@ -110,18 +117,19 @@ fun PikaBotScreen(
     }
 
     val quickPrompts = listOf(
-        "South Indian Diet Plan" to "Switch to South Indian ${bio.goalDisplayLabel} diet plan",
-        "North Indian Diet Plan" to "Switch to North Indian ${bio.goalDisplayLabel} diet plan",
-        "Weight Gain Plan" to "Weight gain diet plan",
-        "Weight Loss Plan" to "Weight loss diet plan",
-        "Pure Veg Plan" to "Vegetarian ${bio.goalDisplayLabel} diet plan",
-        "Chicken Gravy" to "180g chicken gravy",
-        "150g Poha" to "150g poha",
-        "3 Dosa 4 Idli" to "3 dosa 4 idli",
-        "Ven Pongal" to "180g ven pongal",
-        "Puttu & Kadala" to "1 puttu and 150g kadala curry",
-        "Paneer Butter Masala" to "180g paneer butter masala",
-        "Chicken Biryani" to "1 plate chicken biryani"
+        "💪 Workout Plan" to "Give me a workout plan for ${bio.goalDisplayLabel}",
+        "🏋️ Chest Exercises" to "Best chest exercises",
+        "💪 Bicep Exercises" to "Bicep exercises for peak and thickness",
+        "🔥 Back & Lats" to "Back and lat exercises",
+        "🦵 Leg Workout" to "Complete leg exercises",
+        "⚡ Abs & Core" to "Six pack abs exercises",
+        "🥙 Bun Shawarma" to "1 bun shawarma",
+        "🍟 Chicken Loaded Fries" to "1 chicken loaded fries",
+        "🍛 South Indian Diet" to "Switch to South Indian ${bio.goalDisplayLabel} diet plan",
+        "🫓 North Indian Diet" to "Switch to North Indian ${bio.goalDisplayLabel} diet plan",
+        "🍗 Chicken Gravy" to "180g chicken gravy",
+        "🥞 3 Dosa 4 Idli" to "3 dosa 4 idli",
+        "🍚 Chicken Biryani" to "1 plate chicken biryani"
     )
 
     Column(
@@ -164,10 +172,8 @@ fun PikaBotScreen(
                             .padding(4.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.pika_logo_hi),
-                            contentDescription = "PikaBot AI",
-                            contentScale = ContentScale.Crop,
+                        PikachuMascotBadge(
+                            drawableRes = R.drawable.pika_logo_hi,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clip(CircleShape)
@@ -184,14 +190,14 @@ fun PikaBotScreen(
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Text(
-                                text = "PIKABOT AI NUTRITIONIST",
+                                text = "PIKABOT • DIET & WORKOUT AI",
                                 style = MaterialTheme.typography.titleLarge,
                                 color = primaryAccent
                             )
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "All-India (South & North Indian) Food Database + Custom Diet Plan Changer",
+                            text = "South/North Indian & Fast Foods + Muscle Exercises + Workout & Diet Plans",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
@@ -251,7 +257,7 @@ fun PikaBotScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Quick Food & Diet Prompt Chips
+            // Quick Food, Exercise & Plan Prompt Chips
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -322,10 +328,8 @@ fun PikaBotScreen(
                                 .padding(3.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.pika_logo_hi),
-                                contentDescription = "PikaBot",
-                                contentScale = ContentScale.Crop,
+                            PikachuMascotBadge(
+                                drawableRes = R.drawable.pika_logo_hi,
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .clip(CircleShape)
@@ -353,7 +357,7 @@ fun PikaBotScreen(
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Text(
-                                text = if (isUser) "Trainer ${bio.hunterName}" else "⚡ PikaBot • Smart Food & Diet AI",
+                                text = if (isUser) "Trainer ${bio.hunterName}" else "⚡ PikaBot • Food, Diet & Workout AI",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = if (isUser) Color.White.copy(alpha = 0.9f) else primaryAccent,
                                 fontWeight = FontWeight.Bold
@@ -412,7 +416,10 @@ fun PikaBotScreen(
                                         )
                                     }
                                 }
-                            } else if (!isUser && !msg.isStreaming && msg.suggestedMealName != null && msg.suggestedCalories != null) {
+                            }
+
+                            // Interactive Log Meal Button when PikaBot analyzes a Food
+                            if (!isUser && !msg.isStreaming && msg.suggestedMealName != null && msg.suggestedCalories != null) {
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Surface(
                                     modifier = Modifier
@@ -449,6 +456,53 @@ fun PikaBotScreen(
                                     }
                                 }
                             }
+
+                            // Interactive Log Exercise Button when PikaBot provides an Exercise / Muscle Guide / Workout Plan
+                            if (!isUser && !msg.isStreaming && msg.suggestedExerciseName != null) {
+                                val exSets = msg.suggestedExerciseSets ?: 4
+                                val exReps = msg.suggestedExerciseReps ?: "10"
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onLogRecommendedExercise(
+                                                msg.id,
+                                                msg.suggestedExerciseName,
+                                                exSets,
+                                                exReps
+                                            )
+                                        }
+                                        .testTag("pikabot_log_exercise_button"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (msg.exerciseLogged) HunterEmerald.copy(alpha = 0.22f) else HunterCyan.copy(alpha = 0.18f),
+                                    border = BorderStroke(1.2.dp, if (msg.exerciseLogged) HunterEmerald else HunterCyan)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.FitnessCenter,
+                                            contentDescription = null,
+                                            tint = if (msg.exerciseLogged) HunterEmerald else HunterCyan,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (msg.exerciseLogged) {
+                                                "✓ Logged ${msg.suggestedExerciseName} ($exSets × $exReps)"
+                                            } else {
+                                                "💪 Log Exercise: ${msg.suggestedExerciseName} ($exSets × $exReps)"
+                                            },
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = if (msg.exerciseLogged) HunterEmerald else HunterCyan,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -468,7 +522,7 @@ fun PikaBotScreen(
                 onValueChange = { queryInput = it },
                 placeholder = {
                     Text(
-                        text = "Ask PikaBot (e.g. Tea, 3 Dosa 4 Idly, 150g Chicken, Diet Plan)...",
+                        text = "Ask anything to PikaBot",
                         style = MaterialTheme.typography.bodySmall
                     )
                 },

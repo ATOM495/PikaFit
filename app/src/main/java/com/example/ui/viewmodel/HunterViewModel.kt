@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.AchievementItem
 import com.example.data.model.AppReleaseInfo
+import com.example.data.model.DailyDateLog
 import com.example.data.model.ExerciseLogged
 import com.example.data.model.FeedbackEntry
 import com.example.data.model.HunterBiometrics
@@ -83,7 +84,11 @@ data class NutritionChatMessage(
     val suggestedPlanCaloriesTarget: Int? = null,
     val suggestedPlanProteinG: Int? = null,
     val suggestedPlanWaterLiters: Double? = null,
-    val planApplied: Boolean = false
+    val planApplied: Boolean = false,
+    val suggestedExerciseName: String? = null,
+    val suggestedExerciseSets: Int? = null,
+    val suggestedExerciseReps: String? = null,
+    val exerciseLogged: Boolean = false
 )
 
 data class FoodEntryRecord(
@@ -182,11 +187,77 @@ class HunterViewModel(
             initialValue = AppReleaseInfo()
         )
 
+    private val _installedVersionName = MutableStateFlow("1.1")
+    val installedVersionName: StateFlow<String> = _installedVersionName.asStateFlow()
+
+    private val _installedVersionCode = MutableStateFlow(2L)
+    val installedVersionCode: StateFlow<Long> = _installedVersionCode.asStateFlow()
+
     private val _dismissedUpdateVersion = MutableStateFlow<Long?>(null)
     val dismissedUpdateVersion: StateFlow<Long?> = _dismissedUpdateVersion.asStateFlow()
 
     fun dismissUpdatePrompt(versionCode: Long) {
         _dismissedUpdateVersion.value = versionCode
+    }
+
+    fun checkForAppUpdates(manualUserTrigger: Boolean = true) {
+        viewModelScope.launch {
+            if (manualUserTrigger) {
+                _aiSyncState.value = AiSyncState.Analyzing("Checking GitHub Releases for new PikaFit updates")
+            }
+            val checkedInfo = repository.checkGitHubAndFirestoreForUpdates()
+            _installedVersionName.value = repository.getInstalledVersionName()
+            _installedVersionCode.value = repository.getInstalledVersionCode()
+            if (checkedInfo.isUpdateAvailable || checkedInfo.latestVersionCode > _installedVersionCode.value) {
+                // Re-enable popup so the user immediately sees the "NEW UPDATE AVAILABLE" dialog
+                _dismissedUpdateVersion.value = null
+                if (manualUserTrigger) {
+                    _aiSyncState.value = AiSyncState.Success(
+                        "New Update Available: v${checkedInfo.latestVersionName} (${checkedInfo.releaseTitle})!"
+                    )
+                }
+            } else if (manualUserTrigger) {
+                _aiSyncState.value = AiSyncState.Success(
+                    "PikaFit v${_installedVersionName.value} is up to date with GitHub Releases!"
+                )
+            }
+        }
+    }
+
+    fun markLatestUpdateInstalled(info: AppReleaseInfo) {
+        repository.markVersionInstalled(
+            versionName = info.latestVersionName,
+            versionCode = info.latestVersionCode,
+            publishedAt = info.publishedAt
+        )
+        _installedVersionName.value = repository.getInstalledVersionName()
+        _installedVersionCode.value = repository.getInstalledVersionCode()
+        _dismissedUpdateVersion.value = info.latestVersionCode
+        _aiSyncState.value = AiSyncState.Success("App version synced to v${_installedVersionName.value} (Up to date)")
+    }
+
+    fun publishNewAppRelease(
+        versionName: String,
+        releaseTitle: String,
+        releaseNotes: String,
+        downloadUrl: String
+    ) {
+        viewModelScope.launch {
+            val cleanVer = versionName.trim().removePrefix("v").removePrefix("V").ifBlank { "1.2" }
+            val nextCode = (_installedVersionCode.value + 1L).coerceAtLeast(3L)
+            val newRelease = AppReleaseInfo(
+                latestVersionCode = nextCode,
+                latestVersionName = cleanVer,
+                releaseTitle = releaseTitle.trim().ifBlank { "PikaFit v$cleanVer Release" },
+                releaseNotes = releaseNotes.trim().ifBlank { "New features, food database updates, and bug fixes." },
+                downloadUrl = downloadUrl.trim().ifBlank { "https://github.com/ATOM495/PikaFit/releases" },
+                isMandatory = false,
+                isUpdateAvailable = true
+            )
+            repository.setAppReleaseInfo(newRelease)
+            _dismissedUpdateVersion.value = null
+            _aiSyncState.value = AiSyncState.Success("Published v$cleanVer update notification! All users will see 'NEW UPDATE AVAILABLE'.")
+        }
     }
 
     private val hunterSystemSchema by lazy {
@@ -333,7 +404,9 @@ class HunterViewModel(
 
     private fun observeRemoteSession() {
         viewModelScope.launch {
-            val (wasAlreadyOnboardedLocally, restoredBio) = withContext(Dispatchers.IO) {
+            val (wasAlreadyOnboardedLocally, restoredBio, verPair) = withContext(Dispatchers.IO) {
+                val verName = repository.getInstalledVersionName()
+                val verCode = repository.getInstalledVersionCode()
                 val onboarded = repository.isOnboardingCompletedForUser(currentUserId)
                 val savedEmail = repository.getSavedAccountEmail()
                 val preferredName = if (!savedEmail.isNullOrBlank() && savedEmail.contains("@")) {
@@ -359,8 +432,10 @@ class HunterViewModel(
                     }
                     rawBio.copy(hunterName = finalName)
                 } else null
-                Pair(onboarded, bio)
+                Triple(onboarded, bio, verName to verCode)
             }
+            _installedVersionName.value = verPair.first
+            _installedVersionCode.value = verPair.second
             if (restoredBio != null) {
                 _systemState.value = _systemState.value.copy(biometrics = restoredBio)
             }
@@ -401,7 +476,10 @@ class HunterViewModel(
                         seedWelcomeNutritionChatIfEmpty(evaluated)
                         if (evaluated.biometrics.onboardingCompleted && !hasAutoTriggeredCoachThisSession) {
                             hasAutoTriggeredCoachThisSession = true
-                            generatePikaCoachTip(showAsPopup = true)
+                            viewModelScope.launch {
+                                kotlinx.coroutines.delay(350)
+                                generatePikaCoachTip(showAsPopup = true)
+                            }
                         }
                     } else if (!hasSeededInitialSession) {
                         hasSeededInitialSession = true
@@ -413,11 +491,14 @@ class HunterViewModel(
                             seedWelcomeNutritionChatIfEmpty(ensured)
                             if (!hasAutoTriggeredCoachThisSession) {
                                 hasAutoTriggeredCoachThisSession = true
-                                generatePikaCoachTip(showAsPopup = true)
+                                viewModelScope.launch {
+                                    kotlinx.coroutines.delay(350)
+                                    generatePikaCoachTip(showAsPopup = true)
+                                }
                             }
                         } else {
                             // Brand new Google Account with no Firestore session and no local cache -> show "Hey Trainer" onboarding!
-                            val initial = HunterSystemState.createResetState()
+                            val initial = withContext(Dispatchers.IO) { HunterSystemState.createResetState() }
                             _systemState.value = initial
                             _isSessionLoaded.value = true
                         }
@@ -691,21 +772,20 @@ class HunterViewModel(
         // Immediately show the rotated context-aware tip so clicking "New Tip" updates right away
         _pikaCoachState.value = PikaCoachUiState.Ready(tip = preview, showPopup = showAsPopup)
 
-        if (Firebase.auth.currentUser == null) {
-            return
-        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val isAuthed = try { Firebase.auth.currentUser != null } catch (_: Exception) { false }
+            if (!isAuthed) return@launch
 
-        val coachingAngles = listOf(
-            "muscle protein synthesis & leucine meal timing",
-            "progressive overload & mechanical tension in workouts",
-            "intracellular hydration, electrolytes & recovery",
-            "caloric balance, metabolic momentum & streak consistency",
-            "pre/post-workout glycogen fueling & micronutrient density",
-            "sleep optimization, central nervous system recovery & discipline"
-        )
-        val selectedAngle = coachingAngles[currentVariation % coachingAngles.size]
+            val coachingAngles = listOf(
+                "muscle protein synthesis & leucine meal timing",
+                "progressive overload & mechanical tension in workouts",
+                "intracellular hydration, electrolytes & recovery",
+                "caloric balance, metabolic momentum & streak consistency",
+                "pre/post-workout glycogen fueling & micronutrient density",
+                "sleep optimization, central nervous system recovery & discipline"
+            )
+            val selectedAngle = coachingAngles[currentVariation % coachingAngles.size]
 
-        viewModelScope.launch {
             val bio = snapshot.biometrics
             val vit = snapshot.statBreakdown.vitality
             val stam = snapshot.statBreakdown.stamina
@@ -784,19 +864,40 @@ class HunterViewModel(
 
     private fun seedWelcomeNutritionChatIfEmpty(state: HunterSystemState) {
         if (_nutritionChatMessages.value.isNotEmpty()) return
-        val bio = state.biometrics
-        val vit = state.statBreakdown.vitality
         _nutritionChatMessages.value = listOf(
             NutritionChatMessage(
                 role = "model",
-                text = "Pika-Pika! I'm Pika-Dietitian, your All-India (South & North Indian) Nutrition & Custom Diet Plan Bot! ⚡\n\n" +
-                    "1️⃣ Ask about ANY Indian food (e.g., \"chicken gravy\", \"150g poha\", \"3 dosa 4 idli\", \"ven pongal\", \"puttu kadala curry\", \"paneer butter masala\", \"dal tadka\", \"chicken biryani\") for exact macros.\n" +
-                    "2️⃣ Ask me to create or change your Diet Plan (e.g., \"weight gain diet plan\", \"switch to South Indian fat loss plan\", \"North Indian vegetarian muscle gain plan\", or \"set 2500 kcal diet plan\") and apply it directly to your dashboard!",
+                text = "Pika-Pika! I'm PikaBot — your All-in-One Food Database (South Indian, North Indian & Fast Foods), Custom Diet Planner & Workout Coach! ⚡\n\n" +
+                    "1️⃣ All Foods & Fast Foods: Ask about any dish (e.g., \"bun shawarma\", \"chicken loaded fries\", \"chicken gravy\", \"3 dosa 4 idli\", \"chole bhature\", \"chicken biryani\", \"3g creatine\") for exact macros.\n" +
+                    "2️⃣ Specific Muscle Exercises & Workout Plans: Ask for any exercise or muscle group (e.g., \"chest exercises\", \"bicep exercises\", \"incline dumbbell press\", \"leg workout\", \"workout plan for weight gain\", \"fat loss workout plan\").\n" +
+                    "3️⃣ Custom Diet Plans: Ask to change your Diet Plan (e.g., \"South Indian weight gain diet plan\", \"North Indian fat loss diet plan\", or \"set 2500 kcal diet plan\") and apply it in 1 tap!",
                 suggestedMealName = "Chicken Gravy / Curry (180g)",
                 suggestedCalories = 302,
-                suggestedProteinG = 31.5
+                suggestedProteinG = 31.5,
+                suggestedExerciseName = "Incline Dumbbell Press",
+                suggestedExerciseSets = 4,
+                suggestedExerciseReps = "10"
             )
         )
+    }
+
+    fun logExerciseFromPikaBot(
+        messageId: String? = null,
+        exerciseName: String,
+        sets: Int,
+        reps: String
+    ) {
+        addExerciseSet(
+            name = exerciseName,
+            sets = sets.coerceIn(1, 20),
+            reps = reps.ifBlank { "10" },
+            overload = true
+        )
+        if (messageId != null) {
+            _nutritionChatMessages.value = _nutritionChatMessages.value.map { msg ->
+                if (msg.id == messageId) msg.copy(exerciseLogged = true) else msg
+            }
+        }
     }
 
     fun applyDietPlanFromPikaBot(
@@ -885,21 +986,34 @@ class HunterViewModel(
 
         val userMsg = NutritionChatMessage(role = "user", text = cleanQuery)
         val placeholderId = UUID.randomUUID().toString()
-        val detectedDietPlan = SmartFoodNutritionEngine.detectAndBuildDietPlanForQuery(
+
+        // 1. Check if the user is asking for a specific exercise, muscle group exercises, or a workout plan!
+        val detectedExercisePlan = SmartFoodNutritionEngine.detectAndBuildExerciseOrWorkoutResponse(
             query = cleanQuery,
-            bio = bio,
-            currentCaloriesTarget = vit.caloriesTarget,
-            caloriesLogged = vit.caloriesLogged,
-            proteinLogged = vit.proteinG
+            bio = bio
         )
+
+        // 2. Check if the user is asking for a Diet Plan or asking to customize their Diet Plan
+        val detectedDietPlan = if (detectedExercisePlan == null) {
+            SmartFoodNutritionEngine.detectAndBuildDietPlanForQuery(
+                query = cleanQuery,
+                bio = bio,
+                currentCaloriesTarget = vit.caloriesTarget,
+                caloriesLogged = vit.caloriesLogged,
+                proteinLogged = vit.proteinG
+            )
+        } else null
 
         val streamingPlaceholder = NutritionChatMessage(
             id = placeholderId,
             role = "model",
-            text = if (detectedDietPlan != null) {
-                "Pika-Dietitian is building your customized ${detectedDietPlan.planTitle} (${detectedDietPlan.caloriesTarget} kcal & ${detectedDietPlan.proteinTargetG}g protein)..."
-            } else {
-                "Pika-Dietitian is analyzing Indian & global nutrition facts for \"$cleanQuery\"..."
+            text = when {
+                detectedExercisePlan != null ->
+                    "Pika-Coach is building your ${detectedExercisePlan.title}..."
+                detectedDietPlan != null ->
+                    "Pika-Dietitian is building your customized ${detectedDietPlan.planTitle} (${detectedDietPlan.caloriesTarget} kcal & ${detectedDietPlan.proteinTargetG}g protein)..."
+                else ->
+                    "Pika-Dietitian is analyzing nutrition facts for \"$cleanQuery\"..."
             },
             isStreaming = true
         )
@@ -909,8 +1023,29 @@ class HunterViewModel(
         _isNutritionChatLoading.value = true
 
         viewModelScope.launch {
-            // If the user asked for a Diet Plan or asked to change their Diet Plan, use the calibrated DietPlanRecommendation
-            // so the caloriesTarget never gets +350 kcal added twice and we attach the interactive Apply Plan button!
+            // CASE 1: Specific Exercise, Muscle Group Exercises, or Full Workout Plan Request
+            if (detectedExercisePlan != null) {
+                _nutritionChatMessages.value = _nutritionChatMessages.value.map { msg ->
+                    if (msg.id == placeholderId) {
+                        msg.copy(
+                            text = detectedExercisePlan.formattedResponseText,
+                            isStreaming = false,
+                            isError = false,
+                            suggestedMealName = null,
+                            suggestedCalories = null,
+                            suggestedProteinG = null,
+                            suggestedExerciseName = detectedExercisePlan.suggestedExerciseName,
+                            suggestedExerciseSets = detectedExercisePlan.suggestedSets,
+                            suggestedExerciseReps = detectedExercisePlan.suggestedReps,
+                            exerciseLogged = false
+                        )
+                    } else msg
+                }
+                _isNutritionChatLoading.value = false
+                return@launch
+            }
+
+            // CASE 2: Diet Plan or Diet Plan Customization Request
             if (detectedDietPlan != null) {
                 if (detectedDietPlan.shouldAutoApply) {
                     applyDietPlanFromPikaBot(
@@ -944,6 +1079,7 @@ class HunterViewModel(
                 return@launch
             }
 
+            // CASE 3: Food / Macro / Supplement Query
             val calcPreview = SmartFoodNutritionEngine.formatChatbotResponseForQuery(
                 query = cleanQuery,
                 bio = bio,
@@ -954,8 +1090,36 @@ class HunterViewModel(
                 waterTarget = stam.targetLiters
             )
 
+            // For zero-calorie supplements / hydration queries (e.g. "creatine 3g in 250 ml water"),
+            // return our exact scientific breakdown immediately so calories and grams are 100% exact.
+            if (calcPreview.calories == 0) {
+                val (exactZeroCalReply, sugMeal, sugCal, sugPro) = buildSmartNutritionScientificReply(
+                    query = cleanQuery,
+                    bio = bio,
+                    caloriesTarget = vit.caloriesTarget,
+                    caloriesLogged = vit.caloriesLogged,
+                    proteinLogged = vit.proteinG,
+                    waterLogged = stam.waterLiters,
+                    waterTarget = stam.targetLiters
+                )
+                _nutritionChatMessages.value = _nutritionChatMessages.value.map { msg ->
+                    if (msg.id == placeholderId) {
+                        msg.copy(
+                            text = exactZeroCalReply,
+                            isStreaming = false,
+                            isError = false,
+                            suggestedMealName = sugMeal,
+                            suggestedCalories = sugCal,
+                            suggestedProteinG = sugPro
+                        )
+                    } else msg
+                }
+                _isNutritionChatLoading.value = false
+                return@launch
+            }
+
             val systemContextPrompt = """
-                You are 'Pika-Dietitian', an expert Indian (South Indian & North Indian) and global sports nutritionist inside the PikaFit app.
+                You are 'Pika-Dietitian', an expert Indian (South Indian, North Indian & Fast Food) and global sports nutritionist inside the PikaFit app.
                 Trainer Profile & Biometric Telemetry:
                 - Name: ${bio.hunterName}, Age: ${bio.age}, Sex: ${bio.biologicalSex}
                 - Weight: ${bio.weightKg} kg, Height: ${bio.heightCm.toInt()} cm, BMI: ${bio.bmi} (${bio.bmiCategory})
@@ -1413,7 +1577,23 @@ class HunterViewModel(
 
             val updatedBriefing = "Logged food \"$cleanMeal\" (+$safeCals kcal | P: ${safePro}g • C: ${safeCarbs}g • F: ${safeFats}g). Total intake: $newKcal / ${vit.caloriesTarget} kcal. $streakNote"
 
+            val todayStr = StreakDateUtils.todayDateString()
+            val prevSummary = xpUpdatedState.playerStatus.dailyLogsByDate[todayStr]?.foodSummary.orEmpty()
+            val combinedSummary = if (prevSummary.isBlank()) cleanMeal else "$prevSummary, $cleanMeal"
+            val updatedDailyLog = DailyDateLog(
+                date = todayStr,
+                calories = newKcal,
+                proteinG = newProtein,
+                carbsG = newCarbs,
+                fatsG = newFats,
+                waterLiters = xpUpdatedState.statBreakdown.stamina.waterLiters,
+                foodSummary = combinedSummary.take(400)
+            )
+
             val finalState = xpUpdatedState.copy(
+                playerStatus = xpUpdatedState.playerStatus.copy(
+                    dailyLogsByDate = xpUpdatedState.playerStatus.dailyLogsByDate + (todayStr to updatedDailyLog)
+                ),
                 statBreakdown = xpUpdatedState.statBreakdown.copy(
                     vitality = vit.copy(
                         caloriesLogged = newKcal,
@@ -1456,6 +1636,132 @@ class HunterViewModel(
                     "Logged $cleanMeal: +$safeCals kcal (+$totalXpGain XP • ${ps.rank})"
                 }
             )
+        }
+    }
+
+    /**
+     * Allows the user to edit Yesterday's (or any past/current day's) food, calorie, protein, carbs, fats, and water log
+     * when clicking the Streak badge or any day pill in the 7-Day Streak Strip!
+     */
+    fun updateHistoricalDayFoodLog(
+        dateStr: String,
+        calories: Int,
+        proteinG: Double,
+        carbsG: Double,
+        fatsG: Double,
+        waterLiters: Double,
+        foodSummary: String
+    ) {
+        if (dateStr.isBlank()) return
+        viewModelScope.launch {
+            val todayStr = StreakDateUtils.todayDateString()
+            val safeCals = calories.coerceIn(0, 50000)
+            val safePro = round(proteinG.coerceIn(0.0, 2000.0) * 10.0) / 10.0
+            val safeCarbs = round(carbsG.coerceIn(0.0, 5000.0) * 10.0) / 10.0
+            val safeFats = round(fatsG.coerceIn(0.0, 2000.0) * 10.0) / 10.0
+            val safeWater = round(waterLiters.coerceIn(0.0, 50.0) * 100.0) / 100.0
+            val cleanSummary = foodSummary.trim().take(400).ifBlank {
+                if (safeCals > 0) "Edited Food Log ($safeCals kcal, ${safePro.toInt()}g P)" else "Cleared Food Log"
+            }
+
+            val current = _systemState.value.evaluateStreakOnLogin()
+            val newDayEntry = DailyDateLog(
+                date = dateStr,
+                calories = safeCals,
+                proteinG = safePro,
+                carbsG = safeCarbs,
+                fatsG = safeFats,
+                waterLiters = safeWater,
+                foodSummary = cleanSummary
+            )
+            val updatedLogsMap = (current.playerStatus.dailyLogsByDate + (dateStr to newDayEntry))
+                .entries.sortedBy { it.key }.takeLast(14).associate { it.key to it.value }
+
+            val isProductiveDay = safeCals > 0 || safePro > 0.0 || safeWater > 0.0
+            val updatedHistoryDates = if (isProductiveDay) {
+                (current.playerStatus.productiveHistoryDates + dateStr).distinct().sorted().takeLast(14)
+            } else {
+                current.playerStatus.productiveHistoryDates.filterNot { it == dateStr }
+            }
+
+            // Recalculate consecutive streak days ending at today (if checked in) or yesterday
+            var streakCount = 0
+            val todayCheckedIn = if (dateStr == todayStr) isProductiveDay else current.playerStatus.checkedInToday
+            if (todayCheckedIn) streakCount++
+            for (daysAgo in 1..14) {
+                val d = StreakDateUtils.daysAgoDateString(daysAgo)
+                val activeOnD = updatedHistoryDates.contains(d) || (updatedLogsMap[d]?.calories ?: 0) > 0
+                if (activeOnD) {
+                    streakCount++
+                } else {
+                    break
+                }
+            }
+            val finalStreakDays = maxOf(streakCount, if (isProductiveDay && streakCount == 0) 1 else streakCount)
+
+            val updatedState = if (dateStr == todayStr) {
+                val vit = current.statBreakdown.vitality
+                val stam = current.statBreakdown.stamina
+                val targetMet = safeCals >= vit.caloriesTarget && safePro >= 110.0
+                val updatedQuests = current.questLog.map { q ->
+                    when {
+                        q.questName.contains("kcal", ignoreCase = true) || q.questName.contains("Calorie", ignoreCase = true) || q.questName.contains("Surplus", ignoreCase = true) ->
+                            q.copy(
+                                questName = "Clear ${vit.caloriesTarget} kcal Target ($safeCals / ${vit.caloriesTarget} logged)",
+                                status = if (safeCals >= vit.caloriesTarget) "COMPLETED" else "IN_PROGRESS"
+                            )
+                        q.questName.contains("Water", ignoreCase = true) ->
+                            q.copy(
+                                questName = "Drink ${stam.targetLiters}L Water (${safeWater}L / ${stam.targetLiters}L)",
+                                status = if (safeWater >= stam.targetLiters) "COMPLETED" else "IN_PROGRESS"
+                            )
+                        else -> q
+                    }
+                }
+                current.copy(
+                    playerStatus = current.playerStatus.copy(
+                        streakDays = finalStreakDays,
+                        checkedInToday = todayCheckedIn,
+                        lastProductiveDate = if (todayCheckedIn) todayStr else current.playerStatus.lastProductiveDate,
+                        productiveHistoryDates = updatedHistoryDates,
+                        dailyLogsByDate = updatedLogsMap,
+                        lastCheckInTrigger = "Edited Today's Log: $cleanSummary ($safeCals kcal, ${safePro}g P)"
+                    ),
+                    statBreakdown = current.statBreakdown.copy(
+                        vitality = vit.copy(
+                            caloriesLogged = safeCals,
+                            proteinG = safePro,
+                            carbsG = safeCarbs,
+                            fatsG = safeFats,
+                            targetMet = targetMet
+                        ),
+                        stamina = stam.copy(
+                            waterLiters = safeWater,
+                            targetMet = safeWater >= stam.targetLiters
+                        )
+                    ),
+                    questLog = updatedQuests,
+                    tacticalBriefing = "Updated Today's ($dateStr) Food & Hydration Log: $safeCals kcal, ${safePro}g protein, ${safeWater}L water."
+                )
+            } else {
+                current.copy(
+                    playerStatus = current.playerStatus.copy(
+                        streakDays = finalStreakDays,
+                        productiveHistoryDates = updatedHistoryDates,
+                        dailyLogsByDate = updatedLogsMap
+                    ),
+                    tacticalBriefing = "Updated Food & Calorie Log for $dateStr: $cleanSummary ($safeCals kcal, ${safePro}g protein, ${safeCarbs}g carbs, ${safeFats}g fats, ${safeWater}L water). Streak: ${finalStreakDays}D."
+                )
+            }
+
+            _systemState.value = updatedState
+            repository.saveOrUpdateSession(updatedState)
+            repository.appendTacticalLog(
+                commandText = "Edited Day Log [$dateStr]: $cleanSummary ($safeCals kcal, ${safePro}g P)",
+                briefingResponse = updatedState.tacticalBriefing,
+                xpDelta = 15
+            )
+            _aiSyncState.value = AiSyncState.Success("Saved food log for $dateStr: $safeCals kcal • ${safePro}g Protein • ${safeWater}L Water")
         }
     }
 

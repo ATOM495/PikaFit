@@ -396,10 +396,8 @@ fun ProfileAndJournalTab(
                             .testTag("auto_assigned_hunter_title"),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Image(
-                            painter = painterResource(id = currentTier.pokemonDrawableRes),
-                            contentDescription = currentTier.pokemonName,
-                            contentScale = ContentScale.Fit,
+                        PikachuMascotBadge(
+                            drawableRes = currentTier.pokemonDrawableRes,
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(RoundedCornerShape(6.dp))
@@ -655,7 +653,10 @@ fun ProfileAndJournalTab(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = Icons.Filled.AddAPhoto,
                             contentDescription = null,
@@ -664,22 +665,32 @@ fun ProfileAndJournalTab(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = stringResource(R.string.photo_upload_title),
+                            text = "PROGRESS PHOTO LOG",
                             style = MaterialTheme.typography.titleMedium,
-                            color = HunterGold
+                            color = HunterGold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Text(
-                        text = "+85 XP",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = HunterEmerald
-                    )
+                    Surface(
+                        color = HunterEmerald.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, HunterEmerald)
+                    ) {
+                        Text(
+                            text = "+85 XP",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = HunterEmerald,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Select a photo from your gallery, capture with camera, or generate a tactical physique snapshot. Every upload is automatically stamped with your current BMI (${liveBio.bmi}), Body Fat (${liveBio.bodyFatPercent}%), Muscle Mass (${liveBio.muscleMassPercent}%), Bone Mass (${liveBio.boneMassKg}kg), and Water Mass (${liveBio.waterMassKg}kg) and saved to your Personal Journal.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "Upload from gallery, capture a camera snap, or generate a tactical physique card stamped with BMI (${liveBio.bmi}), Body Fat (${liveBio.bodyFatPercent}%), and Muscle Mass (${liveBio.muscleMassPercent}%).",
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
 
@@ -1099,10 +1110,8 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                     .padding(6.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Image(
-                    painter = painterResource(id = currentTier.pokemonDrawableRes),
-                    contentDescription = currentTier.pokemonName,
-                    contentScale = ContentScale.Fit,
+                PikachuMascotBadge(
+                    drawableRes = currentTier.pokemonDrawableRes,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -1362,11 +1371,8 @@ private fun PokemonTierRoadmapRow(
                 .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
-            Image(
-                painter = painterResource(id = tier.pokemonDrawableRes),
-                contentDescription = tier.pokemonName,
-                contentScale = ContentScale.Fit,
-                alpha = if (isUnlocked) 1f else 0.45f,
+            PikachuMascotBadge(
+                drawableRes = tier.pokemonDrawableRes,
                 modifier = Modifier.fillMaxSize()
             )
         }

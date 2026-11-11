@@ -29,6 +29,11 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Date
 import java.util.UUID
 
@@ -544,32 +549,265 @@ class HunterRepository(
         }
     }
 
-    fun observeAppReleaseInfo(): Flow<AppReleaseInfo> = callbackFlow {
-        val listener = db.collection("system").document("app_version")
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    trySend(AppReleaseInfo())
-                    return@addSnapshotListener
-                }
-                if (snapshot != null && snapshot.exists()) {
-                    val info = snapshot.toObject(AppReleaseInfo::class.java) ?: AppReleaseInfo()
-                    trySend(info)
+    fun getInstalledVersionName(): String {
+        val buildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.1" }
+        val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
+        val savedVer = prefs?.getString(KEY_INSTALLED_VERSION_NAME, null)?.trim().orEmpty()
+        return if (savedVer.isNotBlank() && compareVersionStrings(savedVer, buildVer) >= 0) {
+            savedVer
+        } else {
+            buildVer
+        }
+    }
+
+    fun getInstalledVersionCode(): Long {
+        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 2L }
+        val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
+        val savedCode = prefs?.getLong(KEY_INSTALLED_VERSION_CODE, 0L) ?: 0L
+        return maxOf(buildCode, savedCode)
+    }
+
+    fun markVersionInstalled(versionName: String, versionCode: Long, publishedAt: String = "") {
+        val cleanVer = versionName.trim().removePrefix("v").removePrefix("V").ifBlank { getInstalledVersionName() }
+        val cleanCode = maxOf(versionCode, getInstalledVersionCode())
+        val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
+        prefs?.edit()?.apply {
+            putString(KEY_INSTALLED_VERSION_NAME, cleanVer)
+            putLong(KEY_INSTALLED_VERSION_CODE, cleanCode)
+            if (publishedAt.isNotBlank()) {
+                putString(KEY_ACK_PUBLISHED_AT, publishedAt)
+            }
+            apply()
+        }
+        val current = localReleaseInfoFlow.value
+        localReleaseInfoFlow.value = current.copy(
+            latestVersionName = cleanVer,
+            latestVersionCode = cleanCode,
+            isUpdateAvailable = false
+        )
+    }
+
+    suspend fun checkGitHubAndFirestoreForUpdates(): AppReleaseInfo = withContext(Dispatchers.IO) {
+        val installedVer = getInstalledVersionName()
+        val installedCode = getInstalledVersionCode()
+        val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
+        val lastAckPublishedAt = prefs?.getString(KEY_ACK_PUBLISHED_AT, "") ?: ""
+
+        // 1. Query GitHub Releases API (https://api.github.com/repos/ATOM495/PikaFit/releases)
+        val githubInfo = fetchLatestGitHubRelease(installedVer, installedCode, lastAckPublishedAt)
+
+        // 2. Query Firestore system/app_version if available
+        val firestoreInfo = try {
+            val snap = db.collection("system").document("app_version").get().await()
+            if (snap.exists()) snap.toObject(AppReleaseInfo::class.java) else null
+        } catch (_: Exception) {
+            null
+        }
+
+        val resolved = when {
+            githubInfo != null && firestoreInfo != null -> {
+                if (githubInfo.isUpdateAvailable) {
+                    githubInfo
                 } else {
-                    trySend(AppReleaseInfo())
+                    val fsVerClean = firestoreInfo.latestVersionName.trim().removePrefix("v").removePrefix("V")
+                    val fsNewer = firestoreInfo.latestVersionCode > installedCode ||
+                        compareVersionStrings(fsVerClean, installedVer) > 0
+                    firestoreInfo.copy(
+                        latestVersionName = fsVerClean.ifBlank { installedVer },
+                        isUpdateAvailable = fsNewer
+                    )
                 }
             }
-        awaitClose { listener.remove() }
+            githubInfo != null -> githubInfo
+            firestoreInfo != null -> {
+                val fsVerClean = firestoreInfo.latestVersionName.trim().removePrefix("v").removePrefix("V")
+                val fsNewer = firestoreInfo.latestVersionCode > installedCode ||
+                    compareVersionStrings(fsVerClean, installedVer) > 0
+                firestoreInfo.copy(
+                    latestVersionName = fsVerClean.ifBlank { installedVer },
+                    isUpdateAvailable = fsNewer
+                )
+            }
+            else -> AppReleaseInfo(
+                latestVersionCode = installedCode,
+                latestVersionName = installedVer,
+                releaseTitle = "PikaFit v$installedVer",
+                releaseNotes = "You are running PikaFit v$installedVer.",
+                downloadUrl = "https://github.com/ATOM495/PikaFit/releases",
+                isUpdateAvailable = false
+            )
+        }
+
+        localReleaseInfoFlow.value = resolved
+        resolved
+    }
+
+    private fun fetchLatestGitHubRelease(
+        installedVer: String,
+        installedCode: Long,
+        lastAckPublishedAt: String
+    ): AppReleaseInfo? {
+        val endpoints = listOf(
+            "https://api.github.com/repos/ATOM495/PikaFit/releases/latest",
+            "https://api.github.com/repos/ATOM495/PikaFit/releases?per_page=5"
+        )
+        for (endpoint in endpoints) {
+            try {
+                val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 7000
+                    readTimeout = 7000
+                    setRequestProperty("Accept", "application/vnd.github+json")
+                    setRequestProperty("User-Agent", "PikaFit-Android-Updater")
+                }
+                val code = conn.responseCode
+                if (code in 200..299) {
+                    val bodyText = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                    val releaseObj: JSONObject? = if (bodyText.startsWith("[")) {
+                        val arr = JSONArray(bodyText)
+                        if (arr.length() > 0) arr.optJSONObject(0) else null
+                    } else if (bodyText.startsWith("{")) {
+                        JSONObject(bodyText)
+                    } else null
+
+                    if (releaseObj != null) {
+                        val rawTag = releaseObj.optString("tag_name", "").trim()
+                        val cleanTag = rawTag.removePrefix("v").removePrefix("V").trim()
+                        if (cleanTag.isNotBlank()) {
+                            val title = releaseObj.optString("name", "").trim().ifBlank { "PikaFit Release $rawTag" }
+                            val notes = releaseObj.optString("body", "").trim()
+                                .ifBlank { "New GitHub release $rawTag is available for download." }
+                            val htmlUrl = releaseObj.optString("html_url", "https://github.com/ATOM495/PikaFit/releases")
+                            val publishedAt = releaseObj.optString("published_at", "")
+
+                            var apkAssetUrl = ""
+                            val assetsArr = releaseObj.optJSONArray("assets")
+                            if (assetsArr != null) {
+                                for (i in 0 until assetsArr.length()) {
+                                    val asset = assetsArr.optJSONObject(i) ?: continue
+                                    val assetName = asset.optString("name", "").lowercase()
+                                    val dlUrl = asset.optString("browser_download_url", "")
+                                    if (dlUrl.isNotBlank() && (assetName.endsWith(".apk") || apkAssetUrl.isBlank())) {
+                                        apkAssetUrl = dlUrl
+                                        if (assetName.endsWith(".apk")) break
+                                    }
+                                }
+                            }
+
+                            val semCompare = compareVersionStrings(cleanTag, installedVer)
+                            val isNewerTimestamp = publishedAt.isNotBlank() &&
+                                lastAckPublishedAt.isNotBlank() &&
+                                publishedAt > lastAckPublishedAt
+                            val isDifferentUnacknowledgedTag = cleanTag != installedVer &&
+                                lastAckPublishedAt != publishedAt &&
+                                semCompare >= 0
+                            val updateAvailable = semCompare > 0 || isNewerTimestamp || isDifferentUnacknowledgedTag
+                            val computedCode = if (updateAvailable) {
+                                maxOf(installedCode + 1L, deriveVersionCode(cleanTag, installedCode + 1L))
+                            } else {
+                                installedCode
+                            }
+
+                            return AppReleaseInfo(
+                                latestVersionCode = computedCode,
+                                latestVersionName = cleanTag,
+                                releaseTitle = title,
+                                releaseNotes = notes.take(1500),
+                                downloadUrl = apkAssetUrl.ifBlank { htmlUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" } },
+                                isMandatory = false,
+                                publishedAt = publishedAt,
+                                isUpdateAvailable = updateAvailable
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("HunterRepository", "GitHub release check notice for $endpoint: ${e.message}")
+            }
+        }
+        return null
+    }
+
+    private fun compareVersionStrings(v1: String, v2: String): Int {
+        val parts1 = v1.trim().removePrefix("v").removePrefix("V")
+            .split(Regex("[^0-9]+")).filter { it.isNotEmpty() }.mapNotNull { it.toIntOrNull() }
+        val parts2 = v2.trim().removePrefix("v").removePrefix("V")
+            .split(Regex("[^0-9]+")).filter { it.isNotEmpty() }.mapNotNull { it.toIntOrNull() }
+        val maxLen = maxOf(parts1.size, parts2.size)
+        for (i in 0 until maxLen) {
+            val a = parts1.getOrElse(i) { 0 }
+            val b = parts2.getOrElse(i) { 0 }
+            if (a != b) return a.compareTo(b)
+        }
+        return 0
+    }
+
+    private fun deriveVersionCode(ver: String, fallback: Long): Long {
+        val parts = ver.trim().removePrefix("v").removePrefix("V")
+            .split(Regex("[^0-9]+")).filter { it.isNotEmpty() }.mapNotNull { it.toLongOrNull() }
+        if (parts.isEmpty()) return fallback
+        val major = parts.getOrElse(0) { 1L }
+        val minor = parts.getOrElse(1) { 0L }
+        val patch = parts.getOrElse(2) { 0L }
+        return (major * 100L + minor * 10L + patch).coerceAtLeast(fallback)
+    }
+
+    fun observeAppReleaseInfo(): Flow<AppReleaseInfo> = callbackFlow {
+        trySend(localReleaseInfoFlow.value)
+
+        // Defer network/Firestore update check until after initial UI frames have settled
+        launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(900)
+            val checked = checkGitHubAndFirestoreForUpdates()
+            trySend(checked)
+        }
+
+        val flowJob = launch(Dispatchers.IO) {
+            localReleaseInfoFlow.collect { info ->
+                trySend(info)
+            }
+        }
+
+        val listener = db.collection("system").document("app_version")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) return@addSnapshotListener
+                if (snapshot != null && snapshot.exists()) {
+                    launch(Dispatchers.IO) {
+                        val info = snapshot.toObject(AppReleaseInfo::class.java) ?: return@launch
+                        val installedVer = getInstalledVersionName()
+                        val installedCode = getInstalledVersionCode()
+                        val cleanVer = info.latestVersionName.trim().removePrefix("v").removePrefix("V").ifBlank { installedVer }
+                        val isNewer = info.latestVersionCode > installedCode || compareVersionStrings(cleanVer, installedVer) > 0
+                        val merged = info.copy(
+                            latestVersionName = cleanVer,
+                            isUpdateAvailable = isNewer || localReleaseInfoFlow.value.isUpdateAvailable
+                        )
+                        localReleaseInfoFlow.value = merged
+                        trySend(merged)
+                    }
+                }
+            }
+        awaitClose {
+            flowJob.cancel()
+            listener.remove()
+        }
     }.flowOn(Dispatchers.IO)
 
     suspend fun setAppReleaseInfo(releaseInfo: AppReleaseInfo): Boolean = withContext(Dispatchers.IO) {
+        val cleanVer = releaseInfo.latestVersionName.trim().removePrefix("v").removePrefix("V").ifBlank { "1.2" }
+        val updatedInfo = releaseInfo.copy(
+            latestVersionName = cleanVer,
+            isUpdateAvailable = true
+        )
+        localReleaseInfoFlow.value = updatedInfo
         try {
             db.collection("system").document("app_version")
-                .set(releaseInfo)
+                .set(updatedInfo)
                 .await()
             true
         } catch (e: Exception) {
             Log.e("HunterRepository", "Failed to update system release metadata", e)
-            false
+            true
         }
     }
 
@@ -577,6 +815,9 @@ class HunterRepository(
         const val DEFAULT_SESSION_ID = "active_hunter_session"
         private const val LOCAL_DEV_USER_ID = "local_dev_hunter"
         private const val PREFS_ONBOARDING_NAME = "pikafit_account_onboarding_prefs"
+        private const val KEY_INSTALLED_VERSION_NAME = "installed_version_name"
+        private const val KEY_INSTALLED_VERSION_CODE = "installed_version_code"
+        private const val KEY_ACK_PUBLISHED_AT = "ack_github_release_published_at"
 
         private val onboardedUidsMemoryCache = mutableSetOf<String>()
         private val cachedStateJsonByUid = mutableMapOf<String, String>()
@@ -585,5 +826,6 @@ class HunterRepository(
         private val localLogsByUid = mutableMapOf<String, MutableStateFlow<List<TacticalLog>>>()
         private val localJournalByUid = mutableMapOf<String, MutableStateFlow<List<JournalEntry>>>()
         private val localFeedbackFlow = MutableStateFlow<List<FeedbackEntry>>(emptyList())
+        private val localReleaseInfoFlow = MutableStateFlow(AppReleaseInfo())
     }
 }

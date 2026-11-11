@@ -40,7 +40,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        configureAppCheck(applicationContext, intent)
 
         setContent {
             val scope = rememberCoroutineScope()
@@ -48,10 +47,13 @@ class MainActivity : ComponentActivity() {
             var activeAccountId by rememberSaveable { mutableStateOf<String?>(null) }
             var isStartupReady by remember { mutableStateOf(false) }
 
-            // Let the very first frame commit to SurfaceFlinger immediately so SurfaceSyncGroup
-            // never waits on SharedPreferences, FirebaseAuth, or Firestore initialization.
+            // Let both initial window SurfaceSyncGroup transactions (wmsSync-VRI#2 and VRI#3 from enableEdgeToEdge)
+            // commit to SurfaceFlinger before mounting AuthScreen/MainHunterScreen or touching Firebase/SharedPreferences.
             LaunchedEffect(Unit) {
-                withFrameNanos { }
+                repeat(3) { withFrameNanos { } }
+                kotlinx.coroutines.delay(120)
+                configureAppCheck(applicationContext, intent)
+
                 val resolvedInitialAccount = withContext(Dispatchers.IO) {
                     val prefs = applicationContext.getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
                     val onboardingPrefs = applicationContext.getSharedPreferences("pikafit_account_onboarding_prefs", MODE_PRIVATE)

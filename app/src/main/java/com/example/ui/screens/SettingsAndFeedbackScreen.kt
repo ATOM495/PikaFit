@@ -147,9 +147,14 @@ fun SettingsAndFeedbackScreen(
     currentUserId: String,
     initialFocusSection: Int = 0,
     releaseInfo: com.example.data.model.AppReleaseInfo = com.example.data.model.AppReleaseInfo(),
+    installedVersionName: String = "1.1",
+    installedVersionCode: Long = 2L,
     isDark: Boolean = AppThemeIsDark,
     onToggleTheme: () -> Unit = {},
     onBack: () -> Unit,
+    onCheckForUpdates: () -> Unit = {},
+    onMarkUpdateInstalled: () -> Unit = {},
+    onPublishRelease: (versionCode: Long, versionName: String, releaseNotes: String, downloadUrl: String) -> Unit = { _, _, _, _ -> },
     onSaveProfileAndTargets: (
         hunterName: String,
         hunterTitle: String,
@@ -329,6 +334,7 @@ fun SettingsAndFeedbackScreen(
         6 -> "Analytics"
         7 -> "FAQ & Help Articles"
         8 -> "About Us"
+        9 -> "Software Updates"
         else -> "Settings"
     }
 
@@ -576,28 +582,20 @@ fun SettingsAndFeedbackScreen(
                         onClick = { activePage = 2 }
                     )
                     HorizontalDivider(color = BorderSubtle.copy(alpha = 0.6f), modifier = Modifier.padding(start = 52.dp))
-                    val hasUpdate = releaseInfo.latestVersionCode > 1L
+                    val hasUpdate = releaseInfo.isUpdateAvailable || releaseInfo.latestVersionCode > installedVersionCode
                     SettingsClickToGoRow(
                         icon = Icons.Filled.SystemUpdate,
-                        iconTint = if (hasUpdate) HunterGold else HunterCyan,
-                        title = "Check for Updates",
+                        iconTint = if (hasUpdate) HunterGold else HunterEmerald,
+                        title = if (hasUpdate) "Check for Updates • NEW!" else "Check for Updates",
                         subtitle = if (hasUpdate) {
-                            "v${releaseInfo.latestVersionName} Available • Tap to Download"
+                            "🔔 NEW UPDATE v${releaseInfo.latestVersionName} Available! (Installed v$installedVersionName)"
                         } else {
-                            "Installed v1.0 • Up to date"
+                            "Installed v$installedVersionName • Checked GitHub Releases (${releaseInfo.latestVersionName})"
                         },
                         testTag = "settings_nav_check_updates",
                         onClick = {
-                            val rawUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
-                            val targetUri = Uri.parse(
-                                if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) "https://$rawUrl" else rawUrl
-                            )
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, targetUri).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
+                            onCheckForUpdates()
+                            activePage = 9
                         }
                     )
                     HorizontalDivider(color = BorderSubtle.copy(alpha = 0.6f), modifier = Modifier.padding(start = 52.dp))
@@ -1608,6 +1606,221 @@ fun SettingsAndFeedbackScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
+                }
+            }
+        }
+
+        // =====================================================================
+        // SUB-PAGE 9: SOFTWARE UPDATES & GITHUB RELEASE CHECKER
+        // =====================================================================
+        if (activePage == 9) {
+            item {
+                val hasUpdate = releaseInfo.isUpdateAvailable || releaseInfo.latestVersionCode > installedVersionCode
+                var pubVersionName by rememberSaveable { mutableStateOf("") }
+                var pubVersionCode by rememberSaveable { mutableStateOf("") }
+                var pubNotes by rememberSaveable { mutableStateOf("") }
+                var pubUrl by rememberSaveable { mutableStateOf("https://github.com/ATOM495/PikaFit/releases") }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(ObsidianCard)
+                        .border(
+                            1.5.dp,
+                            if (hasUpdate) HunterGold else HunterEmerald.copy(alpha = 0.6f),
+                            RoundedCornerShape(18.dp)
+                        )
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.SystemUpdate,
+                                contentDescription = null,
+                                tint = if (hasUpdate) HunterGold else HunterEmerald,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (hasUpdate) {
+                                        "🔔 NEW UPDATE AVAILABLE!"
+                                    } else {
+                                        "✔ APP VERSION UP TO DATE"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = if (hasUpdate) HunterGold else HunterEmerald,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    text = "Installed: v$installedVersionName (Build $installedVersionCode) • Latest on GitHub: v${releaseInfo.latestVersionName}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        color = ObsidianBg,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, BorderSubtle),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "Release v${releaseInfo.latestVersionName}" +
+                                    if (releaseInfo.publishedAt.isNotBlank()) " • Published ${releaseInfo.publishedAt}" else "",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = HunterCyan,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = releaseInfo.releaseNotes,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextPrimary
+                            )
+                        }
+                    }
+
+                    // 1. Live Check GitHub API Now button
+                    Button(
+                        onClick = onCheckForUpdates,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = HunterCyan,
+                            contentColor = ObsidianBg
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("check_github_updates_now_button")
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("CHECK GITHUB RELEASES FOR NEW UPDATE NOW", fontWeight = FontWeight.ExtraBold)
+                    }
+
+                    // 2. Download Latest Release from GitHub & Sync Installed Version
+                    Button(
+                        onClick = {
+                            onMarkUpdateInstalled()
+                            val rawUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
+                            val targetUri = Uri.parse(
+                                if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) "https://$rawUrl" else rawUrl
+                            )
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, targetUri).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (_: Exception) {}
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = HunterGold,
+                            contentColor = ObsidianBg
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("download_latest_github_apk_button")
+                    ) {
+                        Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "DOWNLOAD v${releaseInfo.latestVersionName} ON GITHUB & SYNC VERSION",
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+
+                    // 3. Mark current device version as synced to latest release
+                    if (installedVersionName != releaseInfo.latestVersionName || hasUpdate) {
+                        OutlinedButton(
+                            onClick = onMarkUpdateInstalled,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, HunterEmerald),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("sync_installed_version_button")
+                        ) {
+                            Icon(Icons.Filled.VerifiedUser, contentDescription = null, tint = HunterEmerald, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "MARK v${releaseInfo.latestVersionName} AS INSTALLED ON THIS DEVICE",
+                                color = HunterEmerald,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = BorderSubtle)
+
+                    // 4. Broadcast / Publish New Release Notification to All Trainers
+                    Text(
+                        text = "BROADCAST NEW GITHUB RELEASE NOTIFICATION",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = HunterGold,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "Whenever you publish a new release tag on GitHub (ATOM495/PikaFit), PikaFit automatically detects it via the GitHub Releases API. You can also broadcast a release version here to trigger the 'New Update Available' popup across all devices:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = pubVersionName,
+                            onValueChange = { pubVersionName = it },
+                            label = { Text("Version Tag (e.g. 1.2)", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = settingsTextFieldColors(HunterGold)
+                        )
+                        OutlinedTextField(
+                            value = pubVersionCode,
+                            onValueChange = { pubVersionCode = it.filter { ch -> ch.isDigit() } },
+                            label = { Text("Build # (e.g. 3)", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = settingsTextFieldColors(HunterGold)
+                        )
+                    }
+                    OutlinedTextField(
+                        value = pubNotes,
+                        onValueChange = { pubNotes = it },
+                        label = { Text("Release Notes", fontSize = 11.sp) },
+                        placeholder = { Text("What's new in this update...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = settingsTextFieldColors(HunterGold)
+                    )
+                    Button(
+                        onClick = {
+                            val vName = pubVersionName.trim().removePrefix("v").ifBlank { "1.2" }
+                            val vCode = pubVersionCode.toLongOrNull() ?: (installedVersionCode + 1L)
+                            onPublishRelease(
+                                vCode,
+                                vName,
+                                pubNotes.ifBlank { "New PikaFit v$vName update available on GitHub!" },
+                                pubUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
+                            )
+                            pubVersionName = ""
+                            pubVersionCode = ""
+                            pubNotes = ""
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = HunterEmerald,
+                            contentColor = ObsidianBg
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("PUBLISH UPDATE NOTIFICATION (v${pubVersionName.ifBlank { "1.2" }})", fontWeight = FontWeight.ExtraBold)
+                    }
                 }
             }
         }

@@ -34,11 +34,13 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PendingActions
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,6 +55,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.example.util.SmartFoodNutritionEngine
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -122,7 +125,16 @@ fun BiometricChartsScreen(
     onLogFoodItem: (mealName: String, calories: Int, proteinG: Double) -> Unit,
     onLogExerciseSet: (exerciseName: String, sets: Int, reps: String, overload: Boolean) -> Unit,
     onUndoFood: () -> Unit = {},
-    onUndoWater: () -> Unit = {}
+    onUndoWater: () -> Unit = {},
+    onUpdateHistoricalDayFoodLog: (
+        dateStr: String,
+        calories: Int,
+        proteinG: Double,
+        carbsG: Double,
+        fatsG: Double,
+        waterLiters: Double,
+        foodSummary: String
+    ) -> Unit = { _, _, _, _, _, _, _ -> }
 ) {
     val bio = state.biometrics
     var selectedChartMode by rememberSaveable { mutableStateOf(RechartsMetricMode.COMPOSED_ALL) }
@@ -147,7 +159,8 @@ fun BiometricChartsScreen(
                 onLogFoodItem = onLogFoodItem,
                 onLogExerciseSet = onLogExerciseSet,
                 onUndoFood = onUndoFood,
-                onUndoWater = onUndoWater
+                onUndoWater = onUndoWater,
+                onUpdateHistoricalDayFoodLog = onUpdateHistoricalDayFoodLog
             )
         }
 
@@ -396,7 +409,16 @@ fun DailyProductiveStreakCard(
     onLogFoodItem: (mealName: String, calories: Int, proteinG: Double) -> Unit,
     onLogExerciseSet: (exerciseName: String, sets: Int, reps: String, overload: Boolean) -> Unit,
     onUndoFood: () -> Unit = {},
-    onUndoWater: () -> Unit = {}
+    onUndoWater: () -> Unit = {},
+    onUpdateHistoricalDayFoodLog: (
+        dateStr: String,
+        calories: Int,
+        proteinG: Double,
+        carbsG: Double,
+        fatsG: Double,
+        waterLiters: Double,
+        foodSummary: String
+    ) -> Unit = { _, _, _, _, _, _, _ -> }
 ) {
     val ps = state.playerStatus
     val vit = state.statBreakdown.vitality
@@ -405,6 +427,7 @@ fun DailyProductiveStreakCard(
     val accentColor = if (isCheckedIn) HunterEmerald else HunterGold
 
     var expandedActionMode by rememberSaveable { mutableIntStateOf(0) } // 0 = None, 1 = Food Form, 2 = Exercise Form
+    var editingDateStr by rememberSaveable { mutableStateOf<String?>(null) }
     var mealName by rememberSaveable { mutableStateOf("") }
     var mealCalories by rememberSaveable { mutableStateOf("") }
     var mealProtein by rememberSaveable { mutableStateOf("") }
@@ -412,6 +435,18 @@ fun DailyProductiveStreakCard(
     var exerciseName by rememberSaveable { mutableStateOf("") }
     var exerciseSets by rememberSaveable { mutableStateOf("") }
     var exerciseReps by rememberSaveable { mutableStateOf("") }
+
+    if (editingDateStr != null) {
+        EditHistoricalDayFoodLogDialog(
+            initialDateStr = editingDateStr ?: StreakDateUtils.daysAgoDateString(1),
+            state = state,
+            onDismiss = { editingDateStr = null },
+            onSaveDayLog = { dateStr, cals, pro, carbs, fats, water, summary ->
+                onUpdateHistoricalDayFoodLog(dateStr, cals, pro, carbs, fats, water, summary)
+                editingDateStr = null
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -540,13 +575,56 @@ fun DailyProductiveStreakCard(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 7-Day Productive Check-In Calendar Strip
+        // 7-Day Productive Check-In Calendar Strip (Tap any day or Yesterday to edit its food log)
+        Text(
+            text = "Tap any streak day (e.g. Yesterday) below to view or edit that day's Food & Calorie Log:",
+            style = MaterialTheme.typography.labelSmall,
+            color = HunterGold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
         SevenDayStreakStrip(
             historyDates = ps.productiveHistoryDates,
-            checkedInToday = ps.checkedInToday
+            checkedInToday = ps.checkedInToday,
+            dailyLogsByDate = ps.dailyLogsByDate,
+            onClickDate = { clickedDate ->
+                editingDateStr = clickedDate
+            }
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Direct "Edit Yesterday's Food Log" button
+        OutlinedButton(
+            onClick = { editingDateStr = StreakDateUtils.daysAgoDateString(1) },
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, HunterGold),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("edit_yesterday_food_log_button")
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Edit,
+                contentDescription = "Edit Yesterday's Food Log",
+                tint = HunterGold,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            val yesterdayStr = StreakDateUtils.daysAgoDateString(1)
+            val yesterdayLog = ps.dailyLogsByDate[yesterdayStr]
+            val yesterdaySummary = if (yesterdayLog != null && yesterdayLog.calories > 0) {
+                " (${yesterdayLog.calories} kcal • ${yesterdayLog.proteinG.toInt()}g P)"
+            } else {
+                ""
+            }
+            Text(
+                text = "EDIT YESTERDAY'S FOOD LOG$yesterdaySummary",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = HunterGold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
 
         // Action Buttons to Input Food or Exercise Data
         Row(
@@ -915,9 +993,20 @@ private fun ProductiveCounterPill(
 @Composable
 private fun SevenDayStreakStrip(
     historyDates: List<String>,
-    checkedInToday: Boolean
+    checkedInToday: Boolean,
+    dailyLogsByDate: Map<String, com.example.data.model.DailyDateLog> = emptyMap(),
+    onClickDate: (String) -> Unit = {}
 ) {
-    val days = remember(historyDates, checkedInToday) {
+    data class StreakDayPill(
+        val dateStr: String,
+        val label: String,
+        val isVerified: Boolean,
+        val isToday: Boolean,
+        val isYesterday: Boolean,
+        val loggedKcal: Int
+    )
+
+    val days = remember(historyDates, checkedInToday, dailyLogsByDate) {
         val dayFmt = SimpleDateFormat("EEE", Locale.US)
         val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val now = System.currentTimeMillis()
@@ -931,9 +1020,17 @@ private fun SevenDayStreakStrip(
             val verified = if (daysAgo == 0) {
                 checkedInToday
             } else {
-                historyDates.contains(dateStr)
+                historyDates.contains(dateStr) || (dailyLogsByDate[dateStr]?.calories ?: 0) > 0
             }
-            Triple(label, verified, daysAgo == 0)
+            val loggedKcal = dailyLogsByDate[dateStr]?.calories ?: 0
+            StreakDayPill(
+                dateStr = dateStr,
+                label = label,
+                isVerified = verified,
+                isToday = daysAgo == 0,
+                isYesterday = daysAgo == 1,
+                loggedKcal = loggedKcal
+            )
         }
     }
 
@@ -941,15 +1038,17 @@ private fun SevenDayStreakStrip(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        days.forEach { (dayLabel, isVerified, isToday) ->
+        days.forEach { day ->
             val borderColor = when {
-                isVerified -> HunterEmerald
-                isToday -> HunterGold
+                day.isVerified -> HunterEmerald
+                day.isToday -> HunterGold
+                day.isYesterday -> HunterCyan
                 else -> BorderSubtle
             }
             val bgColor = when {
-                isVerified -> HunterEmerald.copy(alpha = 0.15f)
-                isToday -> HunterGold.copy(alpha = 0.10f)
+                day.isVerified -> HunterEmerald.copy(alpha = 0.15f)
+                day.isToday -> HunterGold.copy(alpha = 0.10f)
+                day.isYesterday -> HunterCyan.copy(alpha = 0.10f)
                 else -> ObsidianBg
             }
 
@@ -959,34 +1058,300 @@ private fun SevenDayStreakStrip(
                     .clip(RoundedCornerShape(10.dp))
                     .background(bgColor)
                     .border(1.dp, borderColor, RoundedCornerShape(10.dp))
-                    .padding(vertical = 8.dp),
+                    .clickable { onClickDate(day.dateStr) }
+                    .padding(vertical = 8.dp)
+                    .testTag("streak_day_pill_${day.label.lowercase()}"),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
-                    imageVector = if (isVerified) Icons.Filled.LocalFireDepartment else Icons.Filled.PendingActions,
-                    contentDescription = dayLabel,
+                    imageVector = if (day.isVerified) Icons.Filled.LocalFireDepartment else Icons.Filled.PendingActions,
+                    contentDescription = "Edit ${day.label} Food Log",
                     tint = when {
-                        isVerified -> HunterEmerald
-                        isToday -> HunterGold
+                        day.isVerified -> HunterEmerald
+                        day.isToday -> HunterGold
+                        day.isYesterday -> HunterCyan
                         else -> TextMuted
                     },
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = dayLabel,
+                    text = day.label,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 9.5.sp,
                         letterSpacing = (-0.3).sp,
-                        fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.SemiBold
+                        fontWeight = if (day.isToday || day.isYesterday) FontWeight.ExtraBold else FontWeight.SemiBold
                     ),
-                    color = if (isToday) TextPrimary else TextSecondary,
+                    color = if (day.isToday || day.isYesterday) TextPrimary else TextSecondary,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Text(
+                    text = if (day.loggedKcal > 0) "${day.loggedKcal}" else "Edit",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp),
+                    color = if (day.loggedKcal > 0) HunterEmerald else HunterGold,
                     maxLines = 1,
                     softWrap = false
                 )
             }
         }
     }
+}
+
+@Composable
+fun EditHistoricalDayFoodLogDialog(
+    initialDateStr: String,
+    state: HunterSystemState,
+    onDismiss: () -> Unit,
+    onSaveDayLog: (
+        dateStr: String,
+        calories: Int,
+        proteinG: Double,
+        carbsG: Double,
+        fatsG: Double,
+        waterLiters: Double,
+        foodSummary: String
+    ) -> Unit
+) {
+    val recentDates = remember {
+        val labelFmt = SimpleDateFormat("EEE, MMM d", Locale.US)
+        val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val now = System.currentTimeMillis()
+        (0..6).map { daysAgo ->
+            val cal = Calendar.getInstance().apply {
+                timeInMillis = now
+                add(Calendar.DAY_OF_YEAR, -daysAgo)
+            }
+            val dStr = dateFmt.format(cal.time)
+            val prefix = when (daysAgo) {
+                0 -> "Today"
+                1 -> "Yesterday"
+                else -> "${daysAgo}d ago"
+            }
+            dStr to "$prefix (${labelFmt.format(cal.time)})"
+        }
+    }
+
+    var selectedDateStr by rememberSaveable(initialDateStr) { mutableStateOf(initialDateStr) }
+    val existingLog = remember(selectedDateStr, state.playerStatus.dailyLogsByDate, state.statBreakdown) {
+        val todayStr = StreakDateUtils.todayDateString()
+        state.playerStatus.dailyLogsByDate[selectedDateStr] ?: if (selectedDateStr == todayStr) {
+            com.example.data.model.DailyDateLog(
+                date = todayStr,
+                calories = state.statBreakdown.vitality.caloriesLogged,
+                proteinG = state.statBreakdown.vitality.proteinG,
+                carbsG = state.statBreakdown.vitality.carbsG,
+                fatsG = state.statBreakdown.vitality.fatsG,
+                waterLiters = state.statBreakdown.stamina.waterLiters,
+                foodSummary = ""
+            )
+        } else {
+            com.example.data.model.DailyDateLog(date = selectedDateStr)
+        }
+    }
+
+    var foodQueryInput by remember(selectedDateStr) { mutableStateOf(existingLog.foodSummary) }
+    var caloriesInput by remember(selectedDateStr) {
+        mutableStateOf(if (existingLog.calories > 0) existingLog.calories.toString() else "")
+    }
+    var proteinInput by remember(selectedDateStr) {
+        mutableStateOf(if (existingLog.proteinG > 0.0) existingLog.proteinG.toString() else "")
+    }
+    var carbsInput by remember(selectedDateStr) {
+        mutableStateOf(if (existingLog.carbsG > 0.0) existingLog.carbsG.toString() else "")
+    }
+    var fatsInput by remember(selectedDateStr) {
+        mutableStateOf(if (existingLog.fatsG > 0.0) existingLog.fatsG.toString() else "")
+    }
+    var waterInput by remember(selectedDateStr) {
+        mutableStateOf(if (existingLog.waterLiters > 0.0) existingLog.waterLiters.toString() else "")
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = ObsidianCard,
+        titleContentColor = HunterGold,
+        textContentColor = TextPrimary,
+        title = {
+            Column {
+                Text(
+                    text = "📅 EDIT STREAK DAY FOOD LOG",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = HunterGold,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = "Tap Yesterday or any day below to edit or add missed food & calories",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Day selector row (Yesterday, Today, etc.)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    recentDates.forEach { (dStr, dLabel) ->
+                        val isSelected = dStr == selectedDateStr
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedDateStr = dStr },
+                            label = { Text(dLabel, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = HunterGold.copy(alpha = 0.22f),
+                                selectedLabelColor = HunterGold,
+                                containerColor = ObsidianBg,
+                                labelColor = TextSecondary
+                            )
+                        )
+                    }
+                }
+
+                // Smart Food Auto-Calculate helper
+                OutlinedTextField(
+                    value = foodQueryInput,
+                    onValueChange = { newText ->
+                        foodQueryInput = newText
+                        if (newText.isNotBlank()) {
+                            val calc = SmartFoodNutritionEngine.calculateForGramsOrQuantity(
+                                foodInput = newText,
+                                amountValue = 1,
+                                isQuantityMode = true
+                            )
+                            caloriesInput = calc.calories.toString()
+                            proteinInput = calc.proteinG.toString()
+                            carbsInput = calc.carbsG.toString()
+                            fatsInput = calc.fatsG.toString()
+                        }
+                    },
+                    label = { Text("Food / Meals Logged (auto-calculates macros)", fontSize = 11.5.sp) },
+                    placeholder = { Text("e.g. 2 Chapati + Chicken Curry", fontSize = 12.sp) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("historical_day_food_summary_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = HunterGold,
+                        unfocusedBorderColor = BorderSubtle,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary
+                    )
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = caloriesInput,
+                        onValueChange = { caloriesInput = it.filter { ch -> ch.isDigit() } },
+                        label = { Text("Calories (kcal)", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("historical_day_calories_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = HunterGold,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                    OutlinedTextField(
+                        value = proteinInput,
+                        onValueChange = { proteinInput = it },
+                        label = { Text("Protein (g)", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("historical_day_protein_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = HunterEmerald,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = carbsInput,
+                        onValueChange = { carbsInput = it },
+                        label = { Text("Carbs (g)", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = HunterCyan,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                    OutlinedTextField(
+                        value = fatsInput,
+                        onValueChange = { fatsInput = it },
+                        label = { Text("Fats (g)", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = HunterViolet,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                    OutlinedTextField(
+                        value = waterInput,
+                        onValueChange = { waterInput = it },
+                        label = { Text("Water (L)", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = HunterCyan,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSaveDayLog(
+                        selectedDateStr,
+                        caloriesInput.toIntOrNull()?.coerceIn(0, 15000) ?: 0,
+                        proteinInput.toDoubleOrNull()?.coerceIn(0.0, 600.0) ?: 0.0,
+                        carbsInput.toDoubleOrNull()?.coerceIn(0.0, 1500.0) ?: 0.0,
+                        fatsInput.toDoubleOrNull()?.coerceIn(0.0, 500.0) ?: 0.0,
+                        waterInput.toDoubleOrNull()?.coerceIn(0.0, 15.0) ?: 0.0,
+                        foodQueryInput.trim()
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = HunterEmerald,
+                    contentColor = ObsidianBg
+                ),
+                modifier = Modifier.testTag("save_historical_day_food_button")
+            ) {
+                Text("SAVE DAY LOG & UPDATE STREAK", fontWeight = FontWeight.ExtraBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CANCEL", color = TextSecondary)
+            }
+        }
+    )
 }
 
 @Composable
@@ -1163,44 +1528,6 @@ private fun RechartsBiometricVisualizerCard(
                 pointNumber = safeIndex + 1,
                 totalPoints = entries.size
             )
-        }
-
-        // Net Progression Deltas (Earliest vs Latest in Firestore)
-        if (firstEntry != null && latestEntry != null) {
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(color = BorderSubtle)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            val weightDelta = round1(latestEntry.weightKg - firstEntry.weightKg)
-            val bfDelta = round1(latestEntry.bodyFatPercent - firstEntry.bodyFatPercent)
-            val muscleDelta = round1(latestEntry.muscleMassPercent - firstEntry.muscleMassPercent)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                DeltaSummaryTile(
-                    title = "WEIGHT",
-                    currentValue = "${latestEntry.weightKg} kg",
-                    deltaText = "${if (weightDelta >= 0) "+" else ""}$weightDelta kg",
-                    accentColor = HunterCyan,
-                    modifier = Modifier.weight(1f)
-                )
-                DeltaSummaryTile(
-                    title = "BODY FAT",
-                    currentValue = "${latestEntry.bodyFatPercent}%",
-                    deltaText = "${if (bfDelta >= 0) "+" else ""}$bfDelta%",
-                    accentColor = HunterGold,
-                    modifier = Modifier.weight(1f)
-                )
-                DeltaSummaryTile(
-                    title = "MUSCLE MASS",
-                    currentValue = "${latestEntry.muscleMassPercent}%",
-                    deltaText = "${if (muscleDelta >= 0) "+" else ""}$muscleDelta% (${latestEntry.muscleMassKg}kg)",
-                    accentColor = HunterEmerald,
-                    modifier = Modifier.weight(1f)
-                )
-            }
         }
     }
 }

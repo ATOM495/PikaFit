@@ -1900,22 +1900,12 @@ fun MainHunterScreen(
 
     val state by viewModel.systemState.collectAsStateWithLifecycle()
     val isSessionLoaded by viewModel.isSessionLoaded.collectAsStateWithLifecycle()
-    val pikaCoachState by viewModel.pikaCoachState.collectAsStateWithLifecycle()
-    val nutritionChatMessages by viewModel.nutritionChatMessages.collectAsStateWithLifecycle()
-    val isNutritionChatLoading by viewModel.isNutritionChatLoading.collectAsStateWithLifecycle()
-    val foodHistory by viewModel.foodHistory.collectAsStateWithLifecycle()
-    val waterHistory by viewModel.waterHistory.collectAsStateWithLifecycle()
-    val aiSyncState by viewModel.aiSyncState.collectAsStateWithLifecycle()
-    val logsState by viewModel.logsState.collectAsStateWithLifecycle()
-    val journalState by viewModel.journalState.collectAsStateWithLifecycle()
-    val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
-    val releaseInfo by viewModel.appReleaseInfo.collectAsStateWithLifecycle()
-    val dismissedUpdateVersion by viewModel.dismissedUpdateVersion.collectAsStateWithLifecycle()
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var settingsFocusSection by rememberSaveable { mutableIntStateOf(0) }
     var showTutorial by rememberSaveable { mutableStateOf(false) }
     var forceShowOnboarding by rememberSaveable { mutableStateOf(false) }
+    var showEditStreakFoodDialog by rememberSaveable { mutableStateOf(false) }
 
     // Cycling Pikachu wallpaper override (0 = Page Default, 1 = Hi Pikachu, 2 = Pokéball Pikachu, 3 = Orange Wave Pikachu)
     var wallpaperMode by rememberSaveable { mutableIntStateOf(0) }
@@ -1930,13 +1920,6 @@ fun MainHunterScreen(
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                PikachuMascotBadge(
-                    drawableRes = R.drawable.pika_logo_hi,
-                    modifier = Modifier
-                        .size(84.dp)
-                        .border(3.dp, PikaVoltYellow, CircleShape)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
                 CircularProgressIndicator(color = PikaVoltYellow)
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
@@ -1970,6 +1953,20 @@ fun MainHunterScreen(
         )
         return
     }
+
+    val pikaCoachState by viewModel.pikaCoachState.collectAsStateWithLifecycle()
+    val nutritionChatMessages by viewModel.nutritionChatMessages.collectAsStateWithLifecycle()
+    val isNutritionChatLoading by viewModel.isNutritionChatLoading.collectAsStateWithLifecycle()
+    val foodHistory by viewModel.foodHistory.collectAsStateWithLifecycle()
+    val waterHistory by viewModel.waterHistory.collectAsStateWithLifecycle()
+    val aiSyncState by viewModel.aiSyncState.collectAsStateWithLifecycle()
+    val logsState by viewModel.logsState.collectAsStateWithLifecycle()
+    val journalState by viewModel.journalState.collectAsStateWithLifecycle()
+    val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
+    val releaseInfo by viewModel.appReleaseInfo.collectAsStateWithLifecycle()
+    val installedVersionName by viewModel.installedVersionName.collectAsStateWithLifecycle()
+    val installedVersionCode by viewModel.installedVersionCode.collectAsStateWithLifecycle()
+    val dismissedUpdateVersion by viewModel.dismissedUpdateVersion.collectAsStateWithLifecycle()
 
     // Context-aware Gemini Pika-Coach Popup state on the Dashboard
     val popupTipPair: Pair<PikaCoachTip, Boolean>? = when (val cs = pikaCoachState) {
@@ -2042,18 +2039,48 @@ fun MainHunterScreen(
                                     color = TextPrimary
                                 )
                                 val streakLabel = if (state.playerStatus.checkedInToday) {
-                                    "${state.playerStatus.streakDays}D Streak"
+                                    "🔥 ${state.playerStatus.streakDays}D Streak"
                                 } else {
-                                    "${state.playerStatus.streakDays}D (Log to verify)"
+                                    "🔥 ${state.playerStatus.streakDays}D • Edit Log"
                                 }
-                                Text(
-                                    text = "Lvl ${state.playerStatus.level} (${state.playerStatus.rank}) • $streakLabel",
-                                    style = MaterialTheme.typography.labelLarge.copy(
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = if (state.playerStatus.checkedInToday) HunterDoneGreen else topBarAccent
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Lvl ${state.playerStatus.level} (${state.playerStatus.rank})",
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = TextSecondary
+                                    )
+                                    Surface(
+                                        modifier = Modifier
+                                            .clickable { showEditStreakFoodDialog = true }
+                                            .testTag("top_bar_streak_edit_button"),
+                                        shape = RoundedCornerShape(50),
+                                        color = (if (state.playerStatus.checkedInToday) HunterDoneGreen else topBarAccent).copy(alpha = 0.16f),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (state.playerStatus.checkedInToday) HunterDoneGreen else topBarAccent
+                                        )
+                                    ) {
+                                        Text(
+                                            text = streakLabel,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            ),
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            color = if (state.playerStatus.checkedInToday) HunterDoneGreen else topBarAccent
+                                        )
+                                    }
+                                }
                             }
                         }
                     },
@@ -2202,7 +2229,8 @@ fun MainHunterScreen(
                             onLogFoodItem = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
                             onLogExerciseSet = viewModel::addExerciseSet,
                             onUndoFood = { viewModel.undoLastFoodEntry() },
-                            onUndoWater = { viewModel.undoLastWaterEntry() }
+                            onUndoWater = { viewModel.undoLastWaterEntry() },
+                            onUpdateHistoricalDayFoodLog = viewModel::updateHistoricalDayFoodLog
                         )
                         2 -> StatsBreakdownTab(
                             state = state,
@@ -2256,6 +2284,14 @@ fun MainHunterScreen(
                                     proteinTargetG = proTarget,
                                     waterTargetLiters = waterTarget
                                 )
+                            },
+                            onLogRecommendedExercise = { msgId, exName, exSets, exReps ->
+                                viewModel.logExerciseFromPikaBot(
+                                    messageId = msgId,
+                                    exerciseName = exName,
+                                    sets = exSets,
+                                    reps = exReps
+                                )
                             }
                         )
                         5 -> SettingsAndFeedbackScreen(
@@ -2264,9 +2300,21 @@ fun MainHunterScreen(
                             currentUserId = currentUserId,
                             initialFocusSection = settingsFocusSection,
                             releaseInfo = releaseInfo,
+                            installedVersionName = installedVersionName,
+                            installedVersionCode = installedVersionCode,
                             isDark = isDark,
                             onToggleTheme = onToggleTheme,
                             onBack = { selectedTab = 0 },
+                            onCheckForUpdates = { viewModel.checkForAppUpdates(manualUserTrigger = true) },
+                            onMarkUpdateInstalled = { viewModel.markLatestUpdateInstalled(releaseInfo) },
+                            onPublishRelease = { _, versionName, releaseNotes, downloadUrl ->
+                                viewModel.publishNewAppRelease(
+                                    versionName = versionName,
+                                    releaseTitle = "PikaFit v$versionName Update",
+                                    releaseNotes = releaseNotes,
+                                    downloadUrl = downloadUrl
+                                )
+                            },
                             onSaveProfileAndTargets = viewModel::updateSettingsProfileAndTargets,
                             onSaveProfileWithGoal = viewModel::updateSettingsProfileAndTargets,
                             onResetProgress = { clearJournal ->
@@ -2288,8 +2336,19 @@ fun MainHunterScreen(
             }
         }
 
-        val currentVersionCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 1L }
-        val isNewVersionAvailable = releaseInfo.latestVersionCode > currentVersionCode &&
+        if (showEditStreakFoodDialog) {
+            EditHistoricalDayFoodLogDialog(
+                initialDateStr = com.example.data.model.StreakDateUtils.daysAgoDateString(1),
+                state = state,
+                onDismiss = { showEditStreakFoodDialog = false },
+                onSaveDayLog = { dateStr, cals, pro, carbs, fats, water, summary ->
+                    viewModel.updateHistoricalDayFoodLog(dateStr, cals, pro, carbs, fats, water, summary)
+                    showEditStreakFoodDialog = false
+                }
+            )
+        }
+
+        val isNewVersionAvailable = (releaseInfo.isUpdateAvailable || releaseInfo.latestVersionCode > installedVersionCode) &&
             dismissedUpdateVersion != releaseInfo.latestVersionCode
 
         if (isNewVersionAvailable) {
@@ -2300,6 +2359,7 @@ fun MainHunterScreen(
                     viewModel.dismissUpdatePrompt(releaseInfo.latestVersionCode)
                 },
                 onDownload = {
+                    viewModel.markLatestUpdateInstalled(releaseInfo)
                     val rawUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
                     val targetUri = Uri.parse(
                         if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) "https://$rawUrl" else rawUrl
@@ -2414,11 +2474,15 @@ fun StatsBreakdownTab(
     var smartFoodAmountInput by rememberSaveable { mutableStateOf("") }
     val parsedAmount = smartFoodAmountInput.toIntOrNull()?.coerceIn(1, 5000) ?: if (isQuantityMode) 1 else 100
     val smartCalc = remember(smartFoodQuery, parsedAmount, isQuantityMode) {
-        SmartFoodNutritionEngine.calculateForGramsOrQuantity(
-            foodInput = smartFoodQuery.ifBlank { "Idli" },
-            amountValue = parsedAmount,
-            isQuantityMode = isQuantityMode
-        )
+        if (smartFoodQuery.isBlank()) {
+            null
+        } else {
+            SmartFoodNutritionEngine.calculateForGramsOrQuantity(
+                foodInput = smartFoodQuery,
+                amountValue = parsedAmount,
+                isQuantityMode = isQuantityMode
+            )
+        }
     }
 
     // Manual Food Entry state (empty defaults)
@@ -2440,29 +2504,6 @@ fun StatsBreakdownTab(
 
     val canUndoFood = vit.caloriesLogged > 0 || vit.proteinG > 0.0 || foodHistory.isNotEmpty()
     val canUndoWater = stam.waterLiters > 0.0 || waterHistory.isNotEmpty()
-
-    // Quick presets for Quantity/Pieces vs Grams (South Indian, North Indian & Global staples)
-    val quickQuantityFoods = remember {
-        listOf(
-            Triple("3 Dosa 4 Idly", 1, true),
-            Triple("Chicken Gravy", 180, false),
-            Triple("Poha", 150, false),
-            Triple("Idli", 4, true),
-            Triple("Dosa", 3, true),
-            Triple("Masala Dosa", 2, true),
-            Triple("Ven Pongal", 180, false),
-            Triple("Puttu", 2, true),
-            Triple("Kadala Curry", 160, false),
-            Triple("Parotta", 2, true),
-            Triple("Roti", 3, true),
-            Triple("Paneer Butter Masala", 180, false),
-            Triple("Dal Tadka", 150, false),
-            Triple("Chicken Biryani", 280, false),
-            Triple("Boiled Eggs", 3, true),
-            Triple("Chicken Breast", 150, false),
-            Triple("Cooked Rice", 200, false)
-        )
-    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -2503,7 +2544,7 @@ fun StatsBreakdownTab(
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "Enter Quantity (e.g. 3 Dosa 4 Idly) or Grams (g) -> Macros",
+                                    text = "Enter Quantity or Grams (g) -> Macros",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.SemiBold
@@ -2568,7 +2609,7 @@ fun StatsBreakdownTab(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // INPUT MODE TOGGLE: Quantity / Pieces vs Grams (g)
+                            // INPUT MODE TOGGLE: Quantity vs Grams (g)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2580,7 +2621,7 @@ fun StatsBreakdownTab(
                                             if (!isQuantityMode) {
                                                 isQuantityMode = true
                                                 if ((smartFoodAmountInput.toIntOrNull() ?: 1) > 20) {
-                                                    smartFoodAmountInput = "3"
+                                                    smartFoodAmountInput = "1"
                                                 }
                                             }
                                         }
@@ -2593,11 +2634,11 @@ fun StatsBreakdownTab(
                                     )
                                 ) {
                                     Text(
-                                        text = "🍽 Quantity (3 Dosa, 4 Idly)",
-                                        modifier = Modifier.padding(vertical = 9.dp, horizontal = 6.dp),
+                                        text = "🍽 Quantity",
+                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
                                         textAlign = TextAlign.Center,
                                         style = MaterialTheme.typography.labelMedium.copy(
-                                            fontSize = 12.sp,
+                                            fontSize = 13.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
                                         color = if (isQuantityMode) Color(0xFF0F172A) else TextPrimary
@@ -2611,7 +2652,7 @@ fun StatsBreakdownTab(
                                             if (isQuantityMode) {
                                                 isQuantityMode = false
                                                 if ((smartFoodAmountInput.toIntOrNull() ?: 100) <= 20) {
-                                                    smartFoodAmountInput = "150"
+                                                    smartFoodAmountInput = "100"
                                                 }
                                             }
                                         }
@@ -2624,11 +2665,11 @@ fun StatsBreakdownTab(
                                     )
                                 ) {
                                     Text(
-                                        text = "⚖️ Grams (100g, 150g)",
-                                        modifier = Modifier.padding(vertical = 9.dp, horizontal = 6.dp),
+                                        text = "⚖️ Grams (g)",
+                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
                                         textAlign = TextAlign.Center,
                                         style = MaterialTheme.typography.labelMedium.copy(
-                                            fontSize = 12.sp,
+                                            fontSize = 13.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
                                         color = if (!isQuantityMode) Color(0xFF0F172A) else TextPrimary
@@ -2638,48 +2679,7 @@ fun StatsBreakdownTab(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // Quick Food Selector Chips (Supports combos like "3 Dosa 4 Idly", pieces, and grams)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                quickQuantityFoods.forEach { (presetName, presetVal, presetIsQty) ->
-                                    val isSelected = smartFoodQuery.equals(presetName, ignoreCase = true)
-                                    val chipLabel = if (presetName.contains(" ") && presetName.first().isDigit()) {
-                                        presetName
-                                    } else if (presetIsQty) {
-                                        "$presetVal $presetName"
-                                    } else {
-                                        "$presetName (${presetVal}g)"
-                                    }
-                                    Surface(
-                                        modifier = Modifier.clickable {
-                                            smartFoodQuery = presetName
-                                            isQuantityMode = presetIsQty
-                                            smartFoodAmountInput = presetVal.toString()
-                                        },
-                                        shape = RoundedCornerShape(50),
-                                        color = if (isSelected) PikaCheekCrimson else PikaCheekCrimson.copy(alpha = 0.12f),
-                                        border = BorderStroke(1.dp, PikaCheekCrimson.copy(alpha = 0.55f))
-                                    ) {
-                                        Text(
-                                            text = chipLabel,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            ),
-                                            color = if (isSelected) Color.White else TextPrimary
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            // Food Name (or combo e.g. "3 dosa 4 idly") & Quantity/Grams Input Row
+                            // Food Name & Quantity/Grams Input Row
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2689,11 +2689,7 @@ fun StatsBreakdownTab(
                                     onValueChange = { smartFoodQuery = it },
                                     label = {
                                         Text(
-                                            text = if (isQuantityMode) {
-                                                "Dish (e.g. Chicken Gravy, 3 Dosa)"
-                                            } else {
-                                                "Dish (e.g. Chicken Gravy, Poha)"
-                                            },
+                                            text = "Enter Food or Dish Name",
                                             fontSize = 11.5.sp,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -2763,111 +2759,121 @@ fun StatsBreakdownTab(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                            if (smartCalc != null) {
+                                Spacer(modifier = Modifier.height(12.dp))
 
-                            // Live Nutritional Breakdown Preview Card (Shows Quantity + Equivalent Grams + Macros)
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9),
-                                border = BorderStroke(1.dp, BorderSubtle)
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = "${smartCalc.foodName} [${smartCalc.servingLabel}] - ${smartCalc.description}",
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.Bold
-                                        ),
-                                        color = TextPrimary
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "Nutritional Breakdown :-",
-                                        style = MaterialTheme.typography.labelLarge.copy(
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        ),
-                                        color = if (isDark) PikaVoltYellow else PikaCheekCrimson
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
+                                // Live Nutritional Breakdown Preview Card (Shows Quantity + Equivalent Grams + Macros)
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9),
+                                    border = BorderStroke(1.dp, BorderSubtle)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
                                         Text(
-                                            text = "• Calories: ${smartCalc.calories} kcal\n• Carbs: ${smartCalc.carbsG}g\n• Fats: ${smartCalc.fatsG}g",
-                                            modifier = Modifier.weight(1f),
-                                            style = MaterialTheme.typography.bodySmall.copy(
-                                                fontSize = 12.5.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                lineHeight = 18.sp
+                                            text = "${smartCalc.foodName} [${smartCalc.servingLabel}] - ${smartCalc.description}",
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Bold
                                             ),
                                             color = TextPrimary
                                         )
+                                        Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            text = "• Protein: ${smartCalc.proteinG}g\n• Fiber: ${smartCalc.fiberG}g\n• Weight: ${smartCalc.grams}g",
-                                            modifier = Modifier.weight(1f),
-                                            style = MaterialTheme.typography.bodySmall.copy(
-                                                fontSize = 12.5.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                lineHeight = 18.sp
+                                            text = "Nutritional Breakdown :-",
+                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.ExtraBold
                                             ),
-                                            color = HunterDoneGreen
+                                            color = if (isDark) PikaVoltYellow else PikaCheekCrimson
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Text(
+                                                text = "• Calories: ${smartCalc.calories} kcal\n• Carbs: ${smartCalc.carbsG}g\n• Fats: ${smartCalc.fatsG}g",
+                                                modifier = Modifier.weight(1f),
+                                                style = MaterialTheme.typography.bodySmall.copy(
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    lineHeight = 18.sp
+                                                ),
+                                                color = TextPrimary
+                                            )
+                                            Text(
+                                                text = "• Protein: ${smartCalc.proteinG}g\n• Fiber: ${smartCalc.fiberG}g\n• Weight: ${smartCalc.grams}g",
+                                                modifier = Modifier.weight(1f),
+                                                style = MaterialTheme.typography.bodySmall.copy(
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    lineHeight = 18.sp
+                                                ),
+                                                color = HunterDoneGreen
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "• Key Nutrients - ${smartCalc.micronutrients}",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                            color = TextSecondary
                                         )
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // 1-Tap Log Converted Food to Daily Meal Button
+                                Button(
+                                    onClick = {
+                                        val label = if (smartCalc.foodName.contains("(${smartCalc.grams}g)")) {
+                                            smartCalc.foodName
+                                        } else {
+                                            "${smartCalc.foodName} (${smartCalc.grams}g)"
+                                        }
+                                        onLogSmartFoodItem(
+                                            label,
+                                            smartCalc.calories,
+                                            smartCalc.proteinG,
+                                            smartCalc.carbsG,
+                                            smartCalc.fatsG,
+                                            smartCalc.fiberG,
+                                            smartCalc.grams
+                                        )
+                                        smartFoodQuery = ""
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = PikaVoltYellow,
+                                        contentColor = Color(0xFF0F172A)
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(50.dp)
+                                        .testTag("smart_convert_and_log_food_button"),
+                                    shape = RoundedCornerShape(14.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Restaurant,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "• Key Nutrients - ${smartCalc.micronutrients}",
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                                        color = TextSecondary
+                                        text = "Log ${smartCalc.foodName} (+${smartCalc.calories} kcal) ⚡",
+                                        maxLines = 1,
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
                                     )
                                 }
-                            }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // 1-Tap Log Converted Food to Daily Meal Button
-                            Button(
-                                onClick = {
-                                    val label = if (smartCalc.foodName.contains("(${smartCalc.grams}g)")) {
-                                        smartCalc.foodName
-                                    } else {
-                                        "${smartCalc.foodName} (${smartCalc.grams}g)"
-                                    }
-                                    onLogSmartFoodItem(
-                                        label,
-                                        smartCalc.calories,
-                                        smartCalc.proteinG,
-                                        smartCalc.carbsG,
-                                        smartCalc.fatsG,
-                                        smartCalc.fiberG,
-                                        smartCalc.grams
-                                    )
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = PikaVoltYellow,
-                                    contentColor = Color(0xFF0F172A)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(50.dp)
-                                    .testTag("smart_convert_and_log_food_button"),
-                                shape = RoundedCornerShape(14.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Restaurant,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
+                            } else {
+                                Spacer(modifier = Modifier.height(10.dp))
                                 Text(
-                                    text = "Log ${smartCalc.foodName} (+${smartCalc.calories} kcal) ⚡",
-                                    maxLines = 1,
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
+                                    text = "Type any dish or food above to calculate its calories, protein, carbs, fats & fiber.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
                                 )
                             }
                         }
@@ -3634,6 +3640,130 @@ fun StatsBreakdownTab(
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                     }
+
+                    // Muscle Group & Specific Exercise Quick-Picker
+                    var selectedMuscleFilter by rememberSaveable { mutableStateOf("Chest") }
+                    val muscleExercisesMap = remember {
+                        mapOf(
+                            "Chest" to listOf(
+                                Triple("Incline Dumbbell Press", "4", "10"),
+                                Triple("Flat Barbell Bench Press", "4", "8"),
+                                Triple("Declined Pushups", "4", "15"),
+                                Triple("Cable Crossover Fly", "3", "15"),
+                                Triple("Weighted Chest Dips", "3", "12")
+                            ),
+                            "Back" to listOf(
+                                Triple("Wide-Grip Lat Pulldown", "4", "12"),
+                                Triple("Pull-Ups / Chin-Ups", "4", "8"),
+                                Triple("Barbell Bent-Over Row", "4", "10"),
+                                Triple("One-Arm Dumbbell Row", "3", "12"),
+                                Triple("Seated Cable / Table Row", "3", "12")
+                            ),
+                            "Shoulders" to listOf(
+                                Triple("Dumbbell Lateral Raise", "4", "15"),
+                                Triple("Overhead Shoulder Press", "4", "10"),
+                                Triple("Face Pulls (Rear Delts)", "4", "15"),
+                                Triple("Reverse Pec Deck Fly", "3", "15"),
+                                Triple("Dumbbell Shrugs", "4", "12")
+                            ),
+                            "Biceps" to listOf(
+                                Triple("Incline Dumbbell Curl", "4", "12"),
+                                Triple("EZ-Bar Bicep Curl", "4", "10"),
+                                Triple("Dumbbell Hammer Curl", "3", "12"),
+                                Triple("Preacher Curl", "3", "12"),
+                                Triple("Concentration Curl", "3", "12")
+                            ),
+                            "Triceps" to listOf(
+                                Triple("Tricep Rope Pushdown", "4", "15"),
+                                Triple("Overhead Tricep Extension", "4", "12"),
+                                Triple("EZ-Bar Skull Crushers", "3", "10"),
+                                Triple("Close-Grip Bench Press", "3", "10"),
+                                Triple("Diamond Pushups", "3", "15")
+                            ),
+                            "Legs" to listOf(
+                                Triple("Barbell Back Squat", "4", "8"),
+                                Triple("Leg Press", "4", "12"),
+                                Triple("Romanian Deadlift (RDL)", "4", "10"),
+                                Triple("Bulgarian Split Squat", "3", "10"),
+                                Triple("Standing Calf Raises", "4", "15")
+                            ),
+                            "Abs" to listOf(
+                                Triple("Hanging Leg Raises", "4", "15"),
+                                Triple("Kneeling Cable Crunch", "4", "15"),
+                                Triple("Plank Hold", "3", "60s"),
+                                Triple("Bicycle Crunches", "3", "20"),
+                                Triple("Ab Wheel Rollout", "3", "12")
+                            )
+                        )
+                    }
+
+                    Text(
+                        text = "SELECT MUSCLE GROUP & TAP AN EXERCISE TO AUTOFILL:",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.5.sp
+                        ),
+                        color = if (isDark) PikaVoltYellow else PikaCheekCrimson
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        muscleExercisesMap.keys.forEach { muscle ->
+                            val isSelected = selectedMuscleFilter == muscle
+                            Surface(
+                                modifier = Modifier.clickable { selectedMuscleFilter = muscle },
+                                shape = RoundedCornerShape(50),
+                                color = if (isSelected) PikaVoltYellow else MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(1.dp, if (isSelected) PikaVoltYellow else BorderSubtle)
+                            ) {
+                                Text(
+                                    text = "💪 $muscle",
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    ),
+                                    color = if (isSelected) Color(0xFF0F172A) else TextPrimary
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        muscleExercisesMap[selectedMuscleFilter].orEmpty().forEach { (presetEx, presetSets, presetReps) ->
+                            val isChosen = exName.equals(presetEx, ignoreCase = true)
+                            Surface(
+                                modifier = Modifier.clickable {
+                                    exName = presetEx
+                                    exSets = presetSets
+                                    exReps = presetReps
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isChosen) PikaCheekCrimson else PikaCheekCrimson.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, PikaCheekCrimson.copy(alpha = 0.55f))
+                            ) {
+                                Text(
+                                    text = "$presetEx ($presetSets×$presetReps)",
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = if (isChosen) Color.White else TextPrimary
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     // Add / Update Exercise Set Inputs
                     OutlinedTextField(

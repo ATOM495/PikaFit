@@ -495,6 +495,43 @@ object StreakDateUtils {
     }
 }
 
+data class DailyDateLog(
+    val date: String = "",
+    val calories: Int = 0,
+    val proteinG: Double = 0.0,
+    val carbsG: Double = 0.0,
+    val fatsG: Double = 0.0,
+    val waterLiters: Double = 0.0,
+    val foodSummary: String = ""
+) {
+    fun toJsonObject(): JSONObject = JSONObject().apply {
+        put("date", date)
+        put("calories", calories)
+        put("protein_g", proteinG)
+        put("carbs_g", carbsG)
+        put("fats_g", fatsG)
+        put("water_liters", waterLiters)
+        put("food_summary", foodSummary)
+    }
+
+    companion object {
+        fun fromJsonObject(obj: JSONObject?): DailyDateLog? {
+            if (obj == null) return null
+            val dateStr = obj.optString("date", "").trim()
+            if (dateStr.isBlank()) return null
+            return DailyDateLog(
+                date = dateStr,
+                calories = obj.optInt("calories", 0).coerceIn(0, 50000),
+                proteinG = obj.optDouble("protein_g", 0.0).coerceIn(0.0, 2000.0),
+                carbsG = obj.optDouble("carbs_g", 0.0).coerceIn(0.0, 5000.0),
+                fatsG = obj.optDouble("fats_g", 0.0).coerceIn(0.0, 2000.0),
+                waterLiters = obj.optDouble("water_liters", 0.0).coerceIn(0.0, 50.0),
+                foodSummary = obj.optString("food_summary", "").take(400)
+            )
+        }
+    }
+}
+
 data class PlayerStatus(
     val level: Int = 1,
     val rank: String = "Beginner",
@@ -510,6 +547,7 @@ data class PlayerStatus(
     val todayExerciseInputs: Int = 0,
     val lastCheckInTrigger: String = "No activity logged today — input food or exercise data to check in",
     val productiveHistoryDates: List<String> = emptyList(),
+    val dailyLogsByDate: Map<String, DailyDateLog> = emptyMap(),
     val activeBuffs: List<String> = listOf("Pikachu (1.6x XP)"),
     val activeDebuffs: List<String> = emptyList()
 ) {
@@ -601,6 +639,9 @@ data class HunterSystemState(
 
         // Helper to reset daily food, water, workout, and quest trackers for a fresh calendar day
         fun resetDailyIntakeStats(): Pair<StatBreakdown, List<QuestItem>> {
+            val calTarget = statBreakdown.vitality.caloriesTarget
+            val waterTarget = statBreakdown.stamina.targetLiters
+            val proTarget = biometrics.recommendedProteinG
             val freshStatBreakdown = statBreakdown.copy(
                 vitality = statBreakdown.vitality.copy(
                     caloriesLogged = 0,
@@ -626,10 +667,53 @@ data class HunterSystemState(
                             questName = "Daily Productive Streak Check-In (Input Food or Exercise)",
                             status = "IN_PROGRESS"
                         )
+                    q.questName.contains("kcal", ignoreCase = true) || q.questName.contains("Calorie", ignoreCase = true) || q.questName.contains("Surplus", ignoreCase = true) ->
+                        q.copy(
+                            questName = "Clear $calTarget kcal Target (0 / $calTarget logged)",
+                            status = "IN_PROGRESS"
+                        )
+                    q.questName.contains("Water", ignoreCase = true) ->
+                        q.copy(
+                            questName = "Drink ${waterTarget}L Water (0.0L / ${waterTarget}L)",
+                            status = "IN_PROGRESS"
+                        )
+                    q.questName.contains("Protein", ignoreCase = true) ->
+                        q.copy(
+                            questName = "Hit ${proTarget}g Protein (${biometrics.goalDisplayLabel})",
+                            status = "IN_PROGRESS"
+                        )
                     else -> q.copy(status = "IN_PROGRESS")
                 }
             }
             return Pair(freshStatBreakdown, freshQuests)
+        }
+
+        // Archive previous day's logged calories/macros into dailyLogsByDate before rolling over
+        fun archivePreviousDayIfPresent(): Map<String, DailyDateLog> {
+            val prevDate = ps.lastDailyResetDate.ifBlank { ps.lastProductiveDate }.ifBlank { yesterdayDate }
+            val vit = statBreakdown.vitality
+            val stam = statBreakdown.stamina
+            if (prevDate.isBlank() || prevDate == todayDate) return ps.dailyLogsByDate
+            if (vit.caloriesLogged <= 0 && stam.waterLiters <= 0.0 && ps.dailyLogsByDate.containsKey(prevDate)) {
+                return ps.dailyLogsByDate
+            }
+            val summaryFromTrigger = ps.lastCheckInTrigger
+                .removePrefix("Checked in via Food Input:")
+                .removePrefix("Checked in via Exercise Input:")
+                .trim()
+            val archivedEntry = DailyDateLog(
+                date = prevDate,
+                calories = vit.caloriesLogged,
+                proteinG = vit.proteinG,
+                carbsG = vit.carbsG,
+                fatsG = vit.fatsG,
+                waterLiters = stam.waterLiters,
+                foodSummary = if (vit.caloriesLogged > 0) summaryFromTrigger else ""
+            )
+            return (ps.dailyLogsByDate + (prevDate to archivedEntry)).entries
+                .sortedBy { it.key }
+                .takeLast(14)
+                .associate { it.key to it.value }
         }
 
         // Case 1: Already verified via food or exercise input earlier today
@@ -692,7 +776,8 @@ data class HunterSystemState(
                 )
             )
         } else if (ps.lastProductiveDate == yesterdayDate) {
-            // Yesterday was productive -> preserve streakDays, reset daily intake stats ONCE for todayDate
+            // Yesterday was productive -> archive yesterday's food log, preserve streakDays, reset daily intake stats ONCE for todayDate
+            val archivedLogs = archivePreviousDayIfPresent()
             val (freshStats, freshQuests) = resetDailyIntakeStats()
             copy(
                 playerStatus = ps.copy(
@@ -700,13 +785,15 @@ data class HunterSystemState(
                     lastDailyResetDate = todayDate,
                     todayFoodInputs = 0,
                     todayExerciseInputs = 0,
+                    dailyLogsByDate = archivedLogs,
                     lastCheckInTrigger = "Unverified today — log any food or exercise data to check in"
                 ),
                 statBreakdown = freshStats,
                 questLog = freshQuests
             )
         } else {
-            // Missed a full calendar day without logging food or exercise -> streak resets to 0 and daily intake resets ONCE for todayDate
+            // Missed a full calendar day without logging food or exercise -> archive previous day, streak resets to 0 and daily intake resets ONCE for todayDate
+            val archivedLogs = archivePreviousDayIfPresent()
             val debuffLabel = "Streak Reset (Missed Productive Day)"
             val updatedDebuffs = if (ps.activeDebuffs.contains(debuffLabel)) {
                 ps.activeDebuffs
@@ -721,6 +808,7 @@ data class HunterSystemState(
                     lastDailyResetDate = todayDate,
                     todayFoodInputs = 0,
                     todayExerciseInputs = 0,
+                    dailyLogsByDate = archivedLogs,
                     lastCheckInTrigger = "Streak reset — input food or exercise data to start Day 1",
                     activeDebuffs = updatedDebuffs
                 ),
@@ -872,6 +960,11 @@ data class HunterSystemState(
         root.put("today_exercise_inputs", playerStatus.todayExerciseInputs)
         root.put("last_check_in_trigger", playerStatus.lastCheckInTrigger)
         root.put("productive_history_dates", JSONArray(playerStatus.productiveHistoryDates))
+        val dailyLogsArr = JSONArray()
+        playerStatus.dailyLogsByDate.values.forEach { dl ->
+            dailyLogsArr.put(dl.toJsonObject())
+        }
+        root.put("daily_logs_by_date", dailyLogsArr)
 
         // Persist core stats inside stateJson as well so local sessions restored from cachedJson retain 100% of water, calories, macros, and XP
         root.put("current_xp", playerStatus.currentXp)
@@ -1052,6 +1145,7 @@ data class HunterSystemState(
                 todayExerciseInputs = existingPlayerStatus.todayExerciseInputs,
                 lastCheckInTrigger = existingPlayerStatus.lastCheckInTrigger,
                 productiveHistoryDates = existingPlayerStatus.productiveHistoryDates,
+                dailyLogsByDate = existingPlayerStatus.dailyLogsByDate,
                 activeBuffs = buffs,
                 activeDebuffs = debuffs
             )
@@ -1266,6 +1360,14 @@ data class HunterSession(
         } else {
             defaultState.playerStatus.productiveHistoryDates
         }
+        val dailyLogsArr = parsedJson.optJSONArray("daily_logs_by_date")
+        val parsedDailyLogs = if (dailyLogsArr != null) {
+            (0 until dailyLogsArr.length()).mapNotNull { idx ->
+                DailyDateLog.fromJsonObject(dailyLogsArr.optJSONObject(idx))
+            }.associateBy { it.date }
+        } else {
+            emptyMap()
+        }
 
         val exArr = parsedJson.optJSONArray("exercises_logged")
         val exercises = if (exArr != null) {
@@ -1387,7 +1489,8 @@ data class HunterSession(
                 todayFoodInputs = todayFoodInputs,
                 todayExerciseInputs = todayExerciseInputs,
                 lastCheckInTrigger = lastCheckInTrigger,
-                productiveHistoryDates = if (cleanStreak == 0 && !checkedInToday) emptyList() else historyDates,
+                productiveHistoryDates = if (cleanStreak == 0 && !checkedInToday && parsedDailyLogs.isEmpty()) emptyList() else historyDates,
+                dailyLogsByDate = parsedDailyLogs,
                 activeBuffs = buffs,
                 activeDebuffs = debuffs
             ),
@@ -1481,11 +1584,13 @@ data class FeedbackEntry(
 
 @IgnoreExtraProperties
 data class AppReleaseInfo(
-    val latestVersionCode: Long = 1L,
-    val latestVersionName: String = "1.0",
-    val releaseTitle: String = "New PikaFit Update",
-    val releaseNotes: String = "Bug fixes, performance improvements, and updated Pokémon progression features.",
+    val latestVersionCode: Long = 2L,
+    val latestVersionName: String = "1.1",
+    val releaseTitle: String = "PikaFit Update",
+    val releaseNotes: String = "South/North Indian & Fast Food databases, PikaBot muscle exercise & workout plans, editable streak food logs, and automatic GitHub release notifications.",
     val downloadUrl: String = "https://github.com/ATOM495/PikaFit/releases",
-    val isMandatory: Boolean = false
+    val isMandatory: Boolean = false,
+    val publishedAt: String = "",
+    val isUpdateAvailable: Boolean = false
 )
 
