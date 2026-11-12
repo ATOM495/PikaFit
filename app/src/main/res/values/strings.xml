@@ -27,8 +27,8 @@
     <string name="inspect_json_cd">Inspect System JSON</string>
     <string name="settings_cd">Open Settings, Edit Profile &amp; Reset Progress</string>
     <string name="feedback_cd">Open Public App Feedback Board</string>
-    <string name="profile_biometrics_title">HUNTER PROFILE &amp; BIOMETRIC CALIBRATION</string>
+    <string name="profile_biometrics_title">TRAINER PROFILE &amp; BIOMETRIC CALIBRATION</string>
     <string name="body_comp_matrix_title">LIVE BODY COMPOSITION TELEMETRY</string>
     <string name="photo_upload_title">DOCUMENT PROGRESS PHOTO</string>
-    <string name="personal_journal_title">PERSONAL HUNTER PROGRESS JOURNAL</string>
+    <string name="personal_journal_title">PERSONAL TRAINER PROGRESS JOURNAL</string>
 </resources>

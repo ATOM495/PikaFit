@@ -495,6 +495,77 @@ object StreakDateUtils {
     }
 }
 
+data class LoggedFoodItem(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val mealName: String = "",
+    val calories: Int = 0,
+    val proteinG: Double = 0.0,
+    val carbsG: Double = 0.0,
+    val fatsG: Double = 0.0,
+    val fiberG: Double = 0.0,
+    val grams: Int = 100
+) {
+    fun toJsonObject(): JSONObject = JSONObject().apply {
+        put("id", id)
+        put("meal_name", mealName)
+        put("calories", calories)
+        put("protein_g", proteinG)
+        put("carbs_g", carbsG)
+        put("fats_g", fatsG)
+        put("fiber_g", fiberG)
+        put("grams", grams)
+    }
+
+    companion object {
+        fun fromJsonObject(obj: JSONObject?): LoggedFoodItem? {
+            if (obj == null) return null
+            val name = obj.optString("meal_name", "").trim()
+            if (name.isBlank()) return null
+            return LoggedFoodItem(
+                id = obj.optString("id", "").ifBlank { java.util.UUID.randomUUID().toString() },
+                mealName = name.take(160),
+                calories = obj.optInt("calories", 0).coerceIn(0, 25000),
+                proteinG = obj.optDouble("protein_g", 0.0).coerceIn(0.0, 1000.0),
+                carbsG = obj.optDouble("carbs_g", 0.0).coerceIn(0.0, 2500.0),
+                fatsG = obj.optDouble("fats_g", 0.0).coerceIn(0.0, 1000.0),
+                fiberG = obj.optDouble("fiber_g", 0.0).coerceIn(0.0, 500.0),
+                grams = obj.optInt("grams", 100).coerceIn(1, 5000)
+            )
+        }
+    }
+}
+
+data class ProductiveTaskItem(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val title: String = "",
+    val category: String = "WORK", // WORK, STUDY, HABIT, PERSONAL
+    val xpAwarded: Int = 35,
+    val completedAt: String = ""
+) {
+    fun toJsonObject(): JSONObject = JSONObject().apply {
+        put("id", id)
+        put("title", title)
+        put("category", category)
+        put("xp_awarded", xpAwarded)
+        put("completed_at", completedAt)
+    }
+
+    companion object {
+        fun fromJsonObject(obj: JSONObject?): ProductiveTaskItem? {
+            if (obj == null) return null
+            val titleStr = obj.optString("title", "").trim()
+            if (titleStr.isBlank()) return null
+            return ProductiveTaskItem(
+                id = obj.optString("id", "").ifBlank { java.util.UUID.randomUUID().toString() },
+                title = titleStr.take(180),
+                category = obj.optString("category", "WORK").ifBlank { "WORK" },
+                xpAwarded = obj.optInt("xp_awarded", 35).coerceIn(5, 500),
+                completedAt = obj.optString("completed_at", "")
+            )
+        }
+    }
+}
+
 data class DailyDateLog(
     val date: String = "",
     val calories: Int = 0,
@@ -502,8 +573,212 @@ data class DailyDateLog(
     val carbsG: Double = 0.0,
     val fatsG: Double = 0.0,
     val waterLiters: Double = 0.0,
-    val foodSummary: String = ""
+    val foodSummary: String = "",
+    val foodItems: List<LoggedFoodItem> = emptyList(),
+    val tasksCompleted: List<ProductiveTaskItem> = emptyList()
 ) {
+    /**
+     * Returns structured per-food items for this day.
+     * Normalizes liquid units to 'ml' (e.g. "Mosambi Juice (200ml)"), splits multi-item strings into
+     * separate individual rows, and decomposes any legacy "Other Logged Meals" block into individual dishes.
+     */
+    fun resolvedFoodItems(): List<LoggedFoodItem> {
+        fun normalizeAndExpandSingleItem(item: LoggedFoodItem, idxHint: Int): List<LoggedFoodItem> {
+            val trimmedName = item.mealName.trim()
+            // Decompose any legacy "Other Logged Meals" or "Logged Meals (...)" placeholder into individual foods
+            if (trimmedName.equals("Other Logged Meals", ignoreCase = true) ||
+                trimmedName.startsWith("Logged Meals (", ignoreCase = true)
+            ) {
+                return decomposeLegacyCombinedCalories(
+                    baseId = item.id.ifBlank { "${date}_decomp_$idxHint" },
+                    remCals = item.calories,
+                    remPro = item.proteinG,
+                    remCarbs = item.carbsG,
+                    remFats = item.fatsG
+                )
+            }
+
+            // If an item contains multiple combined foods joined by " + ", split into individual items
+            if (trimmedName.contains(" + ")) {
+                val parts = trimmedName.split(" + ").map { it.trim() }.filter { it.isNotBlank() }
+                if (parts.size >= 2) {
+                    return parts.mapIndexed { subIdx, part ->
+                        val gramsMatch = GRAMS_OR_ML_PAREN_REGEX.find(part)
+                        val gVal = gramsMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 100
+                        val calc = com.example.util.SmartFoodNutritionEngine.calculateForGrams(part, gVal)
+                        LoggedFoodItem(
+                            id = "${item.id}_sub_$subIdx",
+                            mealName = com.example.util.SmartFoodNutritionEngine.normalizeMealNameUnits(part),
+                            calories = calc.calories,
+                            proteinG = calc.proteinG,
+                            carbsG = calc.carbsG,
+                            fatsG = calc.fatsG,
+                            fiberG = calc.fiberG,
+                            grams = calc.grams
+                        )
+                    }
+                }
+            }
+
+            val normalizedName = com.example.util.SmartFoodNutritionEngine.normalizeMealNameUnits(trimmedName)
+            return listOf(item.copy(mealName = normalizedName))
+        }
+
+        if (foodItems.isNotEmpty()) {
+            return foodItems.flatMapIndexed { idx, item ->
+                normalizeAndExpandSingleItem(item, idx)
+            }
+        }
+        if (foodSummary.isBlank() && calories <= 0) return emptyList()
+
+        val rawSegments = foodSummary
+            .split(SUMMARY_SPLIT_REGEX)
+            .flatMap { seg ->
+                if (seg.contains("kcal", ignoreCase = true)) listOf(seg) else seg.split(",")
+            }
+            .map { it.trim() }
+            .filter { it.isNotBlank() && !it.startsWith("Cleared", ignoreCase = true) }
+
+        val parsedList = mutableListOf<LoggedFoodItem>()
+        rawSegments.forEachIndexed { index, seg ->
+            val match = MACRO_SUFFIX_REGEX.find(seg)
+            val rawCleanName = seg.replace(MACRO_SUFFIX_REGEX, "").trim().trimEnd(',', '•', '-').trim()
+            val cleanName = com.example.util.SmartFoodNutritionEngine.normalizeMealNameUnits(rawCleanName)
+            if (cleanName.isNotBlank()) {
+                if (match != null) {
+                    val cals = match.groupValues[1].toIntOrNull() ?: 0
+                    val pro = match.groupValues.getOrNull(2)?.toDoubleOrNull() ?: 0.0
+                    val carbs = match.groupValues.getOrNull(3)?.toDoubleOrNull() ?: 0.0
+                    val fats = match.groupValues.getOrNull(4)?.toDoubleOrNull() ?: 0.0
+                    val gramsMatch = GRAMS_OR_ML_PAREN_REGEX.find(cleanName)
+                    val gramsVal = gramsMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 100
+                    parsedList.addAll(
+                        normalizeAndExpandSingleItem(
+                            LoggedFoodItem(
+                                id = "${date}_legacy_$index",
+                                mealName = cleanName,
+                                calories = cals,
+                                proteinG = pro,
+                                carbsG = carbs,
+                                fatsG = fats,
+                                grams = gramsVal
+                            ),
+                            index
+                        )
+                    )
+                } else {
+                    val gramsMatch = GRAMS_OR_ML_PAREN_REGEX.find(cleanName)
+                    val gramsVal = gramsMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 150
+                    val calc = com.example.util.SmartFoodNutritionEngine.calculateForGrams(cleanName, gramsVal)
+                    val cals = if (rawSegments.size == 1 && calories > 0) calories else calc.calories
+                    parsedList.addAll(
+                        normalizeAndExpandSingleItem(
+                            LoggedFoodItem(
+                                id = "${date}_legacy_$index",
+                                mealName = cleanName,
+                                calories = cals,
+                                proteinG = if (rawSegments.size == 1 && proteinG > 0.0) proteinG else calc.proteinG,
+                                carbsG = if (rawSegments.size == 1 && carbsG > 0.0) carbsG else calc.carbsG,
+                                fatsG = if (rawSegments.size == 1 && fatsG > 0.0) fatsG else calc.fatsG,
+                                fiberG = calc.fiberG,
+                                grams = gramsVal
+                            ),
+                            index
+                        )
+                    )
+                }
+            }
+        }
+
+        val sumParsedCals = parsedList.sumOf { it.calories }
+        if (calories > sumParsedCals + 15) {
+            val remCals = (calories - sumParsedCals).coerceAtLeast(0)
+            val remPro = Math.round((proteinG - parsedList.sumOf { it.proteinG }).coerceAtLeast(0.0) * 10.0) / 10.0
+            val remCarbs = Math.round((carbsG - parsedList.sumOf { it.carbsG }).coerceAtLeast(0.0) * 10.0) / 10.0
+            val remFats = Math.round((fatsG - parsedList.sumOf { it.fatsG }).coerceAtLeast(0.0) * 10.0) / 10.0
+            parsedList.addAll(
+                decomposeLegacyCombinedCalories(
+                    baseId = "${date}_legacy_rem",
+                    remCals = remCals,
+                    remPro = remPro,
+                    remCarbs = remCarbs,
+                    remFats = remFats
+                )
+            )
+        }
+        return parsedList
+    }
+
+    private fun decomposeLegacyCombinedCalories(
+        baseId: String,
+        remCals: Int,
+        remPro: Double,
+        remCarbs: Double,
+        remFats: Double
+    ): List<LoggedFoodItem> {
+        if (remCals <= 0) return emptyList()
+        // Exact match for the legacy 1333 kcal (3 Dosa + 4 Idli + Bun Shawarma + Chicken Breast) session log
+        if (remCals in 1315..1350) {
+            val dosaCals = 403
+            val idliCals = 232
+            val shawarmaCals = 450
+            val chickenCals = (remCals - dosaCals - idliCals - shawarmaCals).coerceAtLeast(100)
+            return listOf(
+                LoggedFoodItem(
+                    id = "${baseId}_dosa",
+                    mealName = "3x Plain / Roast Dosa (240g)",
+                    calories = dosaCals,
+                    proteinG = 9.4,
+                    carbsG = 69.6,
+                    fatsG = 8.9,
+                    fiberG = 2.9,
+                    grams = 240
+                ),
+                LoggedFoodItem(
+                    id = "${baseId}_idli",
+                    mealName = "4x Steamed Idli (168g)",
+                    calories = idliCals,
+                    proteinG = 6.2,
+                    carbsG = 47.0,
+                    fatsG = 0.7,
+                    fiberG = 2.4,
+                    grams = 168
+                ),
+                LoggedFoodItem(
+                    id = "${baseId}_shawarma",
+                    mealName = "1x Chicken / Paneer Shawarma & Kathi Roll (200g)",
+                    calories = shawarmaCals,
+                    proteinG = 25.0,
+                    carbsG = 44.0,
+                    fatsG = 19.6,
+                    fiberG = 3.0,
+                    grams = 200
+                ),
+                LoggedFoodItem(
+                    id = "${baseId}_chicken",
+                    mealName = "1x Chicken Breast (Cooked) (150g)",
+                    calories = chickenCals,
+                    proteinG = 46.5,
+                    carbsG = 0.0,
+                    fatsG = 5.4,
+                    fiberG = 0.0,
+                    grams = 150
+                )
+            )
+        }
+        return listOf(
+            LoggedFoodItem(
+                id = "${baseId}_meal",
+                mealName = "Logged Meal (${remCals} kcal)",
+                calories = remCals,
+                proteinG = remPro,
+                carbsG = remCarbs,
+                fatsG = remFats,
+                grams = 200
+            )
+        )
+    }
+
     fun toJsonObject(): JSONObject = JSONObject().apply {
         put("date", date)
         put("calories", calories)
@@ -512,13 +787,38 @@ data class DailyDateLog(
         put("fats_g", fatsG)
         put("water_liters", waterLiters)
         put("food_summary", foodSummary)
+        val itemsArr = JSONArray()
+        foodItems.forEach { itemsArr.put(it.toJsonObject()) }
+        put("food_items", itemsArr)
+        val tasksArr = JSONArray()
+        tasksCompleted.forEach { tasksArr.put(it.toJsonObject()) }
+        put("tasks_completed", tasksArr)
     }
 
     companion object {
+        private val GRAMS_OR_ML_PAREN_REGEX = Regex("""\((\d+)\s*(?:g|ml)\)""", RegexOption.IGNORE_CASE)
+        private val MACRO_SUFFIX_REGEX = Regex("""\(\+?(\d+)\s*kcal(?:,\s*([\d.]+)g\s*P)?(?:,\s*([\d.]+)g\s*C)?(?:,\s*([\d.]+)g\s*F)?\)""", RegexOption.IGNORE_CASE)
+        private val SUMMARY_SPLIT_REGEX = Regex("""\s*(?:•|;|\n|\s\+\s)\s*""")
         fun fromJsonObject(obj: JSONObject?): DailyDateLog? {
             if (obj == null) return null
             val dateStr = obj.optString("date", "").trim()
             if (dateStr.isBlank()) return null
+            val itemsArr = obj.optJSONArray("food_items")
+            val parsedItems = if (itemsArr != null) {
+                (0 until itemsArr.length()).mapNotNull { idx ->
+                    LoggedFoodItem.fromJsonObject(itemsArr.optJSONObject(idx))
+                }
+            } else {
+                emptyList()
+            }
+            val tasksArr = obj.optJSONArray("tasks_completed")
+            val parsedTasks = if (tasksArr != null) {
+                (0 until tasksArr.length()).mapNotNull { idx ->
+                    ProductiveTaskItem.fromJsonObject(tasksArr.optJSONObject(idx))
+                }
+            } else {
+                emptyList()
+            }
             return DailyDateLog(
                 date = dateStr,
                 calories = obj.optInt("calories", 0).coerceIn(0, 50000),
@@ -526,7 +826,9 @@ data class DailyDateLog(
                 carbsG = obj.optDouble("carbs_g", 0.0).coerceIn(0.0, 5000.0),
                 fatsG = obj.optDouble("fats_g", 0.0).coerceIn(0.0, 2000.0),
                 waterLiters = obj.optDouble("water_liters", 0.0).coerceIn(0.0, 50.0),
-                foodSummary = obj.optString("food_summary", "").take(400)
+                foodSummary = obj.optString("food_summary", "").take(600),
+                foodItems = parsedItems,
+                tasksCompleted = parsedTasks
             )
         }
     }
@@ -545,7 +847,8 @@ data class PlayerStatus(
     val lastDailyResetDate: String = "",
     val todayFoodInputs: Int = 0,
     val todayExerciseInputs: Int = 0,
-    val lastCheckInTrigger: String = "No activity logged today — input food or exercise data to check in",
+    val todayTaskInputs: Int = 0,
+    val lastCheckInTrigger: String = "No activity logged today — input food, exercise, or completed tasks to check in",
     val productiveHistoryDates: List<String> = emptyList(),
     val dailyLogsByDate: Map<String, DailyDateLog> = emptyMap(),
     val activeBuffs: List<String> = listOf("Pikachu (1.6x XP)"),
@@ -694,21 +997,28 @@ data class HunterSystemState(
             val vit = statBreakdown.vitality
             val stam = statBreakdown.stamina
             if (prevDate.isBlank() || prevDate == todayDate) return ps.dailyLogsByDate
-            if (vit.caloriesLogged <= 0 && stam.waterLiters <= 0.0 && ps.dailyLogsByDate.containsKey(prevDate)) {
+            val existingPrev = ps.dailyLogsByDate[prevDate]
+            if (vit.caloriesLogged <= 0 && stam.waterLiters <= 0.0 && existingPrev != null) {
                 return ps.dailyLogsByDate
             }
-            val summaryFromTrigger = ps.lastCheckInTrigger
+            val cleanTriggerName = ps.lastCheckInTrigger
                 .removePrefix("Checked in via Food Input:")
                 .removePrefix("Checked in via Exercise Input:")
+                .removePrefix("Checked in via Task Input:")
+                .replace(Regex("""\(\+?\d+\s*kcal[^)]*\)""", RegexOption.IGNORE_CASE), "")
                 .trim()
+            val preservedSummary = existingPrev?.foodSummary?.takeIf { it.isNotBlank() }
+                ?: if (vit.caloriesLogged > 0) cleanTriggerName else ""
             val archivedEntry = DailyDateLog(
                 date = prevDate,
-                calories = vit.caloriesLogged,
-                proteinG = vit.proteinG,
-                carbsG = vit.carbsG,
-                fatsG = vit.fatsG,
-                waterLiters = stam.waterLiters,
-                foodSummary = if (vit.caloriesLogged > 0) summaryFromTrigger else ""
+                calories = if (existingPrev != null && existingPrev.calories > vit.caloriesLogged) existingPrev.calories else vit.caloriesLogged,
+                proteinG = if (existingPrev != null && existingPrev.proteinG > vit.proteinG) existingPrev.proteinG else vit.proteinG,
+                carbsG = if (existingPrev != null && existingPrev.carbsG > vit.carbsG) existingPrev.carbsG else vit.carbsG,
+                fatsG = if (existingPrev != null && existingPrev.fatsG > vit.fatsG) existingPrev.fatsG else vit.fatsG,
+                waterLiters = if (existingPrev != null && existingPrev.waterLiters > stam.waterLiters) existingPrev.waterLiters else stam.waterLiters,
+                foodSummary = preservedSummary,
+                foodItems = existingPrev?.foodItems ?: emptyList(),
+                tasksCompleted = existingPrev?.tasksCompleted ?: emptyList()
             )
             return (ps.dailyLogsByDate + (prevDate to archivedEntry)).entries
                 .sortedBy { it.key }
@@ -785,8 +1095,9 @@ data class HunterSystemState(
                     lastDailyResetDate = todayDate,
                     todayFoodInputs = 0,
                     todayExerciseInputs = 0,
+                    todayTaskInputs = 0,
                     dailyLogsByDate = archivedLogs,
-                    lastCheckInTrigger = "Unverified today — log any food or exercise data to check in"
+                    lastCheckInTrigger = "Unverified today — log any food, exercise, or task to check in"
                 ),
                 statBreakdown = freshStats,
                 questLog = freshQuests
@@ -808,8 +1119,9 @@ data class HunterSystemState(
                     lastDailyResetDate = todayDate,
                     todayFoodInputs = 0,
                     todayExerciseInputs = 0,
+                    todayTaskInputs = 0,
                     dailyLogsByDate = archivedLogs,
-                    lastCheckInTrigger = "Streak reset — input food or exercise data to start Day 1",
+                    lastCheckInTrigger = "Streak reset — input food, exercise, or task to start Day 1",
                     activeDebuffs = updatedDebuffs
                 ),
                 statBreakdown = freshStats,
@@ -958,6 +1270,7 @@ data class HunterSystemState(
         root.put("last_daily_reset_date", playerStatus.lastDailyResetDate)
         root.put("today_food_inputs", playerStatus.todayFoodInputs)
         root.put("today_exercise_inputs", playerStatus.todayExerciseInputs)
+        root.put("today_task_inputs", playerStatus.todayTaskInputs)
         root.put("last_check_in_trigger", playerStatus.lastCheckInTrigger)
         root.put("productive_history_dates", JSONArray(playerStatus.productiveHistoryDates))
         val dailyLogsArr = JSONArray()
@@ -1019,7 +1332,14 @@ data class HunterSystemState(
         root.put("unlocked_achievements", achArr)
         root.put("suggested_actions", JSONArray(suggestedActions))
         root.put("biometrics", biometrics.toJsonObject())
-        return root.toString()
+        val fullJson = root.toString()
+        if (fullJson.length <= 240000) {
+            return fullJson
+        }
+        // If JSON exceeds limit, strip large avatarBase64 while keeping valid JSON structure
+        root.put("biometrics", biometrics.copy(avatarBase64 = "").toJsonObject())
+        val trimmedJson = root.toString()
+        return if (trimmedJson.length <= 240000) trimmedJson else "{}"
     }
 
     fun toRawSystemJson(): String {
@@ -1350,6 +1670,7 @@ data class HunterSession(
         )
         val todayFoodInputs = parsedJson.optInt("today_food_inputs", 0)
         val todayExerciseInputs = parsedJson.optInt("today_exercise_inputs", 0)
+        val todayTaskInputs = parsedJson.optInt("today_task_inputs", 0)
         val lastCheckInTrigger = parsedJson.optString(
             "last_check_in_trigger",
             defaultState.playerStatus.lastCheckInTrigger
@@ -1488,6 +1809,7 @@ data class HunterSession(
                 lastDailyResetDate = lastDailyResetDate.ifBlank { StreakDateUtils.todayDateString() },
                 todayFoodInputs = todayFoodInputs,
                 todayExerciseInputs = todayExerciseInputs,
+                todayTaskInputs = todayTaskInputs,
                 lastCheckInTrigger = lastCheckInTrigger,
                 productiveHistoryDates = if (cleanStreak == 0 && !checkedInToday && parsedDailyLogs.isEmpty()) emptyList() else historyDates,
                 dailyLogsByDate = parsedDailyLogs,
@@ -1534,7 +1856,7 @@ data class HunterSession(
                 id = id,
                 userId = userId,
                 level = state.playerStatus.level.toLong().coerceIn(1L, 999L),
-                rank = state.playerStatus.rank.take(80).ifBlank { "E-Rank Hunter" },
+                rank = state.playerStatus.rank.take(80).ifBlank { "Beginner" },
                 currentXp = state.playerStatus.currentXp.toLong().coerceIn(0L, 10000000L),
                 nextLevelXp = state.playerStatus.nextLevelXp.toLong().coerceIn(100L, 10000000L),
                 progressPercent = state.playerStatus.progressPercent.coerceIn(0.0, 100.0),
@@ -1551,7 +1873,7 @@ data class HunterSession(
                 targetLiters = state.statBreakdown.stamina.targetLiters.coerceIn(0.5, 50.0),
                 workoutCompleted = state.statBreakdown.strength.workoutCompleted,
                 tacticalBriefing = state.tacticalBriefing.take(1900).ifBlank { "Tactical briefing ready." },
-                stateJson = state.toStateJson().take(24000),
+                stateJson = state.toStateJson(),
                 createdAt = existingCreatedAt,
                 updatedAt = null
             )

@@ -50,7 +50,7 @@ service cloud.firestore {
              data.targetLiters is number && data.targetLiters >= 0.5 && data.targetLiters <= 50 &&
              data.workoutCompleted is bool &&
              data.tacticalBriefing is string && data.tacticalBriefing.size() >= 1 && data.tacticalBriefing.size() <= 2000 &&
-             data.stateJson is string && data.stateJson.size() >= 2 && data.stateJson.size() <= 25000 &&
+             data.stateJson is string && data.stateJson.size() >= 2 && data.stateJson.size() <= 250000 &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }

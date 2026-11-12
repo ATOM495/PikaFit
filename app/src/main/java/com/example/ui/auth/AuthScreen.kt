@@ -125,11 +125,11 @@ fun parseAuthError(exception: Exception?): String {
                 "ERROR_INVALID_EMAIL" -> "Invalid email format. Verify domain syntax."
                 "ERROR_WRONG_PASSWORD" -> "Authentication failure: Incorrect passcode."
                 "ERROR_USER_NOT_FOUND" -> "Trainer profile not registered. Initialize account below."
-                "ERROR_USER_DISABLED" -> "Hunter account suspended. Contact terminal admin."
+                "ERROR_USER_DISABLED" -> "Trainer account suspended. Contact terminal admin."
                 "ERROR_TOO_MANY_REQUESTS" -> "Rate limit engaged. Wait 60s before retry."
                 "ERROR_OPERATION_NOT_ALLOWED" -> "Selected authentication protocol is disabled."
                 "ERROR_WEAK_PASSWORD" -> "Security key insufficient: Minimum 6 alphanumeric units required."
-                "ERROR_EMAIL_ALREADY_IN_USE" -> "Email registered under an active Hunter ledger."
+                "ERROR_EMAIL_ALREADY_IN_USE" -> "Email registered under an active Trainer ledger."
                 else -> exception.localizedMessage ?: "Terminal connection exception."
             }
         }
@@ -401,7 +401,7 @@ fun AuthScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Enter your Google Account email ID to sign in or sync your Hunter profile.",
+                        text = "Enter your Google Account email ID to sign in or sync your Trainer profile.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -430,7 +430,7 @@ fun AuthScreen(
                         value = googleDialogName,
                         onValueChange = { googleDialogName = it },
                         label = { Text("Display Name (Optional)") },
-                        placeholder = { Text("Hunter Call-Sign") },
+                        placeholder = { Text("Trainer Call-Sign") },
                         leadingIcon = {
                             Icon(Icons.Filled.Person, contentDescription = null, tint = LocalPikaAmber)
                         },
@@ -545,7 +545,7 @@ fun AuthScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Enter your verified Hunter address to receive a security reset link.",
+                        text = "Enter your verified Trainer address to receive a security reset link.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -602,7 +602,7 @@ fun AuthScreen(
             onDismissRequest = { showTermsDialog = false },
             containerColor = MaterialTheme.colorScheme.surface,
             title = {
-                Text("HUNTER PROTOCOL TERMS", color = LocalPikaYellow, fontWeight = FontWeight.Bold)
+                Text("TRAINER PROTOCOL TERMS", color = LocalPikaYellow, fontWeight = FontWeight.Bold)
             },
             text = {
                 Column(
@@ -886,7 +886,7 @@ fun AuthScreen(
                     OutlinedTextField(
                         value = email,
                         onValueChange = { email = it },
-                        label = { Text("Hunter Email / Username") },
+                        label = { Text("Trainer Email / Username") },
                         placeholder = { Text("Enter trainer username or email") },
                         leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null, tint = LocalPikaAmber) },
                         singleLine = true,
@@ -1051,7 +1051,7 @@ fun AuthScreen(
                     OutlinedTextField(
                         value = hunterName,
                         onValueChange = { hunterName = it },
-                        label = { Text("Hunter Codename / Call-Sign") },
+                        label = { Text("Trainer Codename / Call-Sign") },
                         leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null, tint = LocalPikaAmber) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -1221,7 +1221,7 @@ fun AuthScreen(
                         Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = LocalHunterGreen, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Accept Hunter Safety & Progressive Overload Terms",
+                            text = "Accept Trainer Safety & Progressive Overload Terms",
                             style = MaterialTheme.typography.labelSmall,
                             color = LocalPikaAmber
                         )

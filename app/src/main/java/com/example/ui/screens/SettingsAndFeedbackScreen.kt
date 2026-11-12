@@ -281,7 +281,7 @@ fun SettingsAndFeedbackScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Are you sure you want to reset your Hunter progression and clear all cached daily logs?",
+                        text = "Are you sure you want to reset your Trainer progression and clear all cached daily logs?",
                         style = MaterialTheme.typography.bodyLarge,
                         color = TextPrimary
                     )
@@ -451,7 +451,7 @@ fun SettingsAndFeedbackScreen(
                                 if (avatarBitmap != null) {
                                     Image(
                                         bitmap = avatarBitmap.asImageBitmap(),
-                                        contentDescription = "Hunter Avatar",
+                                        contentDescription = "Trainer Avatar",
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
                                     )
@@ -610,7 +610,7 @@ fun SettingsAndFeedbackScreen(
                         icon = Icons.Filled.Info,
                         iconTint = HunterCyan,
                         title = "About Us",
-                        subtitle = "PikaFit Hunter System • Pokémon Class Edition",
+                        subtitle = "PikaFit Trainer System • Pokémon Class Edition",
                         testTag = "settings_nav_about",
                         onClick = { activePage = 8 }
                     )
@@ -641,7 +641,7 @@ fun SettingsAndFeedbackScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "EDIT HUNTER PROFILE & TARGET GOALS",
+                                text = "EDIT TRAINER PROFILE & TARGET GOALS",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = HunterGold
                             )
@@ -681,7 +681,7 @@ fun SettingsAndFeedbackScreen(
                             if (avatarBitmap != null) {
                                 Image(
                                     bitmap = avatarBitmap.asImageBitmap(),
-                                    contentDescription = "Hunter Avatar",
+                                    contentDescription = "Trainer Avatar",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
@@ -742,7 +742,7 @@ fun SettingsAndFeedbackScreen(
                         OutlinedTextField(
                             value = nameInput,
                             onValueChange = { nameInput = it },
-                            label = { Text("Hunter Codename") },
+                            label = { Text("Trainer Codename") },
                             placeholder = { Text(bio.hunterName) },
                             singleLine = true,
                             modifier = Modifier
@@ -1349,7 +1349,7 @@ fun SettingsAndFeedbackScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "APP DATA & RESET HUNTER PROGRESS",
+                                text = "APP DATA & RESET TRAINER PROGRESS",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = HunterCrimson
                             )
@@ -1606,7 +1606,7 @@ fun SettingsAndFeedbackScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "ABOUT PIKAFIT HUNTER SYSTEM",
+                        text = "ABOUT PIKAFIT TRAINER SYSTEM",
                         style = MaterialTheme.typography.titleMedium,
                         color = HunterCyan
                     )

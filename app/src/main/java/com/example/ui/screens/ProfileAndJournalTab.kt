@@ -48,9 +48,11 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.AddTask
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -68,6 +70,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -97,6 +100,8 @@ import com.example.data.model.HunterBiometrics
 import com.example.data.model.HunterSystemState
 import com.example.data.model.JournalEntry
 import com.example.data.model.PlayerStatus
+import com.example.data.model.ProductiveTaskItem
+import com.example.data.model.StreakDateUtils
 import com.example.data.model.TrainerRankProgression
 import com.example.data.model.TrainerRankTier
 import com.example.ui.theme.BorderSubtle
@@ -154,7 +159,10 @@ fun ProfileAndJournalTab(
         setAsAvatar: Boolean
     ) -> Unit,
     onDeleteJournalEntry: (String) -> Unit,
-    onOpenAchievementsInSettings: () -> Unit = {}
+    onOpenAchievementsInSettings: () -> Unit = {},
+    onLogProductiveTask: (title: String, category: String, dateStr: String) -> Unit = { _, _, _ -> },
+    onEditProductiveTask: (dateStr: String, taskId: String, newTitle: String, newCategory: String) -> Unit = { _, _, _, _ -> },
+    onRemoveProductiveTask: (dateStr: String, taskId: String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -171,7 +179,7 @@ fun ProfileAndJournalTab(
     var targetWeightInput by rememberSaveable { mutableStateOf("") }
     var targetPhysiqueInput by rememberSaveable(savedBio.targetPhysique) { mutableStateOf(savedBio.targetPhysique) }
     var sexInput by rememberSaveable(savedBio.biologicalSex) { mutableStateOf(savedBio.biologicalSex) }
-    var avatarBase64 by rememberSaveable(savedBio.avatarBase64) { mutableStateOf(savedBio.avatarBase64) }
+    var avatarBase64 by remember(savedBio.avatarBase64) { mutableStateOf(savedBio.avatarBase64) }
 
     // Live preview calculation based on current text fields (falls back to savedBio when input is blank)
     val liveBio = remember(
@@ -206,7 +214,7 @@ fun ProfileAndJournalTab(
     var photoTitle by rememberSaveable { mutableStateOf("") }
     var photoCaption by rememberSaveable { mutableStateOf("") }
     var selectedPoseTag by rememberSaveable { mutableStateOf("Front Double Bicep") }
-    var stagedPhotoBase64 by rememberSaveable { mutableStateOf("") }
+    var stagedPhotoBase64 by remember { mutableStateOf("") }
     var setAsProfileAvatar by rememberSaveable { mutableStateOf(false) }
 
     // Zero-permission Android Photo Picker for Avatar
@@ -348,7 +356,7 @@ fun ProfileAndJournalTab(
                         if (decodedAvatar != null) {
                             Image(
                                 bitmap = decodedAvatar.asImageBitmap(),
-                                contentDescription = "Hunter Avatar",
+                                contentDescription = "Trainer Avatar",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -368,7 +376,7 @@ fun ProfileAndJournalTab(
                         OutlinedTextField(
                             value = hunterName,
                             onValueChange = { hunterName = it },
-                            label = { Text("Hunter Codename", fontSize = 11.sp, maxLines = 1) },
+                            label = { Text("Trainer Codename", fontSize = 11.sp, maxLines = 1) },
                             placeholder = { Text(savedBio.hunterName, fontSize = 12.sp) },
                             singleLine = true,
                             modifier = Modifier
@@ -633,6 +641,16 @@ fun ProfileAndJournalTab(
             }
         }
 
+        // 1B. Daily Productivity & Tasks Done Today Logger (Shifted to Journal Page)
+        item {
+            JournalDailyProductivityTasksCard(
+                state = state,
+                onLogProductiveTask = onLogProductiveTask,
+                onEditProductiveTask = onEditProductiveTask,
+                onRemoveProductiveTask = onRemoveProductiveTask
+            )
+        }
+
         // 2. Compact Live Body Composition Telemetry Matrix
         item {
             BodyCompositionTelemetryCard(bio = liveBio)
@@ -741,7 +759,7 @@ fun ProfileAndJournalTab(
                     onClick = {
                         stagedPhotoBase64 = generateTacticalPhysiqueCardBase64(liveBio, selectedPoseTag)
                         if (photoTitle.isBlank()) {
-                            photoTitle = "Hunter Physique Check-In (${liveBio.weightKg} kg)"
+                            photoTitle = "Trainer Physique Check-In (${liveBio.weightKg} kg)"
                         }
                     },
                     shape = RoundedCornerShape(10.dp),
@@ -876,7 +894,7 @@ fun ProfileAndJournalTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Also set photo as Hunter Profile Avatar",
+                        text = "Also set photo as Trainer Profile Avatar",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
@@ -1000,7 +1018,7 @@ fun ProfileAndJournalTab(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Your Personal Hunter Journal is ready.",
+                                text = "Your Personal Trainer Journal is ready.",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = TextPrimary
                             )
@@ -1894,7 +1912,7 @@ private fun generateTacticalPhysiqueCardBase64(bio: HunterBiometrics, poseTag: S
             textSize = 22f
             isFakeBoldText = true
         }
-        canvas.drawText("HUNTER BIOMETRIC SCAN // ${poseTag.uppercase()}", 28f, 48f, titlePaint)
+        canvas.drawText("TRAINER BIOMETRIC SCAN // ${poseTag.uppercase()}", 28f, 48f, titlePaint)
 
         val namePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = android.graphics.Color.WHITE
@@ -1930,3 +1948,346 @@ private fun generateTacticalPhysiqueCardBase64(bio: HunterBiometrics, poseTag: S
         ""
     }
 }
+
+@Composable
+internal fun JournalDailyProductivityTasksCard(
+    state: HunterSystemState,
+    onLogProductiveTask: (title: String, category: String, dateStr: String) -> Unit,
+    onEditProductiveTask: (dateStr: String, taskId: String, newTitle: String, newCategory: String) -> Unit,
+    onRemoveProductiveTask: (dateStr: String, taskId: String) -> Unit
+) {
+    val todayDateStr = remember { StreakDateUtils.todayDateString() }
+    var taskTitleInput by rememberSaveable { mutableStateOf("") }
+    var selectedCategory by rememberSaveable { mutableStateOf("WORK") }
+    var editingTaskId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingTaskTitle by rememberSaveable { mutableStateOf("") }
+    var editingTaskCategory by rememberSaveable { mutableStateOf("WORK") }
+
+    val activeDayLog = state.playerStatus.dailyLogsByDate[todayDateStr]
+    val tasksForDay: List<ProductiveTaskItem> = activeDayLog?.tasksCompleted ?: emptyList()
+
+    val categories = listOf(
+        "WORK" to "💼 Work",
+        "STUDY" to "📚 Study",
+        "HABIT" to "⚡ Productive",
+        "PERSONAL" to "🏡 Personal"
+    )
+    val quickPresets = listOf(
+        "Been productive & focused today" to "HABIT",
+        "Completed daily work targets" to "WORK",
+        "Finished study / coding session" to "STUDY",
+        "Meal prep & clean room done" to "PERSONAL"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(ObsidianCard)
+            .border(1.2.dp, HunterEmerald.copy(alpha = 0.65f), RoundedCornerShape(18.dp))
+            .padding(14.dp)
+            .testTag("daily_productivity_tasks_card")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(HunterEmerald.copy(alpha = 0.16f))
+                        .border(1.dp, HunterEmerald, RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.TaskAlt,
+                        contentDescription = null,
+                        tint = HunterEmerald,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "DAILY PRODUCTIVITY & TASKS LOG",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = HunterEmerald,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "Log productive work, study & habits done today (+35 XP)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = HunterEmerald.copy(alpha = 0.16f),
+                border = BorderStroke(1.dp, HunterEmerald)
+            ) {
+                Text(
+                    text = "${tasksForDay.size} Done",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = HunterEmerald
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Category chips
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            categories.forEach { (catKey, catLabel) ->
+                val selected = selectedCategory == catKey
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable { selectedCategory = catKey },
+                    shape = RoundedCornerShape(50),
+                    color = if (selected) HunterGold.copy(alpha = 0.22f) else ObsidianBg,
+                    border = BorderStroke(1.dp, if (selected) HunterGold else BorderSubtle)
+                ) {
+                    Text(
+                        text = catLabel,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (selected) HunterGold else TextSecondary
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Input field + Log button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = taskTitleInput,
+                onValueChange = { taskTitleInput = it },
+                placeholder = {
+                    Text(
+                        text = "What tasks did you complete today? (e.g. Been productive, finished work)",
+                        fontSize = 11.5.sp
+                    )
+                },
+                singleLine = true,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("productive_task_input"),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = HunterEmerald,
+                    unfocusedBorderColor = BorderSubtle,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary
+                )
+            )
+
+            Button(
+                onClick = {
+                    val trimmed = taskTitleInput.trim()
+                    if (trimmed.isNotEmpty()) {
+                        onLogProductiveTask(trimmed, selectedCategory, todayDateStr)
+                        taskTitleInput = ""
+                    }
+                },
+                enabled = taskTitleInput.isNotBlank(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = HunterEmerald,
+                    contentColor = ObsidianBg
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
+                modifier = Modifier.testTag("productive_task_add_button")
+            ) {
+                Icon(Icons.Filled.AddTask, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Log",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 1-Tap Quick Presets
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            quickPresets.forEach { (presetText, presetCat) ->
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable {
+                            onLogProductiveTask(presetText, presetCat, todayDateStr)
+                        },
+                    shape = RoundedCornerShape(50),
+                    color = HunterEmerald.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, HunterEmerald.copy(alpha = 0.45f))
+                ) {
+                    Text(
+                        text = "+ $presetText",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = HunterEmerald
+                    )
+                }
+            }
+        }
+
+        if (tasksForDay.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                tasksForDay.forEach { task ->
+                    val isEditingThis = editingTaskId == task.id
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = ObsidianBg,
+                        border = BorderStroke(1.dp, if (isEditingThis) HunterGold else HunterEmerald.copy(alpha = 0.45f))
+                    ) {
+                        if (isEditingThis) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                OutlinedTextField(
+                                    value = editingTaskTitle,
+                                    onValueChange = { editingTaskTitle = it },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Edit Task") },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = HunterGold,
+                                        unfocusedBorderColor = BorderSubtle,
+                                        focusedTextColor = TextPrimary,
+                                        unfocusedTextColor = TextPrimary
+                                    )
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(onClick = { editingTaskId = null }) {
+                                        Text("Cancel", color = TextSecondary)
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Button(
+                                        onClick = {
+                                            if (editingTaskTitle.isNotBlank()) {
+                                                onEditProductiveTask(
+                                                    todayDateStr,
+                                                    task.id,
+                                                    editingTaskTitle.trim(),
+                                                    editingTaskCategory
+                                                )
+                                                editingTaskId = null
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = HunterEmerald,
+                                            contentColor = ObsidianBg
+                                        )
+                                    ) {
+                                        Text("Save", fontWeight = FontWeight.ExtraBold)
+                                    }
+                                }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.CheckCircle,
+                                        contentDescription = null,
+                                        tint = HunterEmerald,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = task.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimary
+                                        )
+                                        Text(
+                                            text = "${task.category} • +${task.xpAwarded} XP${if (task.completedAt.isNotBlank()) " • ${task.completedAt}" else ""}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = HunterEmerald
+                                        )
+                                    }
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            editingTaskId = task.id
+                                            editingTaskTitle = task.title
+                                            editingTaskCategory = task.category
+                                        },
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Edit,
+                                            contentDescription = "Edit Task",
+                                            tint = HunterGold,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            onRemoveProductiveTask(todayDateStr, task.id)
+                                        },
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.DeleteOutline,
+                                            contentDescription = "Remove Task",
+                                            tint = HunterCrimson,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

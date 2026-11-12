@@ -307,7 +307,29 @@ class HunterRepository(
                     state = state,
                     existingCreatedAt = remoteCreatedAt
                 )
-                docRef.set(updatedModel.copy(updatedAt = null)).await()
+                val updateFields = mapOf(
+                    "level" to updatedModel.level,
+                    "rank" to updatedModel.rank,
+                    "currentXp" to updatedModel.currentXp,
+                    "nextLevelXp" to updatedModel.nextLevelXp,
+                    "progressPercent" to updatedModel.progressPercent,
+                    "hpPercent" to updatedModel.hpPercent,
+                    "streakDays" to updatedModel.streakDays,
+                    "caloriesLogged" to updatedModel.caloriesLogged,
+                    "caloriesTarget" to updatedModel.caloriesTarget,
+                    "proteinG" to updatedModel.proteinG,
+                    "carbsG" to updatedModel.carbsG,
+                    "fatsG" to updatedModel.fatsG,
+                    "fiberG" to updatedModel.fiberG,
+                    "omega3Mg" to updatedModel.omega3Mg,
+                    "waterLiters" to updatedModel.waterLiters,
+                    "targetLiters" to updatedModel.targetLiters,
+                    "workoutCompleted" to updatedModel.workoutCompleted,
+                    "tacticalBriefing" to updatedModel.tacticalBriefing,
+                    "stateJson" to updatedModel.stateJson,
+                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                )
+                docRef.update(updateFields).await()
                 Result.success(updatedModel)
             } else {
                 val newModel = HunterSession.fromSystemState(
@@ -395,7 +417,7 @@ class HunterRepository(
             id = entryId,
             userId = effUid,
             entryType = cleanType,
-            title = title.trim().take(160).ifBlank { "Hunter Progress Entry" },
+            title = title.trim().take(160).ifBlank { "Trainer Progress Entry" },
             caption = caption.trim().take(2000).ifBlank { "Biometric & physique progress recorded." },
             poseTag = poseTag.trim().take(80).ifBlank { "Biometric Sync" },
             photoBase64 = photoBase64.take(240000),
@@ -455,7 +477,7 @@ class HunterRepository(
         val localEntry = FeedbackEntry(
             id = fbId,
             userId = effUid,
-            hunterName = hunterName.trim().take(80).ifBlank { "Anonymous Hunter" },
+            hunterName = hunterName.trim().take(80).ifBlank { "Anonymous Trainer" },
             category = cleanCategory,
             rating = rating.toLong().coerceIn(1L, 5L),
             message = message.trim().take(1500).ifBlank { "Great app experience!" },

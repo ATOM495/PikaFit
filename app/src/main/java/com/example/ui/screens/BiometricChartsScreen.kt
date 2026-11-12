@@ -34,11 +34,13 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PendingActions
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -48,6 +50,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -55,14 +58,20 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.example.data.model.LoggedFoodItem
+import com.example.data.model.ProductiveTaskItem
 import com.example.util.SmartFoodNutritionEngine
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -124,6 +133,8 @@ fun BiometricChartsScreen(
     onLogBiometricPoint: (weightKg: Double, bodyFatPercent: Double?, muscleMassPercent: Double?, note: String) -> Unit,
     onLogFoodItem: (mealName: String, calories: Int, proteinG: Double) -> Unit,
     onLogExerciseSet: (exerciseName: String, sets: Int, reps: String, overload: Boolean) -> Unit,
+    onLogProductiveTask: (title: String, category: String, dateStr: String) -> Unit = { _, _, _ -> },
+    onRemoveProductiveTask: (dateStr: String, taskId: String) -> Unit = { _, _ -> },
     onUndoFood: () -> Unit = {},
     onUndoWater: () -> Unit = {},
     onUpdateHistoricalDayFoodLog: (
@@ -133,8 +144,9 @@ fun BiometricChartsScreen(
         carbsG: Double,
         fatsG: Double,
         waterLiters: Double,
-        foodSummary: String
-    ) -> Unit = { _, _, _, _, _, _, _ -> }
+        foodSummary: String,
+        foodItems: List<LoggedFoodItem>
+    ) -> Unit = { _, _, _, _, _, _, _, _ -> }
 ) {
     val bio = state.biometrics
     var selectedChartMode by rememberSaveable { mutableStateOf(RechartsMetricMode.COMPOSED_ALL) }
@@ -158,6 +170,8 @@ fun BiometricChartsScreen(
                 state = state,
                 onLogFoodItem = onLogFoodItem,
                 onLogExerciseSet = onLogExerciseSet,
+                onLogProductiveTask = onLogProductiveTask,
+                onRemoveProductiveTask = onRemoveProductiveTask,
                 onUndoFood = onUndoFood,
                 onUndoWater = onUndoWater,
                 onUpdateHistoricalDayFoodLog = onUpdateHistoricalDayFoodLog
@@ -408,6 +422,8 @@ fun DailyProductiveStreakCard(
     state: HunterSystemState,
     onLogFoodItem: (mealName: String, calories: Int, proteinG: Double) -> Unit,
     onLogExerciseSet: (exerciseName: String, sets: Int, reps: String, overload: Boolean) -> Unit,
+    onLogProductiveTask: (title: String, category: String, dateStr: String) -> Unit = { _, _, _ -> },
+    onRemoveProductiveTask: (dateStr: String, taskId: String) -> Unit = { _, _ -> },
     onUndoFood: () -> Unit = {},
     onUndoWater: () -> Unit = {},
     onUpdateHistoricalDayFoodLog: (
@@ -417,8 +433,9 @@ fun DailyProductiveStreakCard(
         carbsG: Double,
         fatsG: Double,
         waterLiters: Double,
-        foodSummary: String
-    ) -> Unit = { _, _, _, _, _, _, _ -> }
+        foodSummary: String,
+        foodItems: List<LoggedFoodItem>
+    ) -> Unit = { _, _, _, _, _, _, _, _ -> }
 ) {
     val ps = state.playerStatus
     val vit = state.statBreakdown.vitality
@@ -426,7 +443,7 @@ fun DailyProductiveStreakCard(
     val isCheckedIn = ps.checkedInToday
     val accentColor = if (isCheckedIn) HunterEmerald else HunterGold
 
-    var expandedActionMode by rememberSaveable { mutableIntStateOf(0) } // 0 = None, 1 = Food Form, 2 = Exercise Form
+    var expandedActionMode by rememberSaveable { mutableIntStateOf(0) } // 0 = None, 1 = Food, 2 = Exercise, 3 = Task
     var editingDateStr by rememberSaveable { mutableStateOf<String?>(null) }
     var mealName by rememberSaveable { mutableStateOf("") }
     var mealCalories by rememberSaveable { mutableStateOf("") }
@@ -436,13 +453,16 @@ fun DailyProductiveStreakCard(
     var exerciseSets by rememberSaveable { mutableStateOf("") }
     var exerciseReps by rememberSaveable { mutableStateOf("") }
 
+    var taskTitleInput by rememberSaveable { mutableStateOf("") }
+    var taskCategoryInput by rememberSaveable { mutableStateOf("WORK") }
+
     if (editingDateStr != null) {
         EditHistoricalDayFoodLogDialog(
             initialDateStr = editingDateStr ?: StreakDateUtils.daysAgoDateString(1),
             state = state,
             onDismiss = { editingDateStr = null },
-            onSaveDayLog = { dateStr, cals, pro, carbs, fats, water, summary ->
-                onUpdateHistoricalDayFoodLog(dateStr, cals, pro, carbs, fats, water, summary)
+            onSaveDayLog = { dateStr, cals, pro, carbs, fats, water, summary, items ->
+                onUpdateHistoricalDayFoodLog(dateStr, cals, pro, carbs, fats, water, summary, items)
                 editingDateStr = null
             }
         )
@@ -470,7 +490,7 @@ fun DailyProductiveStreakCard(
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(42.dp)
                         .clip(CircleShape)
                         .background(accentColor.copy(alpha = 0.16f))
                         .border(1.5.dp, accentColor, CircleShape),
@@ -480,29 +500,35 @@ fun DailyProductiveStreakCard(
                         imageVector = Icons.Filled.LocalFireDepartment,
                         contentDescription = null,
                         tint = accentColor,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "DAILY PRODUCTIVE STREAK",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = accentColor
+                        style = MaterialTheme.typography.labelMedium,
+                        color = accentColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = if (isCheckedIn) {
-                            "${ps.streakDays} DAY STREAK • CHECKED IN!"
+                            "${ps.streakDays}D STREAK • CHECKED IN"
                         } else {
-                            "${ps.streakDays} DAY STREAK • CHECK-IN PENDING"
+                            "${ps.streakDays}D STREAK • PENDING"
                         },
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
                         color = TextPrimary,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.testTag("streak_days_headline")
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.width(8.dp))
 
             Surface(
                 color = accentColor.copy(alpha = 0.18f),
@@ -510,20 +536,23 @@ fun DailyProductiveStreakCard(
                 border = BorderStroke(1.dp, accentColor)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = if (isCheckedIn) Icons.Filled.CheckCircle else Icons.Filled.PendingActions,
                         contentDescription = null,
                         tint = accentColor,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = if (isCheckedIn) "VERIFIED" else "UNVERIFIED",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
                         color = accentColor,
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier.testTag("streak_checkin_status_badge")
                     )
                 }
@@ -531,6 +560,12 @@ fun DailyProductiveStreakCard(
         }
 
         Spacer(modifier = Modifier.height(10.dp))
+
+        val todayStr = StreakDateUtils.todayDateString()
+        val todayTasksCount = maxOf(
+            ps.todayTaskInputs,
+            ps.dailyLogsByDate[todayStr]?.tasksCompleted?.size ?: 0
+        )
 
         // Rule Banner
         Surface(
@@ -544,7 +579,7 @@ fun DailyProductiveStreakCard(
                     text = if (isCheckedIn) {
                         "✔ Productive day verified! ${ps.lastCheckInTrigger}"
                     } else {
-                        "⚠ Logging into the app alone does NOT count as a productive day. Input any Food or Exercise data today to check in and advance to Day ${ps.streakDays + 1}!"
+                        "⚠ Logging into the app alone does NOT count as a productive day. Input any Food, Exercise, or Completed Task today to check in and advance to Day ${ps.streakDays + 1}!"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (isCheckedIn) HunterEmerald else TextPrimary,
@@ -555,19 +590,25 @@ fun DailyProductiveStreakCard(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     ProductiveCounterPill(
-                        label = "FOOD INPUTS",
+                        label = "FOOD",
                         count = ps.todayFoodInputs,
                         color = if (ps.todayFoodInputs > 0) HunterEmerald else HunterGold,
                         modifier = Modifier.weight(1f).testTag("today_food_inputs_pill")
                     )
                     ProductiveCounterPill(
-                        label = "EXERCISE INPUTS",
+                        label = "EXERCISE",
                         count = ps.todayExerciseInputs,
                         color = if (ps.todayExerciseInputs > 0) HunterEmerald else HunterCyan,
                         modifier = Modifier.weight(1f).testTag("today_exercise_inputs_pill")
+                    )
+                    ProductiveCounterPill(
+                        label = "TASKS",
+                        count = todayTasksCount,
+                        color = if (todayTasksCount > 0) HunterEmerald else HunterViolet,
+                        modifier = Modifier.weight(1f).testTag("today_task_inputs_pill")
                     )
                 }
             }
@@ -577,7 +618,7 @@ fun DailyProductiveStreakCard(
 
         // 7-Day Productive Check-In Calendar Strip (Tap any day or Yesterday to edit its food log)
         Text(
-            text = "Tap any streak day (e.g. Yesterday) below to view or edit that day's Food & Calorie Log:",
+            text = "Tap any streak day (Today, Yesterday, or Day Before) to edit each food item logged:",
             style = MaterialTheme.typography.labelSmall,
             color = HunterGold
         )
@@ -593,40 +634,7 @@ fun DailyProductiveStreakCard(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Direct "Edit Yesterday's Food Log" button
-        OutlinedButton(
-            onClick = { editingDateStr = StreakDateUtils.daysAgoDateString(1) },
-            shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, HunterGold),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("edit_yesterday_food_log_button")
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Edit,
-                contentDescription = "Edit Yesterday's Food Log",
-                tint = HunterGold,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            val yesterdayStr = StreakDateUtils.daysAgoDateString(1)
-            val yesterdayLog = ps.dailyLogsByDate[yesterdayStr]
-            val yesterdaySummary = if (yesterdayLog != null && yesterdayLog.calories > 0) {
-                " (${yesterdayLog.calories} kcal • ${yesterdayLog.proteinG.toInt()}g P)"
-            } else {
-                ""
-            }
-            Text(
-                text = "EDIT YESTERDAY'S FOOD LOG$yesterdaySummary",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.ExtraBold,
-                color = HunterGold
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Action Buttons to Input Food or Exercise Data
+        // Action Buttons to Input Food or Exercise Today
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -644,8 +652,8 @@ fun DailyProductiveStreakCard(
                     .heightIn(min = 48.dp)
                     .testTag("streak_open_food_input_button")
             ) {
-                Icon(Icons.Filled.Restaurant, contentDescription = null, modifier = Modifier.size(15.dp))
-                Spacer(modifier = Modifier.width(5.dp))
+                Icon(Icons.Filled.Restaurant, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "LOG FOOD",
                     maxLines = 1,
@@ -670,8 +678,8 @@ fun DailyProductiveStreakCard(
                     .heightIn(min = 48.dp)
                     .testTag("streak_open_exercise_input_button")
             ) {
-                Icon(Icons.Filled.FitnessCenter, contentDescription = null, modifier = Modifier.size(15.dp))
-                Spacer(modifier = Modifier.width(5.dp))
+                Icon(Icons.Filled.FitnessCenter, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "LOG EXERCISE",
                     maxLines = 1,
@@ -968,24 +976,30 @@ private fun ProductiveCounterPill(
             .clip(RoundedCornerShape(8.dp))
             .background(ObsidianCardElevated)
             .border(1.dp, color.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            ),
             color = TextSecondary,
             maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
-        Spacer(modifier = Modifier.width(6.dp))
+        Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = "$count",
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleSmall,
             color = color,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            softWrap = false
         )
     }
 }
@@ -1110,7 +1124,8 @@ fun EditHistoricalDayFoodLogDialog(
         carbsG: Double,
         fatsG: Double,
         waterLiters: Double,
-        foodSummary: String
+        foodSummary: String,
+        foodItems: List<LoggedFoodItem>
     ) -> Unit
 ) {
     val recentDates = remember {
@@ -1126,6 +1141,7 @@ fun EditHistoricalDayFoodLogDialog(
             val prefix = when (daysAgo) {
                 0 -> "Today"
                 1 -> "Yesterday"
+                2 -> "Day Before"
                 else -> "${daysAgo}d ago"
             }
             dStr to "$prefix (${labelFmt.format(cal.time)})"
@@ -1150,21 +1166,101 @@ fun EditHistoricalDayFoodLogDialog(
         }
     }
 
-    var foodQueryInput by remember(selectedDateStr) { mutableStateOf(existingLog.foodSummary) }
-    var caloriesInput by remember(selectedDateStr) {
-        mutableStateOf(if (existingLog.calories > 0) existingLog.calories.toString() else "")
+    // Per-item food list for the selected day (Yesterday, Day Before, Today, etc.)
+    // Initialized immediately from structured foodItems and refined on Dispatchers.Default so opening the dialog never blocks the UI thread
+    var dayFoodItems by remember(selectedDateStr) {
+        mutableStateOf(existingLog.foodItems)
     }
-    var proteinInput by remember(selectedDateStr) {
-        mutableStateOf(if (existingLog.proteinG > 0.0) existingLog.proteinG.toString() else "")
+    LaunchedEffect(selectedDateStr, existingLog) {
+        val resolved = withContext(Dispatchers.Default) {
+            existingLog.resolvedFoodItems()
+        }
+        dayFoodItems = resolved
     }
-    var carbsInput by remember(selectedDateStr) {
-        mutableStateOf(if (existingLog.carbsG > 0.0) existingLog.carbsG.toString() else "")
+
+    var caloriesInput by remember(selectedDateStr, existingLog) {
+        mutableStateOf(if (existingLog.calories > 0) existingLog.calories.toString() else "0")
     }
-    var fatsInput by remember(selectedDateStr) {
-        mutableStateOf(if (existingLog.fatsG > 0.0) existingLog.fatsG.toString() else "")
+    var proteinInput by remember(selectedDateStr, existingLog) {
+        mutableStateOf(if (existingLog.proteinG > 0.0) existingLog.proteinG.toString() else "0.0")
     }
-    var waterInput by remember(selectedDateStr) {
-        mutableStateOf(if (existingLog.waterLiters > 0.0) existingLog.waterLiters.toString() else "")
+    var carbsInput by remember(selectedDateStr, existingLog) {
+        mutableStateOf(if (existingLog.carbsG > 0.0) existingLog.carbsG.toString() else "0.0")
+    }
+    var fatsInput by remember(selectedDateStr, existingLog) {
+        mutableStateOf(if (existingLog.fatsG > 0.0) existingLog.fatsG.toString() else "0.0")
+    }
+    var waterInput by remember(selectedDateStr, existingLog) {
+        mutableStateOf(if (existingLog.waterLiters > 0.0) existingLog.waterLiters.toString() else "0.0")
+    }
+
+    // Helper to sync total fields whenever an item is added, edited, or removed
+    fun syncTotalsFromItems(items: List<LoggedFoodItem>) {
+        dayFoodItems = items
+        val totalCals = items.sumOf { it.calories }
+        val totalPro = (items.sumOf { it.proteinG } * 10.0).roundToInt() / 10.0
+        val totalCarbs = (items.sumOf { it.carbsG } * 10.0).roundToInt() / 10.0
+        val totalFats = (items.sumOf { it.fatsG } * 10.0).roundToInt() / 10.0
+        caloriesInput = totalCals.toString()
+        proteinInput = totalPro.toString()
+        carbsInput = totalCarbs.toString()
+        fatsInput = totalFats.toString()
+    }
+
+    // Smart Food Calculator state for adding a new food or editing an existing food item
+    var editingItemId by remember(selectedDateStr) { mutableStateOf<String?>(null) }
+    var smartDishInput by remember(selectedDateStr) { mutableStateOf("") }
+    var selectedUnitMode by remember(selectedDateStr) {
+        mutableStateOf(com.example.util.FoodServingUnitMode.QUANTITY)
+    }
+    val isQuantityMode = selectedUnitMode == com.example.util.FoodServingUnitMode.QUANTITY
+    var smartAmountInput by remember(selectedDateStr) { mutableStateOf("1") }
+
+    val predictedUnit = remember(smartDishInput) {
+        SmartFoodNutritionEngine.predictServingUnit(smartDishInput)
+    }
+
+    // Automatically predict and switch unit mode (ml vs g vs quantity) when user types a dish/drink name
+    LaunchedEffect(predictedUnit.matchedFoodName, predictedUnit.recommendedMode, predictedUnit.isLiquidMl) {
+        if (smartDishInput.isNotBlank() && editingItemId == null) {
+            selectedUnitMode = predictedUnit.recommendedMode
+            val currentAmt = smartAmountInput.toIntOrNull() ?: 0
+            when (predictedUnit.recommendedMode) {
+                com.example.util.FoodServingUnitMode.MILLILITERS -> {
+                    if (currentAmt <= 20) smartAmountInput = predictedUnit.defaultAmountForRecommended.toString()
+                }
+                com.example.util.FoodServingUnitMode.GRAMS -> {
+                    if (currentAmt <= 20) smartAmountInput = predictedUnit.defaultAmountForRecommended.toString()
+                }
+                com.example.util.FoodServingUnitMode.QUANTITY -> {
+                    if (currentAmt > 20 || currentAmt <= 0) smartAmountInput = "1"
+                }
+            }
+        }
+    }
+
+    var previewCalc by remember {
+        mutableStateOf<com.example.util.CalculatedFoodNutrition?>(null)
+    }
+
+    // Background debounced Smart Food calculation so typing NEVER blocks the UI thread!
+    LaunchedEffect(smartDishInput, smartAmountInput, selectedUnitMode) {
+        val cleanQuery = smartDishInput.trim()
+        if (cleanQuery.isBlank()) {
+            previewCalc = null
+            return@LaunchedEffect
+        }
+        delay(90)
+        val amt = smartAmountInput.toIntOrNull()?.coerceIn(1, 5000)
+            ?: if (isQuantityMode) 1 else if (selectedUnitMode == com.example.util.FoodServingUnitMode.MILLILITERS) 200 else 150
+        val computed = withContext(Dispatchers.Default) {
+            SmartFoodNutritionEngine.calculateForGramsOrQuantity(
+                foodInput = cleanQuery,
+                amountValue = amt,
+                isQuantityMode = isQuantityMode
+            )
+        }
+        previewCalc = computed
     }
 
     AlertDialog(
@@ -1181,7 +1277,7 @@ fun EditHistoricalDayFoodLogDialog(
                     fontWeight = FontWeight.ExtraBold
                 )
                 Text(
-                    text = "Tap Yesterday or any day below to edit or add missed food & calories",
+                    text = "Edit or remove each individual food logged on Yesterday, Day Before, or Today — Smart Logger auto-predicts units (ml, g, qty) & calories!",
                     style = MaterialTheme.typography.labelSmall,
                     color = TextSecondary
                 )
@@ -1194,7 +1290,7 @@ fun EditHistoricalDayFoodLogDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Day selector row (Yesterday, Today, etc.)
+                // 1. Day selector row (Today, Yesterday, Day Before, etc.)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1217,35 +1313,419 @@ fun EditHistoricalDayFoodLogDialog(
                     }
                 }
 
-                // Smart Food Auto-Calculate helper
-                OutlinedTextField(
-                    value = foodQueryInput,
-                    onValueChange = { newText ->
-                        foodQueryInput = newText
-                        if (newText.isNotBlank()) {
-                            val calc = SmartFoodNutritionEngine.calculateForGramsOrQuantity(
-                                foodInput = newText,
-                                amountValue = 1,
-                                isQuantityMode = true
-                            )
-                            caloriesInput = calc.calories.toString()
-                            proteinInput = calc.proteinG.toString()
-                            carbsInput = calc.carbsG.toString()
-                            fatsInput = calc.fatsG.toString()
-                        }
-                    },
-                    label = { Text("Food / Meals Logged (auto-calculates macros)", fontSize = 11.5.sp) },
-                    placeholder = { Text("e.g. 2 Chapati + Chicken Curry", fontSize = 12.sp) },
-                    singleLine = true,
+                // 2. Per-Item Logged Foods List (Edit or Remove any item)
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("historical_day_food_summary_input"),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = HunterGold,
-                        unfocusedBorderColor = BorderSubtle,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
-                    )
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(ObsidianBg)
+                        .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "LOGGED FOODS (${dayFoodItems.size})",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = HunterGold,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (dayFoodItems.isNotEmpty()) {
+                            Text(
+                                text = "${dayFoodItems.sumOf { it.calories }} kcal total",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = HunterEmerald,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    if (dayFoodItems.isEmpty()) {
+                        Text(
+                            text = "No foods logged for this day yet. Use the Smart Food Calculator below to add meals!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    } else {
+                        dayFoodItems.forEachIndexed { idx, item ->
+                            val isBeingEdited = editingItemId == item.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isBeingEdited) HunterGold.copy(alpha = 0.14f) else ObsidianCard)
+                                    .border(
+                                        1.dp,
+                                        if (isBeingEdited) HunterGold else BorderSubtle,
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    .testTag("day_food_item_row_$idx"),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.mealName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = TextPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "${item.calories} kcal • ${item.proteinG}g P • ${item.carbsG}g C • ${item.fatsG}g F",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = HunterCyan
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            editingItemId = item.id
+                                            val strippedName = item.mealName
+                                                .replace(Regex("""\(\d+\s*(?:g|ml)\)""", RegexOption.IGNORE_CASE), "")
+                                                .replace(Regex("""^\d+\s*x?\s*""", RegexOption.IGNORE_CASE), "")
+                                                .trim()
+                                            val cleanName = strippedName.ifBlank { item.mealName }
+                                            smartDishInput = cleanName
+                                            val pred = SmartFoodNutritionEngine.predictServingUnit(cleanName)
+                                            selectedUnitMode = if (pred.isLiquidMl || item.mealName.contains("ml)", ignoreCase = true)) {
+                                                com.example.util.FoodServingUnitMode.MILLILITERS
+                                            } else {
+                                                com.example.util.FoodServingUnitMode.GRAMS
+                                            }
+                                            smartAmountInput = item.grams.coerceAtLeast(50).toString()
+                                        },
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .testTag("edit_day_food_item_$idx")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Edit,
+                                            contentDescription = "Edit ${item.mealName}",
+                                            tint = HunterGold,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            if (editingItemId == item.id) {
+                                                editingItemId = null
+                                                smartDishInput = ""
+                                            }
+                                            val remaining = dayFoodItems.filterNot { it.id == item.id }
+                                            syncTotalsFromItems(remaining)
+                                        },
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .testTag("remove_day_food_item_$idx")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.DeleteOutline,
+                                            contentDescription = "Remove ${item.mealName}",
+                                            tint = HunterCrimson,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Smart Food Auto-Calculator (Add New Item or Update Selected Item)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(ObsidianBg)
+                        .border(1.dp, HunterGold.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (editingItemId != null) {
+                                "✏️ EDIT SELECTED FOOD (SMART AUTO-CALC)"
+                            } else {
+                                "⚡ ADD FOOD WITH SMART AUTO-CALCULATOR"
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = HunterGold,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (editingItemId != null) {
+                            TextButton(
+                                onClick = {
+                                    editingItemId = null
+                                    smartDishInput = ""
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("Cancel Edit", style = MaterialTheme.typography.labelSmall, color = HunterCrimson)
+                            }
+                        }
+                    }
+
+                    // 3-Mode Serving Unit Selector: Quantity (glass/dosa/piece), Grams (g), Milliliters (ml)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val qtyUnitWord = predictedUnit.quantityUnitSingular
+                        FilterChip(
+                            selected = selectedUnitMode == com.example.util.FoodServingUnitMode.QUANTITY,
+                            onClick = {
+                                selectedUnitMode = com.example.util.FoodServingUnitMode.QUANTITY
+                                if ((smartAmountInput.toIntOrNull() ?: 1) > 20) smartAmountInput = "1"
+                            },
+                            label = {
+                                Text(
+                                    text = if (smartDishInput.isNotBlank()) "🍽 Qty ($qtyUnitWord)" else "🍽 Quantity (1, 2...)",
+                                    fontSize = 11.sp
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = HunterGold.copy(alpha = 0.22f),
+                                selectedLabelColor = HunterGold
+                            )
+                        )
+                        FilterChip(
+                            selected = selectedUnitMode == com.example.util.FoodServingUnitMode.GRAMS,
+                            onClick = {
+                                selectedUnitMode = com.example.util.FoodServingUnitMode.GRAMS
+                                if ((smartAmountInput.toIntOrNull() ?: 0) < 20) smartAmountInput = "150"
+                            },
+                            label = { Text("⚖️ Grams (g)", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = HunterCyan.copy(alpha = 0.22f),
+                                selectedLabelColor = HunterCyan
+                            )
+                        )
+                        FilterChip(
+                            selected = selectedUnitMode == com.example.util.FoodServingUnitMode.MILLILITERS,
+                            onClick = {
+                                selectedUnitMode = com.example.util.FoodServingUnitMode.MILLILITERS
+                                if ((smartAmountInput.toIntOrNull() ?: 0) < 20) smartAmountInput = "200"
+                            },
+                            label = { Text("💧 Milliliters (ml)", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = HunterEmerald.copy(alpha = 0.22f),
+                                selectedLabelColor = HunterEmerald
+                            )
+                        )
+                    }
+
+                    if (smartDishInput.isNotBlank()) {
+                        Text(
+                            text = predictedUnit.predictedBadgeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (predictedUnit.isLiquidMl) HunterEmerald else HunterGold,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = smartDishInput,
+                            onValueChange = { smartDishInput = it },
+                            label = { Text("Food / Drink Name", fontSize = 11.sp) },
+                            placeholder = { Text("e.g. Mosambi Juice, Dosa, Chicken", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .weight(1.7f)
+                                .testTag("historical_day_food_summary_input"),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = HunterGold,
+                                unfocusedBorderColor = BorderSubtle,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary
+                            )
+                        )
+                        val amountFieldLabel = when (selectedUnitMode) {
+                            com.example.util.FoodServingUnitMode.QUANTITY ->
+                                "Qty (${predictedUnit.quantityUnitSingular})"
+                            com.example.util.FoodServingUnitMode.MILLILITERS -> "Volume (ml)"
+                            com.example.util.FoodServingUnitMode.GRAMS -> "Grams (g)"
+                        }
+                        OutlinedTextField(
+                            value = smartAmountInput,
+                            onValueChange = { smartAmountInput = it.filter { ch -> ch.isDigit() }.take(4) },
+                            label = { Text(amountFieldLabel, fontSize = 10.5.sp, maxLines = 1) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .weight(0.95f)
+                                .testTag("historical_day_food_amount_input"),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = HunterCyan,
+                                unfocusedBorderColor = BorderSubtle,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary
+                            )
+                        )
+                    }
+
+                    // Quick-tap preset chips matching the active unit mode (100ml..500ml, 1x..6x, or 50g..300g)
+                    val presetValues = predictedUnit.quickPresetsForMode(selectedUnitMode)
+                    val currentParsedAmt = smartAmountInput.toIntOrNull() ?: 0
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        presetValues.forEach { presetVal ->
+                            val isPresetSelected = currentParsedAmt == presetVal
+                            val chipSuffix = when (selectedUnitMode) {
+                                com.example.util.FoodServingUnitMode.QUANTITY -> "x"
+                                com.example.util.FoodServingUnitMode.MILLILITERS -> "ml"
+                                com.example.util.FoodServingUnitMode.GRAMS -> "g"
+                            }
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { smartAmountInput = presetVal.toString() },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isPresetSelected) HunterGold else ObsidianCard,
+                                border = BorderStroke(1.dp, if (isPresetSelected) HunterGold else BorderSubtle)
+                            ) {
+                                Text(
+                                    text = "$presetVal$chipSuffix",
+                                    modifier = Modifier.padding(vertical = 5.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isPresetSelected) ObsidianBg else TextPrimary
+                                )
+                            }
+                        }
+                    }
+
+                    val calc = previewCalc
+                    if (calc != null) {
+                        Surface(
+                            color = ObsidianCard,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, HunterEmerald.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text(
+                                    text = "${calc.foodName} (${calc.servingLabel})",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Auto-Calculated: +${calc.calories} kcal • ${calc.proteinG}g P • ${calc.carbsG}g C • ${calc.fatsG}g F • ${calc.grams}${calc.unitSuffix}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = HunterEmerald
+                                )
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            val cleanName = smartDishInput.trim()
+                            if (cleanName.isBlank()) return@Button
+                            val amt = smartAmountInput.toIntOrNull()?.coerceIn(1, 5000)
+                                ?: if (isQuantityMode) 1 else if (selectedUnitMode == com.example.util.FoodServingUnitMode.MILLILITERS) 200 else 150
+
+                            if (editingItemId != null) {
+                                val computed = previewCalc ?: SmartFoodNutritionEngine.calculateForGramsOrQuantity(
+                                    foodInput = cleanName,
+                                    amountValue = amt,
+                                    isQuantityMode = isQuantityMode
+                                )
+                                val suffix = computed.unitSuffix
+                                val formattedMealTitle = if (isQuantityMode) {
+                                    "${amt}x ${computed.foodName} (${computed.grams}$suffix)"
+                                } else {
+                                    "${computed.foodName} (${computed.grams}$suffix)"
+                                }
+                                val updatedItem = LoggedFoodItem(
+                                    id = editingItemId!!,
+                                    mealName = SmartFoodNutritionEngine.normalizeMealNameUnits(formattedMealTitle),
+                                    calories = computed.calories,
+                                    proteinG = computed.proteinG,
+                                    carbsG = computed.carbsG,
+                                    fatsG = computed.fatsG,
+                                    fiberG = computed.fiberG,
+                                    grams = computed.grams
+                                )
+                                val updatedList = dayFoodItems.map { if (it.id == editingItemId) updatedItem else it }
+                                syncTotalsFromItems(updatedList)
+                            } else {
+                                // Split multi-item queries into individual LoggedFoodItem entries so foods are NEVER combined!
+                                val individualCalcs = SmartFoodNutritionEngine.calculateIndividualFoodItems(
+                                    foodInput = cleanName,
+                                    amountValue = amt,
+                                    isQuantityMode = isQuantityMode
+                                )
+                                val newItems = individualCalcs.map { itemCalc ->
+                                    val suffix = itemCalc.unitSuffix
+                                    val baseTitle = if (individualCalcs.size == 1 && isQuantityMode) {
+                                        "${amt}x ${itemCalc.foodName} (${itemCalc.grams}$suffix)"
+                                    } else if (itemCalc.foodName.contains("(${itemCalc.grams}$suffix)", ignoreCase = true)) {
+                                        itemCalc.foodName
+                                    } else {
+                                        "${itemCalc.foodName} (${itemCalc.grams}$suffix)"
+                                    }
+                                    LoggedFoodItem(
+                                        id = java.util.UUID.randomUUID().toString(),
+                                        mealName = SmartFoodNutritionEngine.normalizeMealNameUnits(baseTitle),
+                                        calories = itemCalc.calories,
+                                        proteinG = itemCalc.proteinG,
+                                        carbsG = itemCalc.carbsG,
+                                        fatsG = itemCalc.fatsG,
+                                        fiberG = itemCalc.fiberG,
+                                        grams = itemCalc.grams
+                                    )
+                                }
+                                syncTotalsFromItems(dayFoodItems + newItems)
+                            }
+                            editingItemId = null
+                            smartDishInput = ""
+                        },
+                        enabled = smartDishInput.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = HunterGold,
+                            contentColor = ObsidianBg
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("add_or_update_day_food_item_button")
+                    ) {
+                        Icon(
+                            imageVector = if (editingItemId != null) Icons.Filled.CheckCircle else Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (editingItemId != null) "UPDATE FOOD ITEM & RECALCULATE" else "+ ADD FOOD TO DAY LOG",
+                            fontWeight = FontWeight.ExtraBold,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+
+                // 4. Auto-Calculated Day Totals & Water
+                Text(
+                    text = "DAY TOTALS (AUTO-CALCULATED FROM ITEMS ABOVE)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = HunterCyan,
+                    fontWeight = FontWeight.Bold
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1327,14 +1807,68 @@ fun EditHistoricalDayFoodLogDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    // If the user typed a food in the Smart Input box and tapped Save directly without tapping "+ Add Food", include it automatically!
+                    var finalItems = dayFoodItems
+                    if (smartDishInput.isNotBlank()) {
+                        val amt = smartAmountInput.toIntOrNull()?.coerceIn(1, 5000) ?: if (isQuantityMode) 1 else 100
+                        val computed = previewCalc ?: SmartFoodNutritionEngine.calculateForGramsOrQuantity(
+                            foodInput = smartDishInput.trim(),
+                            amountValue = amt,
+                            isQuantityMode = isQuantityMode
+                        )
+                        val suffix = computed.unitSuffix
+                        val formattedTitle = if (isQuantityMode) {
+                            "${amt}x ${computed.foodName} (${computed.grams}$suffix)"
+                        } else {
+                            "${computed.foodName} (${computed.grams}$suffix)"
+                        }
+                        val pendingItem = LoggedFoodItem(
+                            id = editingItemId ?: java.util.UUID.randomUUID().toString(),
+                            mealName = SmartFoodNutritionEngine.normalizeMealNameUnits(formattedTitle),
+                            calories = computed.calories,
+                            proteinG = computed.proteinG,
+                            carbsG = computed.carbsG,
+                            fatsG = computed.fatsG,
+                            fiberG = computed.fiberG,
+                            grams = computed.grams
+                        )
+                        finalItems = if (editingItemId != null) {
+                            dayFoodItems.map { if (it.id == editingItemId) pendingItem else it }
+                        } else {
+                            dayFoodItems + pendingItem
+                        }
+                    }
+
+                    val finalCals = if (smartDishInput.isNotBlank()) {
+                        finalItems.sumOf { it.calories }
+                    } else {
+                        caloriesInput.toIntOrNull()?.coerceIn(0, 15000) ?: finalItems.sumOf { it.calories }
+                    }
+                    val finalPro = if (smartDishInput.isNotBlank()) {
+                        (finalItems.sumOf { it.proteinG } * 10.0).roundToInt() / 10.0
+                    } else {
+                        proteinInput.toDoubleOrNull()?.coerceIn(0.0, 600.0) ?: ((finalItems.sumOf { it.proteinG } * 10.0).roundToInt() / 10.0)
+                    }
+                    val finalCarbs = if (smartDishInput.isNotBlank()) {
+                        (finalItems.sumOf { it.carbsG } * 10.0).roundToInt() / 10.0
+                    } else {
+                        carbsInput.toDoubleOrNull()?.coerceIn(0.0, 1500.0) ?: ((finalItems.sumOf { it.carbsG } * 10.0).roundToInt() / 10.0)
+                    }
+                    val finalFats = if (smartDishInput.isNotBlank()) {
+                        (finalItems.sumOf { it.fatsG } * 10.0).roundToInt() / 10.0
+                    } else {
+                        fatsInput.toDoubleOrNull()?.coerceIn(0.0, 500.0) ?: ((finalItems.sumOf { it.fatsG } * 10.0).roundToInt() / 10.0)
+                    }
+
                     onSaveDayLog(
                         selectedDateStr,
-                        caloriesInput.toIntOrNull()?.coerceIn(0, 15000) ?: 0,
-                        proteinInput.toDoubleOrNull()?.coerceIn(0.0, 600.0) ?: 0.0,
-                        carbsInput.toDoubleOrNull()?.coerceIn(0.0, 1500.0) ?: 0.0,
-                        fatsInput.toDoubleOrNull()?.coerceIn(0.0, 500.0) ?: 0.0,
+                        finalCals,
+                        finalPro,
+                        finalCarbs,
+                        finalFats,
                         waterInput.toDoubleOrNull()?.coerceIn(0.0, 15.0) ?: 0.0,
-                        foodQueryInput.trim()
+                        finalItems.joinToString(", ") { it.mealName },
+                        finalItems
                     )
                 },
                 colors = ButtonDefaults.buttonColors(

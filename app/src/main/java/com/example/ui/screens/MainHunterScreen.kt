@@ -1,8 +1,12 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -66,6 +70,9 @@ import com.example.ui.viewmodel.HunterViewModel
 import com.example.ui.viewmodel.PikaCoachTip
 import com.example.ui.viewmodel.PikaCoachUiState
 import com.example.ui.viewmodel.WaterEntryRecord
+import com.example.util.PikaFitNotificationScheduler
+import com.example.util.ReminderCategory
+import com.example.util.ReminderSettingsState
 import com.example.util.SmartFoodNutritionEngine
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlin.math.round
@@ -902,7 +909,11 @@ fun EmbeddedDashboard(
     onQuickCalories: (Int, Double) -> Unit = { _, _ -> },
     onQuickWater: (Double) -> Unit = {},
     onUndoFood: () -> Unit = {},
-    onUndoWater: () -> Unit = {}
+    onUndoWater: () -> Unit = {},
+    onLogProductiveTask: (title: String, category: String, dateStr: String) -> Unit = { _, _, _ -> },
+    onEditProductiveTask: (dateStr: String, taskId: String, newTitle: String, newCategory: String) -> Unit = { _, _, _, _ -> },
+    onRemoveProductiveTask: (dateStr: String, taskId: String) -> Unit = { _, _ -> },
+    onOpenEditStreakFoodDialog: () -> Unit = {}
 ) {
     // Glassmorphic card surfaces so the Pikachu background wallpaper shines through clearly
     val cardBg = if (isDark) {
@@ -1907,6 +1918,27 @@ fun MainHunterScreen(
     var forceShowOnboarding by rememberSaveable { mutableStateOf(false) }
     var showEditStreakFoodDialog by rememberSaveable { mutableStateOf(false) }
 
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            PikaFitNotificationScheduler.startAutomaticRandomNotifications(context)
+        }
+    }
+
+    LaunchedEffect(isSessionLoaded, state.biometrics.onboardingCompleted) {
+        if (isSessionLoaded) {
+            PikaFitNotificationScheduler.ensureNotificationChannel(context)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                !PikaFitNotificationScheduler.hasNotificationPermission(context)
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                PikaFitNotificationScheduler.startAutomaticRandomNotifications(context)
+            }
+        }
+    }
+
     // Cycling Pikachu wallpaper override (0 = Page Default, 1 = Hi Pikachu, 2 = Pokéball Pikachu, 3 = Orange Wave Pikachu)
     var wallpaperMode by rememberSaveable { mutableIntStateOf(0) }
 
@@ -2218,7 +2250,11 @@ fun MainHunterScreen(
                             onQuickCalories = viewModel::quickAdjustCalories,
                             onQuickWater = { liters -> viewModel.quickAddWater(liters) },
                             onUndoFood = { viewModel.undoLastFoodEntry() },
-                            onUndoWater = { viewModel.undoLastWaterEntry() }
+                            onUndoWater = { viewModel.undoLastWaterEntry() },
+                            onLogProductiveTask = viewModel::logProductiveTask,
+                            onEditProductiveTask = viewModel::editProductiveTask,
+                            onRemoveProductiveTask = viewModel::removeProductiveTask,
+                            onOpenEditStreakFoodDialog = { showEditStreakFoodDialog = true }
                         )
                         1 -> BiometricChartsScreen(
                             state = state,
@@ -2232,7 +2268,9 @@ fun MainHunterScreen(
                             onLogExerciseSet = viewModel::addExerciseSet,
                             onUndoFood = { viewModel.undoLastFoodEntry() },
                             onUndoWater = { viewModel.undoLastWaterEntry() },
-                            onUpdateHistoricalDayFoodLog = viewModel::updateHistoricalDayFoodLog
+                            onUpdateHistoricalDayFoodLog = viewModel::updateHistoricalDayFoodLog,
+                            onLogProductiveTask = viewModel::logProductiveTask,
+                            onRemoveProductiveTask = viewModel::removeProductiveTask
                         )
                         2 -> StatsBreakdownTab(
                             state = state,
@@ -2268,7 +2306,10 @@ fun MainHunterScreen(
                             onOpenAchievementsInSettings = {
                                 settingsFocusSection = 4
                                 selectedTab = 5
-                            }
+                            },
+                            onLogProductiveTask = viewModel::logProductiveTask,
+                            onEditProductiveTask = viewModel::editProductiveTask,
+                            onRemoveProductiveTask = viewModel::removeProductiveTask
                         )
                         4 -> PikaBotScreen(
                             state = state,
@@ -2339,12 +2380,18 @@ fun MainHunterScreen(
         }
 
         if (showEditStreakFoodDialog) {
+            val todayStr = com.example.data.model.StreakDateUtils.todayDateString()
+            val initialDate = if (state.playerStatus.checkedInToday || state.statBreakdown.vitality.caloriesLogged > 0 || state.playerStatus.dailyLogsByDate.containsKey(todayStr)) {
+                todayStr
+            } else {
+                com.example.data.model.StreakDateUtils.daysAgoDateString(1)
+            }
             EditHistoricalDayFoodLogDialog(
-                initialDateStr = com.example.data.model.StreakDateUtils.daysAgoDateString(1),
+                initialDateStr = initialDate,
                 state = state,
                 onDismiss = { showEditStreakFoodDialog = false },
-                onSaveDayLog = { dateStr, cals, pro, carbs, fats, water, summary ->
-                    viewModel.updateHistoricalDayFoodLog(dateStr, cals, pro, carbs, fats, water, summary)
+                onSaveDayLog = { dateStr, cals, pro, carbs, fats, water, summary, items ->
+                    viewModel.updateHistoricalDayFoodLog(dateStr, cals, pro, carbs, fats, water, summary, items)
                     showEditStreakFoodDialog = false
                 }
             )
@@ -2470,12 +2517,47 @@ fun StatsBreakdownTab(
     val isDark = AppThemeIsDark
     val cardBg = if (isDark) Color(0xFF141B2D).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.90f)
 
-    // Smart Grams OR Quantity/Pieces (empty default so no pre-existing cached inputs appear)
-    var isQuantityMode by rememberSaveable { mutableStateOf(true) } // true = Quantity/Pieces, false = Grams (g)
+    // Smart Serving Unit Mode: "QUANTITY", "GRAMS", or "MILLILITERS" (auto-predicted from food name)
+    var selectedUnitModeName by rememberSaveable { mutableStateOf("QUANTITY") }
+    val selectedUnitMode = when (selectedUnitModeName) {
+        "MILLILITERS" -> com.example.util.FoodServingUnitMode.MILLILITERS
+        "GRAMS" -> com.example.util.FoodServingUnitMode.GRAMS
+        else -> com.example.util.FoodServingUnitMode.QUANTITY
+    }
+    val isQuantityMode = selectedUnitMode == com.example.util.FoodServingUnitMode.QUANTITY
     var smartFoodQuery by rememberSaveable { mutableStateOf("") }
     var smartFoodAmountInput by rememberSaveable { mutableStateOf("") }
-    val parsedAmount = smartFoodAmountInput.toIntOrNull()?.coerceIn(1, 5000) ?: if (isQuantityMode) 1 else 100
-    val smartCalc = remember(smartFoodQuery, parsedAmount, isQuantityMode) {
+
+    val predictedUnit = remember(smartFoodQuery) {
+        SmartFoodNutritionEngine.predictServingUnit(smartFoodQuery)
+    }
+
+    // Automatically predict and switch serving unit (ml vs g vs quantity) as user types food name
+    LaunchedEffect(predictedUnit.matchedFoodName, predictedUnit.recommendedMode, predictedUnit.isLiquidMl) {
+        if (smartFoodQuery.isNotBlank()) {
+            selectedUnitModeName = predictedUnit.recommendedMode.name
+            val currentVal = smartFoodAmountInput.toIntOrNull() ?: 0
+            when (predictedUnit.recommendedMode) {
+                com.example.util.FoodServingUnitMode.MILLILITERS -> {
+                    if (currentVal <= 20) smartFoodAmountInput = predictedUnit.defaultAmountForRecommended.toString()
+                }
+                com.example.util.FoodServingUnitMode.GRAMS -> {
+                    if (currentVal <= 20) smartFoodAmountInput = predictedUnit.defaultAmountForRecommended.toString()
+                }
+                com.example.util.FoodServingUnitMode.QUANTITY -> {
+                    if (currentVal > 20) smartFoodAmountInput = "1"
+                }
+            }
+        }
+    }
+
+    val defaultFallbackAmt = when (selectedUnitMode) {
+        com.example.util.FoodServingUnitMode.QUANTITY -> 1
+        com.example.util.FoodServingUnitMode.MILLILITERS -> 200
+        com.example.util.FoodServingUnitMode.GRAMS -> 100
+    }
+    val parsedAmount = smartFoodAmountInput.toIntOrNull()?.coerceIn(1, 5000) ?: defaultFallbackAmt
+    val smartCalc = remember(smartFoodQuery, parsedAmount, selectedUnitMode) {
         if (smartFoodQuery.isBlank()) {
             null
         } else {
@@ -2484,6 +2566,29 @@ fun StatsBreakdownTab(
                 amountValue = parsedAmount,
                 isQuantityMode = isQuantityMode
             )
+        }
+    }
+
+    // Merge foodHistory with today's resolved DailyDateLog items so every individual food logged today is visible
+    val todayResolvedFoodEntries = remember(foodHistory, state.playerStatus.dailyLogsByDate) {
+        val todayStr = com.example.data.model.StreakDateUtils.todayDateString()
+        val fromDailyLog = state.playerStatus.dailyLogsByDate[todayStr]?.resolvedFoodItems().orEmpty()
+        if (fromDailyLog.isNotEmpty()) {
+            fromDailyLog.map { item ->
+                FoodEntryRecord(
+                    id = item.id,
+                    mealName = item.mealName,
+                    calories = item.calories,
+                    proteinG = item.proteinG,
+                    carbsG = item.carbsG,
+                    fatsG = item.fatsG,
+                    fiberG = item.fiberG,
+                    grams = item.grams,
+                    xpAwarded = 45
+                )
+            }
+        } else {
+            foodHistory
         }
     }
 
@@ -2504,7 +2609,7 @@ fun StatsBreakdownTab(
     var exReps by rememberSaveable { mutableStateOf("") }
     var overloadHit by rememberSaveable { mutableStateOf(true) }
 
-    val canUndoFood = vit.caloriesLogged > 0 || vit.proteinG > 0.0 || foodHistory.isNotEmpty()
+    val canUndoFood = vit.caloriesLogged > 0 || vit.proteinG > 0.0 || todayResolvedFoodEntries.isNotEmpty()
     val canUndoWater = stam.waterLiters > 0.0 || waterHistory.isNotEmpty()
 
     LazyColumn(
@@ -2513,7 +2618,7 @@ fun StatsBreakdownTab(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         // =========================================================================
-        // 1. SMART FOOD (GRAMS OR QUANTITY/PIECES) CONVERTER & DAILY MEAL LOG CARD
+        // 1. SMART FOOD (QUANTITY / GRAMS / ML) CONVERTER & DAILY MEAL LOG CARD
         // =========================================================================
         item {
             Card(
@@ -2538,7 +2643,7 @@ fun StatsBreakdownTab(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = "Smart Grams & Quantity Log",
+                                    text = "Smart Food & Drink Logger",
                                     style = MaterialTheme.typography.headlineSmall.copy(
                                         fontSize = 19.sp,
                                         fontWeight = FontWeight.ExtraBold
@@ -2546,9 +2651,9 @@ fun StatsBreakdownTab(
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "Enter Quantity or Grams (g) -> Macros",
+                                    text = "Auto-predicts Quantity, Grams (g) or Milliliters (ml)",
                                     style = MaterialTheme.typography.bodySmall.copy(
-                                        fontSize = 12.5.sp,
+                                        fontSize = 12.2.sp,
                                         fontWeight = FontWeight.SemiBold
                                     ),
                                     color = TextSecondary
@@ -2589,7 +2694,7 @@ fun StatsBreakdownTab(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // SMART GRAMS OR QUANTITY CONVERTER PANEL
+                    // SMART QUANTITY / GRAMS / MILLILITERS CONVERTER PANEL
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2600,88 +2705,144 @@ fun StatsBreakdownTab(
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Text(
-                                text = "⚡ SMART QUANTITY / GRAMS -> CALORIES & MACRO CONVERTER",
+                                text = "⚡ SMART QUANTITY / GRAMS / ML -> CALORIES & MACRO CONVERTER",
                                 style = MaterialTheme.typography.labelLarge.copy(
-                                    fontSize = 12.sp,
+                                    fontSize = 11.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = 0.4.sp
+                                    letterSpacing = 0.3.sp
                                 ),
                                 color = if (isDark) PikaVoltYellow else PikaCheekCrimson
                             )
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // INPUT MODE TOGGLE: Quantity vs Grams (g)
+                            // INPUT MODE TOGGLE: Quantity vs Grams (g) vs Milliliters (ml)
+                            val qtyUnitLabel = if (smartFoodQuery.isNotBlank()) {
+                                "🍽 Qty (${predictedUnit.quantityUnitSingular})"
+                            } else {
+                                "🍽 Quantity"
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                val isQtySelected = selectedUnitMode == com.example.util.FoodServingUnitMode.QUANTITY
                                 Surface(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable {
-                                            if (!isQuantityMode) {
-                                                isQuantityMode = true
-                                                if ((smartFoodAmountInput.toIntOrNull() ?: 1) > 20) {
-                                                    smartFoodAmountInput = "1"
-                                                }
+                                            selectedUnitModeName = "QUANTITY"
+                                            if ((smartFoodAmountInput.toIntOrNull() ?: 1) > 20) {
+                                                smartFoodAmountInput = "1"
                                             }
                                         }
                                         .testTag("mode_quantity_button"),
                                     shape = RoundedCornerShape(12.dp),
-                                    color = if (isQuantityMode) PikaVoltYellow else MaterialTheme.colorScheme.surfaceVariant,
+                                    color = if (isQtySelected) PikaVoltYellow else MaterialTheme.colorScheme.surfaceVariant,
                                     border = BorderStroke(
                                         1.5.dp,
-                                        if (isQuantityMode) PikaVoltYellow else BorderSubtle
+                                        if (isQtySelected) PikaVoltYellow else BorderSubtle
                                     )
                                 ) {
                                     Text(
-                                        text = "🍽 Quantity",
-                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                        text = qtyUnitLabel,
+                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
                                         textAlign = TextAlign.Center,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.labelMedium.copy(
-                                            fontSize = 13.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
-                                        color = if (isQuantityMode) Color(0xFF0F172A) else TextPrimary
+                                        color = if (isQtySelected) Color(0xFF0F172A) else TextPrimary
                                     )
                                 }
 
+                                val isGramsSelected = selectedUnitMode == com.example.util.FoodServingUnitMode.GRAMS
                                 Surface(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable {
-                                            if (isQuantityMode) {
-                                                isQuantityMode = false
-                                                if ((smartFoodAmountInput.toIntOrNull() ?: 100) <= 20) {
-                                                    smartFoodAmountInput = "100"
-                                                }
+                                            selectedUnitModeName = "GRAMS"
+                                            if ((smartFoodAmountInput.toIntOrNull() ?: 100) <= 20) {
+                                                smartFoodAmountInput = "100"
                                             }
                                         }
                                         .testTag("mode_grams_button"),
                                     shape = RoundedCornerShape(12.dp),
-                                    color = if (!isQuantityMode) PikaVoltYellow else MaterialTheme.colorScheme.surfaceVariant,
+                                    color = if (isGramsSelected) PikaVoltYellow else MaterialTheme.colorScheme.surfaceVariant,
                                     border = BorderStroke(
                                         1.5.dp,
-                                        if (!isQuantityMode) PikaVoltYellow else BorderSubtle
+                                        if (isGramsSelected) PikaVoltYellow else BorderSubtle
                                     )
                                 ) {
                                     Text(
                                         text = "⚖️ Grams (g)",
-                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
                                         textAlign = TextAlign.Center,
+                                        maxLines = 1,
                                         style = MaterialTheme.typography.labelMedium.copy(
-                                            fontSize = 13.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
-                                        color = if (!isQuantityMode) Color(0xFF0F172A) else TextPrimary
+                                        color = if (isGramsSelected) Color(0xFF0F172A) else TextPrimary
+                                    )
+                                }
+
+                                val isMlSelected = selectedUnitMode == com.example.util.FoodServingUnitMode.MILLILITERS
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            selectedUnitModeName = "MILLILITERS"
+                                            if ((smartFoodAmountInput.toIntOrNull() ?: 200) <= 20) {
+                                                smartFoodAmountInput = "200"
+                                            }
+                                        }
+                                        .testTag("mode_ml_button"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isMlSelected) PikaVoltYellow else MaterialTheme.colorScheme.surfaceVariant,
+                                    border = BorderStroke(
+                                        1.5.dp,
+                                        if (isMlSelected) PikaVoltYellow else BorderSubtle
+                                    )
+                                ) {
+                                    Text(
+                                        text = "💧 Milliliters (ml)",
+                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = if (isMlSelected) Color(0xFF0F172A) else TextPrimary
                                     )
                                 }
                             }
 
+                            if (smartFoodQuery.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = predictedUnit.predictedBadgeText,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = if (predictedUnit.isLiquidMl) HunterDoneGreen else PikaVoltYellow
+                                )
+                            }
+
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // Food Name & Quantity/Grams Input Row
+                            // Food Name & Quantity/Grams/ml Input Row
+                            val amountFieldLabel = when (selectedUnitMode) {
+                                com.example.util.FoodServingUnitMode.QUANTITY ->
+                                    if (smartFoodQuery.isNotBlank()) "Qty (${predictedUnit.quantityUnitSingular})" else "Qty"
+                                com.example.util.FoodServingUnitMode.MILLILITERS -> "Volume (ml)"
+                                com.example.util.FoodServingUnitMode.GRAMS -> "Grams (g)"
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2691,7 +2852,7 @@ fun StatsBreakdownTab(
                                     onValueChange = { smartFoodQuery = it },
                                     label = {
                                         Text(
-                                            text = "Enter Food or Dish Name",
+                                            text = "Enter Food, Dish or Juice Name",
                                             fontSize = 11.5.sp,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -2709,26 +2870,27 @@ fun StatsBreakdownTab(
                                     },
                                     label = {
                                         Text(
-                                            text = if (isQuantityMode) "Qty" else "Grams",
-                                            fontSize = 11.5.sp,
+                                            text = amountFieldLabel,
+                                            fontSize = 11.sp,
                                             maxLines = 1,
                                             softWrap = false
                                         )
                                     },
                                     singleLine = true,
                                     modifier = Modifier
-                                        .weight(0.75f)
+                                        .weight(0.8f)
                                         .testTag("smart_food_grams_input")
                                 )
                             }
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Quick Presets Row (Pieces 1..6 when in Quantity mode, or Grams 50..300g when in Grams mode)
-                            val quickNumbers = if (isQuantityMode) {
-                                listOf(1, 2, 3, 4, 5, 6)
-                            } else {
-                                listOf(50, 100, 150, 200, 250, 300)
+                            // Quick Presets Row (1x..6x in Quantity mode, 100ml..500ml in Milliliters mode, or 50g..300g in Grams mode)
+                            val quickNumbers = predictedUnit.quickPresetsForMode(selectedUnitMode)
+                            val quickChipSuffix = when (selectedUnitMode) {
+                                com.example.util.FoodServingUnitMode.QUANTITY -> "x"
+                                com.example.util.FoodServingUnitMode.MILLILITERS -> "ml"
+                                com.example.util.FoodServingUnitMode.GRAMS -> "g"
                             }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -2748,7 +2910,7 @@ fun StatsBreakdownTab(
                                         )
                                     ) {
                                         Text(
-                                            text = if (isQuantityMode) "${num}x" else "${num}g",
+                                            text = "$num$quickChipSuffix",
                                             modifier = Modifier.padding(vertical = 6.dp),
                                             textAlign = TextAlign.Center,
                                             style = MaterialTheme.typography.labelMedium.copy(
@@ -2764,7 +2926,7 @@ fun StatsBreakdownTab(
                             if (smartCalc != null) {
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // Live Nutritional Breakdown Preview Card (Shows Quantity + Equivalent Grams + Macros)
+                                // Live Nutritional Breakdown Preview Card (Shows Quantity + Equivalent Grams/ml + Macros)
                                 Surface(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(14.dp),
@@ -2804,8 +2966,9 @@ fun StatsBreakdownTab(
                                                 ),
                                                 color = TextPrimary
                                             )
+                                            val measureLabel = if (smartCalc.isLiquidMl) "Volume" else "Weight"
                                             Text(
-                                                text = "• Protein: ${smartCalc.proteinG}g\n• Fiber: ${smartCalc.fiberG}g\n• Weight: ${smartCalc.grams}g",
+                                                text = "• Protein: ${smartCalc.proteinG}g\n• Fiber: ${smartCalc.fiberG}g\n• $measureLabel: ${smartCalc.grams}${smartCalc.unitSuffix}",
                                                 modifier = Modifier.weight(1f),
                                                 style = MaterialTheme.typography.bodySmall.copy(
                                                     fontSize = 12.5.sp,
@@ -2829,10 +2992,16 @@ fun StatsBreakdownTab(
                                 // 1-Tap Log Converted Food to Daily Meal Button
                                 Button(
                                     onClick = {
-                                        val label = if (smartCalc.foodName.contains("(${smartCalc.grams}g)")) {
-                                            smartCalc.foodName
+                                        val suffix = smartCalc.unitSuffix
+                                        val label = if (smartCalc.foodName.contains("(${smartCalc.grams}$suffix)", ignoreCase = true) ||
+                                            smartCalc.foodName.contains("(${smartCalc.grams}g)", ignoreCase = true) ||
+                                            smartCalc.foodName.contains("(${smartCalc.grams}ml)", ignoreCase = true)
+                                        ) {
+                                            SmartFoodNutritionEngine.normalizeMealNameUnits(smartCalc.foodName)
+                                        } else if (isQuantityMode) {
+                                            SmartFoodNutritionEngine.normalizeMealNameUnits("${parsedAmount}x ${smartCalc.foodName} (${smartCalc.grams}$suffix)")
                                         } else {
-                                            "${smartCalc.foodName} (${smartCalc.grams}g)"
+                                            SmartFoodNutritionEngine.normalizeMealNameUnits("${smartCalc.foodName} (${smartCalc.grams}$suffix)")
                                         }
                                         onLogSmartFoodItem(
                                             label,
@@ -2873,7 +3042,7 @@ fun StatsBreakdownTab(
                             } else {
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
-                                    text = "Type any dish or food above to calculate its calories, protein, carbs, fats & fiber.",
+                                    text = "Type any dish, meal, or juice above — Smart Logger predicts the serving unit (ml, g, or qty) and calculates macros!",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = TextSecondary
                                 )
@@ -2909,7 +3078,7 @@ fun StatsBreakdownTab(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        val lastFoodCals = foodHistory.lastOrNull()?.calories ?: vit.caloriesLogged.coerceAtMost(350)
+                        val lastFoodCals = todayResolvedFoodEntries.lastOrNull()?.calories ?: vit.caloriesLogged.coerceAtMost(350)
                         OutlinedButton(
                             onClick = { onUndoFood(null) },
                             enabled = canUndoFood,
@@ -3015,8 +3184,8 @@ fun StatsBreakdownTab(
                         }
                     }
 
-                    // Individual recent Food entries with per-entry Undo/Remove button
-                    if (foodHistory.isNotEmpty()) {
+                    // Individual Logged Food items for Today (never combined!) with per-entry Undo/Remove button
+                    if (todayResolvedFoodEntries.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -3028,16 +3197,29 @@ fun StatsBreakdownTab(
                                 modifier = Modifier.padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                    text = "RECENT DAILY MEAL ENTRIES (TAP UNDO TO REMOVE)",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.ExtraBold,
-                                        letterSpacing = 0.7.sp
-                                    ),
-                                    color = TextSecondary
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "TODAY'S LOGGED FOODS (${todayResolvedFoodEntries.size})",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.ExtraBold,
+                                            letterSpacing = 0.6.sp
+                                        ),
+                                        color = TextSecondary
+                                    )
+                                    Text(
+                                        text = "${todayResolvedFoodEntries.sumOf { it.calories }} kcal total",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = HunterDoneGreen
+                                    )
+                                }
 
-                                foodHistory.takeLast(5).reversed().forEach { entry ->
+                                todayResolvedFoodEntries.reversed().forEach { entry ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()

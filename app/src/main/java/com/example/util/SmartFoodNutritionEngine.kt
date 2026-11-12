@@ -21,18 +21,69 @@ data class FoodPer100gProfile(
     val pairingTip: String,
     val gramsPerUnit: Int = 100,
     val unitNameSingular: String = "piece",
-    val unitNamePlural: String = "pieces"
-)
+    val unitNamePlural: String = "pieces",
+    val isLiquidMl: Boolean = false
+) {
+    val usesMilliliters: Boolean
+        get() {
+            if (isLiquidMl) return true
+            val u = unitNameSingular.lowercase()
+            if (u.contains("glass") || u.contains("cup") || u.contains("bottle") || u.contains("can") || u.contains("ml")) {
+                return true
+            }
+            val d = displayName.lowercase()
+            return listOf(
+                "juice", "milk", "shake", "smoothie", "water", "tea", "coffee",
+                "buttermilk", "chaas", "neer mor", "lassi", "soda", "cola", "soup",
+                "rasam", "payasam", "kheer", "sarbath", "sharbat", "lemonade",
+                "nimbu pani", "elaneer", "nariyal pani", "jigarthanda", "falooda",
+                "beverage", "soft drink"
+            ).any { d.contains(it) }
+        }
+
+    val measureUnitSuffix: String
+        get() = if (usesMilliliters) "ml" else "g"
+}
+
+enum class FoodServingUnitMode {
+    QUANTITY,
+    GRAMS,
+    MILLILITERS
+}
+
+data class PredictedServingUnitInfo(
+    val matchedFoodName: String,
+    val recommendedMode: FoodServingUnitMode,
+    val isLiquidMl: Boolean,
+    val baseUnitSuffix: String,          // "ml" or "g"
+    val quantityUnitSingular: String,    // e.g. "glass", "dosa", "idli", "bowl", "plate", "scoop", "piece"
+    val quantityUnitPlural: String,      // e.g. "glasses", "dosas", "idlis", "bowls", "plates", "scoops", "pieces"
+    val gramsOrMlPerUnit: Int,           // e.g. 250 (ml per glass), 80 (g per dosa), 3 (g per scoop)
+    val predictedBadgeText: String,      // e.g. "Predicted Unit: Milliliters (ml) / Glass (1 glass = 250ml)"
+    val defaultAmountForRecommended: Int // e.g. 200 for ml, 1 for quantity, 150 for grams
+) {
+    fun quickPresetsForMode(mode: FoodServingUnitMode): List<Int> = when (mode) {
+        FoodServingUnitMode.QUANTITY -> listOf(1, 2, 3, 4, 5, 6)
+        FoodServingUnitMode.MILLILITERS -> listOf(100, 150, 200, 250, 350, 500)
+        FoodServingUnitMode.GRAMS -> if (gramsOrMlPerUnit <= 35 && !isLiquidMl) {
+            listOf(3, 5, 10, 30, 50, 100)
+        } else {
+            listOf(50, 100, 150, 200, 250, 300)
+        }
+    }
+}
 
 /**
- * Exact calculated macronutrient & micronutrient breakdown for a specific gram weight OR quantity of food.
+ * Exact calculated macronutrient & micronutrient breakdown for a specific gram/ml weight OR quantity of food.
  */
 data class CalculatedFoodNutrition(
     val foodName: String,
     val grams: Int,
     val quantityCount: Int = 1,
     val isQuantityBased: Boolean = false,
-    val servingLabel: String = "${grams}g",
+    val isLiquidMl: Boolean = false,
+    val unitSuffix: String = if (isLiquidMl) "ml" else "g",
+    val servingLabel: String = "${grams}${if (isLiquidMl) "ml" else "g"}",
     val description: String,
     val calories: Int,
     val carbsG: Double,
@@ -2227,121 +2278,400 @@ object SmartFoodNutritionEngine {
             gramsPerUnit = 5,
             unitNameSingular = "tsp",
             unitNamePlural = "tsp"
+        ),
+        // =====================================================================
+        // 8. FRESH FRUIT JUICES, SHAKES, COCONUT WATER & BEVERAGES (MEASURED IN ML)
+        // =====================================================================
+        FoodPer100gProfile(
+            keywords = listOf("mosambi juice", "sweet lime juice", "mosambi", "musambi juice", "musambi", "sathukudi juice", "sathukudi", "fresh mosambi juice"),
+            displayName = "Fresh Mosambi Juice (Sweet Lime Juice)",
+            description = "Refreshing cold-pressed sweet lime (mosambi / sathukudi) juice rich in natural Vitamin C, potassium electrolytes, and fast-absorbing hydration carbs (measured in ml).",
+            caloriesPer100g = 43,
+            carbsPer100g = 10.2,
+            fatsPer100g = 0.1,
+            proteinPer100g = 0.6,
+            fiberPer100g = 0.4,
+            micronutrients = "High Vitamin C (50mg/100ml), Potassium, Folate, Natural Citrate Electrolytes",
+            pairingTip = "1 glass (250ml) post-workout replenishes electrolytes and liver glycogen; ask for no added white sugar.",
+            gramsPerUnit = 250,
+            unitNameSingular = "glass",
+            unitNamePlural = "glasses",
+            isLiquidMl = true
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("orange juice", "fresh orange juice", "kinnow juice", "tangerine juice", "santra juice"),
+            displayName = "Fresh Orange Juice",
+            description = "Freshly squeezed citrus juice packed with Vitamin C, hesperidin antioxidants, and potassium for immune and post-training recovery (measured in ml).",
+            caloriesPer100g = 45,
+            carbsPer100g = 10.4,
+            fatsPer100g = 0.2,
+            proteinPer100g = 0.7,
+            fiberPer100g = 0.3,
+            micronutrients = "Vitamin C, Hesperidin, Potassium, Folate, Thiamine",
+            pairingTip = "Pair 200ml–250ml fresh Orange Juice with boiled eggs or oats to enhance iron absorption.",
+            gramsPerUnit = 250,
+            unitNameSingular = "glass",
+            unitNamePlural = "glasses",
+            isLiquidMl = true
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("watermelon juice", "fresh watermelon juice", "tarbooz juice", "melon juice"),
+            displayName = "Fresh Watermelon Juice",
+            description = "Ultra-hydrating fruit juice naturally rich in L-Citrulline (supports nitric oxide blood flow and muscle pump) and lycopene (measured in ml).",
+            caloriesPer100g = 30,
+            carbsPer100g = 7.5,
+            fatsPer100g = 0.1,
+            proteinPer100g = 0.6,
+            fiberPer100g = 0.3,
+            micronutrients = "Natural L-Citrulline, Lycopene, Vitamin C, Vitamin A, Potassium",
+            pairingTip = "Drink 250ml–300ml 30 minutes pre-workout for natural L-Citrulline vascular pump!",
+            gramsPerUnit = 250,
+            unitNameSingular = "glass",
+            unitNamePlural = "glasses",
+            isLiquidMl = true
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("pomegranate juice", "anar juice", "mathulai juice", "fresh pomegranate juice"),
+            displayName = "Fresh Pomegranate (Anar) Juice",
+            description = "Polyphenol-rich ruby fruit juice clinically shown to support nitric oxide production, blood flow, and reduced muscle soreness (measured in ml).",
+            caloriesPer100g = 54,
+            carbsPer100g = 13.1,
+            fatsPer100g = 0.3,
+            proteinPer100g = 0.4,
+            fiberPer100g = 0.2,
+            micronutrients = "Punicalagins (Nitric Oxide Boost), Vitamin K, Folate, Potassium, Iron",
+            pairingTip = "200ml Pomegranate Juice pre-workout enhances endurance and muscle blood flow.",
+            gramsPerUnit = 250,
+            unitNameSingular = "glass",
+            unitNamePlural = "glasses",
+            isLiquidMl = true
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("pineapple juice", "apple juice", "grape juice", "guava juice", "papaya juice", "muskmelon juice", "kirni juice", "mixed fruit juice", "fruit juice", "mango juice"),
+            displayName = "Fresh Fruit Juice (Pineapple / Apple / Mixed Fruit)",
+            description = "Freshly blended fruit juice providing natural fructose/glucose carbohydrates, digestive enzymes (bromelain), and vitamins (measured in ml).",
+            caloriesPer100g = 48,
+            carbsPer100g = 11.6,
+            fatsPer100g = 0.1,
+            proteinPer100g = 0.5,
+            fiberPer100g = 0.4,
+            micronutrients = "Vitamin C, Bromelain Enzymes, Potassium, Manganese",
+            pairingTip = "Best consumed post-workout alongside a high-protein meal or whey shake.",
+            gramsPerUnit = 250,
+            unitNameSingular = "glass",
+            unitNamePlural = "glasses",
+            isLiquidMl = true
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("lemon juice", "nimbu pani", "shikanji", "lime juice", "fresh lime soda", "fresh lime juice", "lemonade", "kulukki sarbath", "nannari sarbath", "sarbath"),
+            displayName = "Lemon Juice / Nimbu Pani / Fresh Lime Soda",
+            description = "Refreshing Indian citrus electrolyte drink made with squeezed lemon, water/soda, black salt, and roasted cumin (measured in ml).",
+            caloriesPer100g = 28,
+            carbsPer100g = 6.8,
+            fatsPer100g = 0.1,
+            proteinPer100g = 0.2,
+            fiberPer100g = 0.1,
+            micronutrients = "Vitamin C, Sodium & Potassium Electrolytes, Citric Acid",
+            pairingTip = "Make Salted Nimbu Pani or Stevia Shikanji for a near-zero-calorie summer electrolyte drink!",
+            gramsPerUnit = 250,
+            unitNameSingular = "glass",
+            unitNamePlural = "glasses",
+            isLiquidMl = true
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("sugarcane juice", "ganne ka ras", "karumbu juice", "cane juice"),
+            displayName = "Fresh Sugarcane Juice (Ganne Ka Ras)",
+            description = "Natural pressed sugarcane juice with ginger and lemon — rapid glycemic carbohydrate source for instant energy replenishment (measured in ml).",
+            caloriesPer100g = 58,
+            carbsPer100g = 14.2,
+            fatsPer100g = 0.1,
+            proteinPer100g = 0.2,
+            fiberPer100g = 0.2,
+            micronutrients = "Calcium, Iron, Magnesium, Potassium, Natural Sucrose",
+            pairingTip = "Ideal right after intense outdoor sports or heavy leg training to restore depleted glycogen.",
+            gramsPerUnit = 250,
+            unitNameSingular = "glass",
+            unitNamePlural = "glasses",
+            isLiquidMl = true
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("coconut water", "tender coconut", "tender coconut water", "elaneer", "ilaneer", "nariyal pani", "daab water"),
+            displayName = "Tender Coconut Water (Elaneer / Nariyal Pani)",
+            description = "Nature's purest isotonic electrolyte beverage packed with bioavailable potassium, magnesium, and sodium with minimal calories (measured in ml).",
+            caloriesPer100g = 19,
+            carbsPer100g = 3.7,
+            fatsPer100g = 0.2,
+            proteinPer100g = 0.7,
+            fiberPer100g = 0.5,
+            micronutrients = "High Potassium (250mg/100ml), Magnesium, Sodium, Cytokinins",
+            pairingTip = "1 tender coconut (~250ml) is the best natural intra- or post-workout rehydration drink.",
+            gramsPerUnit = 250,
+            unitNameSingular = "glass",
+            unitNamePlural = "glasses",
+            isLiquidMl = true
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("abc juice", "carrot juice", "beetroot juice", "beet juice", "amla juice", "ash gourd juice", "green juice", "vegetable juice"),
+            displayName = "ABC / Beetroot / Carrot Detox Juice",
+            description = "Nutrient-dense Apple-Beetroot-Carrot (ABC) or vegetable juice rich in dietary nitrates that boost stamina, oxygen efficiency, and blood flow (measured in ml).",
+            caloriesPer100g = 41,
+            carbsPer100g = 9.4,
+            fatsPer100g = 0.2,
+            proteinPer100g = 0.9,
+            fiberPer100g = 0.8,
+            micronutrients = "Dietary Nitrates (Vasodilation), Beta-Carotene, Iron, Folate, Vitamin C",
+            pairingTip = "200ml Beetroot/ABC Juice 45 minutes before training improves cardiovascular stamina and muscle pump.",
+            gramsPerUnit = 250,
+            unitNameSingular = "glass",
+            unitNamePlural = "glasses",
+            isLiquidMl = true
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("banana shake", "mango shake", "chikoo shake", "sapota shake", "strawberry shake", "chocolate shake", "oreo shake", "cold coffee", "avocado shake", "dates shake", "badam shake", "milkshake", "smoothie", "jigarthanda", "falooda"),
+            displayName = "Fruit / Protein Milkshake (Banana / Mango / Cold Coffee)",
+            description = "Calorie- and nutrient-dense blended milk & fruit shake providing sustained carbohydrates, dairy protein, and calcium (measured in ml).",
+            caloriesPer100g = 94,
+            carbsPer100g = 14.8,
+            fatsPer100g = 2.6,
+            proteinPer100g = 3.2,
+            fiberPer100g = 0.8,
+            micronutrients = "Calcium, Potassium, Vitamin B12, Vitamin D, Dairy Amino Acids",
+            pairingTip = "Blend 1 scoop Whey or 1 tbsp Peanut Butter into 300ml Banana Shake for a 450+ kcal muscle-building drink.",
+            gramsPerUnit = 300,
+            unitNameSingular = "glass",
+            unitNamePlural = "glasses",
+            isLiquidMl = true
+        ),
+        FoodPer100gProfile(
+            keywords = listOf("coca cola", "coke", "pepsi", "sprite", "thums up", "7up", "fanta", "mirinda", "maaza", "frooti", "soft drink", "cold drink", "energy drink", "red bull", "monster", "gatorade"),
+            displayName = "Soft Drink / Packaged Beverage",
+            description = "Carbonated or sweetened packaged beverage containing rapid simple sugars (measured in ml).",
+            caloriesPer100g = 42,
+            carbsPer100g = 10.6,
+            fatsPer100g = 0.0,
+            proteinPer100g = 0.0,
+            fiberPer100g = 0.0,
+            micronutrients = "Simple Sugars, Sodium, Caffeine (in Cola/Energy Drinks)",
+            pairingTip = "Swap sugary sodas for Tender Coconut Water, Neer Mor, Fresh Mosambi Juice, or Zero-Sugar Lime Soda.",
+            gramsPerUnit = 250,
+            unitNameSingular = "can/glass",
+            unitNamePlural = "cans/glasses",
+            isLiquidMl = true
         )
     )
 
+    private val NON_ALPHANUM_REGEX = Regex("[^a-z0-9\\s]")
+    private val WHITESPACE_REGEX = Regex("\\s+")
+    private val STRIP_UNIT_TOKENS_REGEX = Regex(
+        """\b\d+\s*(?:g|gm|gms|gram|grams|ml|x|pcs|pieces|piece|glass|glasses|cup|cups|bowl|bowls|plate|plates|scoop|scoops)?\b""",
+        RegexOption.IGNORE_CASE
+    )
+    private val PAREN_GRAMS_ML_REGEX = Regex("""\(\d+\s*(?:g|ml)\)""", RegexOption.IGNORE_CASE)
+    private val PAREN_GRAMS_ONLY_REGEX = Regex("""\((\d+)\s*g\)""", RegexOption.IGNORE_CASE)
+    private val MULTI_SEGMENT_SPLIT_REGEX = Regex(
+        """(?:\s*[,+&]\s*|\s+\b(?:in|with|and|plus|into|mixed\s+in|mixed\s+with)\b\s+)""",
+        RegexOption.IGNORE_CASE
+    )
+    private const val UNIT_REGEX_STR =
+        "g|gm|gms|gram|grams|ml|pcs|pc|piece|pieces|nos|no|cups|cup|glasses|glass|bowls|bowl|plates|plate|slices|slice|scoops|scoop|tsp|tbsp"
+    private val TRAILING_NUM_UNIT_REGEX = Regex(
+        """^([a-zA-Z][a-zA-Z\s\-]{1,32}?)\s+(\d{1,4})\s*($UNIT_REGEX_STR)?$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val MULTI_ITEM_PATTERN_REGEX = Regex(
+        """(\d{1,4})\s*($UNIT_REGEX_STR)?\s+([a-zA-Z][a-zA-Z0-9\s\-]{1,32}?)(?=\s+\d|\s*[,+&]|\s+and\s+|\s*$)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val TYPO_WORD_MAP: Map<String, String> = mapOf(
+        "gravey" to "gravy",
+        "gravie" to "gravy",
+        "greavy" to "gravy",
+        "kuzhambu" to "kulambu",
+        "kolambu" to "kulambu",
+        "biriyani" to "biryani",
+        "briyani" to "biryani",
+        "buriyani" to "biryani",
+        "chapathi" to "chapati",
+        "chappathi" to "chapati",
+        "chappati" to "chapati",
+        "idly" to "idli",
+        "idlies" to "idli",
+        "dosai" to "dosa",
+        "thosai" to "dosa",
+        "dose" to "dosa",
+        "vadai" to "vada",
+        "wada" to "vada",
+        "medhu" to "medu",
+        "parota" to "parotta",
+        "porotta" to "parotta",
+        "barotta" to "parotta",
+        "barota" to "parotta",
+        "panneer" to "paneer",
+        "panner" to "paneer",
+        "sambhar" to "sambar",
+        "channa" to "chana",
+        "chenna" to "chana",
+        "pulav" to "pulao",
+        "pilaf" to "pulao",
+        "uppuma" to "upma",
+        "aval" to "poha",
+        "chole" to "chana masala",
+        "chhole" to "chana masala",
+        "creatin" to "creatine",
+        "musambi" to "mosambi"
+    )
+
+    private class IndexedKeyword(
+        val rawLower: String,
+        val kwNorm: String,
+        val kwTokens: List<String>
+    )
+
+    private class IndexedFoodProfile(
+        val profile: FoodPer100gProfile,
+        val displayNorm: String,
+        val displayTokens: Set<String>,
+        val keywords: List<IndexedKeyword>
+    )
+
+    private val indexedDatabase: List<IndexedFoodProfile> by lazy {
+        database.map { p ->
+            val dNorm = normalizeFoodQuery(p.displayName)
+            val dTokens = dNorm.split(' ').filter { it.length >= 2 }.toSet()
+            val kws = p.keywords.map { kw ->
+                val kn = normalizeFoodQuery(kw)
+                IndexedKeyword(
+                    rawLower = kw.trim().lowercase(),
+                    kwNorm = kn,
+                    kwTokens = kn.split(' ').filter { it.length >= 2 }
+                )
+            }
+            IndexedFoodProfile(
+                profile = p,
+                displayNorm = dNorm,
+                displayTokens = dTokens,
+                keywords = kws
+            )
+        }
+    }
+
+    private val exactKeywordLookup: Map<String, FoodPer100gProfile> by lazy {
+        val map = HashMap<String, FoodPer100gProfile>(database.size * 6)
+        for (item in indexedDatabase) {
+            map.putIfAbsent(item.displayNorm, item.profile)
+            for (kw in item.keywords) {
+                map.putIfAbsent(kw.kwNorm, item.profile)
+                map.putIfAbsent(kw.rawLower, item.profile)
+            }
+        }
+        map
+    }
+
+    private val profileLookupCache = java.util.concurrent.ConcurrentHashMap<String, FoodPer100gProfile>(256)
+
     /**
-     * Normalizes common Indian food spelling variations and typos so user queries
-     * like "chicken gravey", "biriyani", "chapathi", "idly", "parota", "panneer" match accurately.
+     * Checks if `haystack` contains `needle` at word boundaries without allocating any Regex.
+     */
+    private fun containsWholePhrase(haystack: String, needle: String): Boolean {
+        if (needle.isEmpty() || haystack.length < needle.length) return false
+        var startIdx = haystack.indexOf(needle)
+        while (startIdx >= 0) {
+            val leftOk = startIdx == 0 || !haystack[startIdx - 1].isLetterOrDigit()
+            val endIdx = startIdx + needle.length
+            val rightOk = endIdx == haystack.length || !haystack[endIdx].isLetterOrDigit()
+            if (leftOk && rightOk) return true
+            startIdx = haystack.indexOf(needle, startIdx + 1)
+        }
+        return false
+    }
+
+    /**
+     * Normalizes common Indian food spelling variations and typos in O(N) without compiling Regexes.
      */
     private fun normalizeFoodQuery(raw: String): String {
-        var text = raw.trim().lowercase()
-            .replace(Regex("[^a-z0-9\\s]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-
-        val replacements = listOf(
-            "gravey" to "gravy",
-            "gravie" to "gravy",
-            "greavy" to "gravy",
-            "kuzhambu" to "kulambu",
-            "kolambu" to "kulambu",
-            "biriyani" to "biryani",
-            "briyani" to "biryani",
-            "buriyani" to "biryani",
-            "chapathi" to "chapati",
-            "chappathi" to "chapati",
-            "chappati" to "chapati",
-            "idly" to "idli",
-            "idlies" to "idli",
-            "dosai" to "dosa",
-            "thosai" to "dosa",
-            "dose" to "dosa",
-            "vadai" to "vada",
-            "wada" to "vada",
-            "medhu" to "medu",
-            "parota" to "parotta",
-            "porotta" to "parotta",
-            "barotta" to "parotta",
-            "barota" to "parotta",
-            "panneer" to "paneer",
-            "panner" to "paneer",
-            "sambhar" to "sambar",
-            "channa" to "chana",
-            "chenna" to "chana",
-            "pulav" to "pulao",
-            "pilaf" to "pulao",
-            "uppuma" to "upma",
-            "aval" to "poha",
-            "chole" to "chana masala",
-            "chhole" to "chana masala",
-            "creatin" to "creatine"
-        )
-        for ((wrong, right) in replacements) {
-            text = text.replace(Regex("\\b$wrong\\b"), right)
+        val cleaned = NON_ALPHANUM_REGEX.replace(raw.trim().lowercase(), " ").trim()
+        if (cleaned.isEmpty()) return ""
+        val words = cleaned.split(WHITESPACE_REGEX)
+        val sb = StringBuilder(cleaned.length + 8)
+        for (i in words.indices) {
+            val w = words[i]
+            if (w.isEmpty()) continue
+            val mapped = TYPO_WORD_MAP[w] ?: w
+            if (sb.isNotEmpty()) sb.append(' ')
+            sb.append(mapped)
         }
-        return text.trim()
+        return sb.toString()
     }
 
     /**
      * Resolves the most accurate food profile for any user input string using
-     * typo-normalization + multi-word token overlap scoring.
+     * pre-indexed O(1) exact lookup + multi-word token overlap scoring with zero runtime Regex allocations.
      */
     fun findProfile(foodInput: String): FoodPer100gProfile {
         val rawClean = foodInput.trim().lowercase()
-        val normalized = normalizeFoodQuery(foodInput)
-        val queryTokens = normalized.split(" ").filter { it.length >= 2 }
+        if (rawClean.isEmpty()) return database.first()
+        profileLookupCache[rawClean]?.let { return it }
 
-        // 1. Exact full-string match on either normalized or raw input
-        database.firstOrNull { profile ->
-            profile.keywords.any { kw ->
-                val normKw = normalizeFoodQuery(kw)
-                normalized == normKw || rawClean == kw.lowercase()
-            }
-        }?.let { return it }
+        val normalized = normalizeFoodQuery(rawClean)
+        profileLookupCache[normalized]?.let { return it }
 
-        // 2. Multi-token scored match so "chicken loaded fries" -> "Chicken Loaded Fries" and "bun shawarma" -> "Bun Shawarma"
+        // 1. O(1) exact full-string match on either normalized or raw input
+        exactKeywordLookup[normalized]?.let { matched ->
+            if (profileLookupCache.size < 512) profileLookupCache[rawClean] = matched
+            return matched
+        }
+        exactKeywordLookup[rawClean]?.let { matched ->
+            if (profileLookupCache.size < 512) profileLookupCache[rawClean] = matched
+            return matched
+        }
+
+        val queryTokens = normalized.split(' ').filter { it.length >= 2 }
+
+        // 2. Multi-token scored match using pre-indexed keywords (zero Regex compilations)
         val genericModifierWords = setOf(
             "chicken", "mutton", "egg", "eggs", "fish", "paneer", "veg", "vegetable",
-            "cheese", "cheesy", "masala", "fried", "grilled", "roasted", "boiled", "hot", "cold", "sweet"
+            "cheese", "cheesy", "masala", "fried", "grilled", "roasted", "boiled", "hot", "cold", "sweet", "fresh"
         )
         var bestProfile: FoodPer100gProfile? = null
         var bestScore = 0
 
-        for (profile in database) {
+        for (indexed in indexedDatabase) {
             var profileMaxScore = 0
-            val displayNorm = normalizeFoodQuery(profile.displayName)
-            val displayTokens = displayNorm.split(" ").filter { it.length >= 2 }.toSet()
+            val displayTokens = indexed.displayTokens
 
-            for (kw in profile.keywords) {
-                val kwNorm = normalizeFoodQuery(kw)
-                val kwTokens = kwNorm.split(" ").filter { it.length >= 2 }
+            for (kw in indexed.keywords) {
+                val kwNorm = kw.kwNorm
+                val kwTokens = kw.kwTokens
 
                 var score = 0
                 if (normalized == kwNorm) {
                     score += 600
-                } else if (Regex("\\b${Regex.escape(kwNorm)}\\b").containsMatchIn(normalized)) {
-                    // Only give full phrase bonus if keyword has >= 2 words OR the query itself is 1 word
+                } else if (containsWholePhrase(normalized, kwNorm)) {
                     if (kwTokens.size >= 2 || queryTokens.size <= 1) {
                         score += 140 * kwTokens.size + kwNorm.length * 4
                     } else {
                         score += 45
                     }
-                } else if (normalized.length >= 3 && Regex("\\b${Regex.escape(normalized)}\\b").containsMatchIn(kwNorm)) {
+                } else if (normalized.length >= 3 && containsWholePhrase(kwNorm, normalized)) {
                     score += 90 + normalized.length * 2
                 }
 
-                // Token-by-token overlap between user query and keyword + displayName
-                // Require exact token match or plural suffix match (max 2 chars diff so "water" never matches "watermelon")
-                val matchedTokensList = queryTokens.filter { qTok ->
-                    kwTokens.any { kTok ->
+                var matchedTokens = 0
+                var hasNonGenericMatch = false
+                for (qTok in queryTokens) {
+                    val matched = kwTokens.any { kTok ->
                         kTok == qTok ||
                             (qTok.length >= 4 && kTok.startsWith(qTok) && (kTok.length - qTok.length) <= 2) ||
                             (kTok.length >= 4 && qTok.startsWith(kTok) && (qTok.length - kTok.length) <= 2)
-                    } || displayTokens.any { dTok -> dTok == qTok }
+                    } || displayTokens.contains(qTok)
+                    if (matched) {
+                        matchedTokens++
+                        if (qTok !in genericModifierWords) {
+                            hasNonGenericMatch = true
+                        }
+                    }
                 }
-                val matchedTokens = matchedTokensList.size
-                val hasNonGenericMatch = matchedTokensList.any { it !in genericModifierWords }
 
                 if (matchedTokens > 0) {
                     score += matchedTokens * 105
@@ -2349,12 +2679,10 @@ object SmartFoodNutritionEngine {
                         score += 60
                     }
                     if (matchedTokens == queryTokens.size && queryTokens.size >= 2) {
-                        // All words in the user's multi-word query matched! Huge bonus.
                         score += 320
                     }
                 }
 
-                // Strongly penalize partial generic matches (e.g., "chicken" in "chicken loaded fries" matching "chicken breast")
                 if (queryTokens.size >= 2 && matchedTokens < queryTokens.size) {
                     val unmatchedCount = queryTokens.size - matchedTokens
                     score -= unmatchedCount * 145
@@ -2370,19 +2698,20 @@ object SmartFoodNutritionEngine {
 
             if (profileMaxScore > bestScore) {
                 bestScore = profileMaxScore
-                bestProfile = profile
+                bestProfile = indexed.profile
             }
         }
 
         if (bestProfile != null && bestScore >= 70) {
+            if (profileLookupCache.size < 512) profileLookupCache[rawClean] = bestProfile
             return bestProfile
         }
 
-        val titleCased = foodInput.trim().split(Regex("\\s+")).joinToString(" ") { word ->
+        val titleCased = foodInput.trim().split(WHITESPACE_REGEX).joinToString(" ") { word ->
             word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
         }.ifBlank { "Custom Food" }
 
-        return when {
+        val fallbackProfile = when {
             normalized.contains("gravy") || normalized.contains("curry") || normalized.contains("kulambu") || normalized.contains("masala") -> FoodPer100gProfile(
                 keywords = listOf(normalized),
                 displayName = titleCased,
@@ -2398,20 +2727,23 @@ object SmartFoodNutritionEngine {
                 unitNameSingular = "bowl",
                 unitNamePlural = "bowls"
             )
-            normalized.contains("juice") || normalized.contains("drink") || normalized.contains("soda") || normalized.contains("soup") -> FoodPer100gProfile(
+            normalized.contains("juice") || normalized.contains("drink") || normalized.contains("soda") ||
+                normalized.contains("soup") || normalized.contains("shake") || normalized.contains("smoothie") ||
+                normalized.contains("sarbath") || normalized.contains("sharbat") || normalized.contains("milk") -> FoodPer100gProfile(
                 keywords = listOf(normalized),
                 displayName = titleCased,
-                description = "Liquid beverage/soup providing hydration, quick carbohydrates, and dissolved micronutrients.",
-                caloriesPer100g = 48,
-                carbsPer100g = 10.5,
-                fatsPer100g = 0.4,
-                proteinPer100g = 0.8,
-                fiberPer100g = 0.5,
+                description = "Liquid beverage/juice providing hydration, quick carbohydrates, and dissolved micronutrients (measured in ml).",
+                caloriesPer100g = 46,
+                carbsPer100g = 10.4,
+                fatsPer100g = 0.2,
+                proteinPer100g = 0.6,
+                fiberPer100g = 0.4,
                 micronutrients = "Vitamin C, Potassium, Sodium, Hydration Electrolytes",
                 pairingTip = "Pair with a solid protein source to slow sugar absorption.",
-                gramsPerUnit = 200,
+                gramsPerUnit = 250,
                 unitNameSingular = "glass",
-                unitNamePlural = "glasses"
+                unitNamePlural = "glasses",
+                isLiquidMl = true
             )
             normalized.contains("fried") || normalized.contains("chips") || normalized.contains("pakora") || normalized.contains("fry") -> FoodPer100gProfile(
                 keywords = listOf(normalized),
@@ -2459,6 +2791,102 @@ object SmartFoodNutritionEngine {
                 unitNamePlural = "servings"
             )
         }
+        if (profileLookupCache.size < 512) profileLookupCache[rawClean] = fallbackProfile
+        return fallbackProfile
+    }
+
+    /**
+     * Predicts the ideal serving unit (Milliliters 'ml', Grams 'g', or Quantity like 'glass', 'dosa', 'idli', 'scoop', 'bowl', 'plate')
+     * based on the user's typed food name and matches it against the database.
+     */
+    fun predictServingUnit(foodInput: String): PredictedServingUnitInfo {
+        val cleaned = foodInput.trim()
+        if (cleaned.isBlank()) {
+            return PredictedServingUnitInfo(
+                matchedFoodName = "",
+                recommendedMode = FoodServingUnitMode.QUANTITY,
+                isLiquidMl = false,
+                baseUnitSuffix = "g",
+                quantityUnitSingular = "piece",
+                quantityUnitPlural = "pieces",
+                gramsOrMlPerUnit = 100,
+                predictedBadgeText = "Smart Unit Predictor: Type a dish, juice, or supplement to auto-match unit (g, ml, qty)",
+                defaultAmountForRecommended = 1
+            )
+        }
+
+        // Strip trailing/leading numbers or units when predicting the base food profile
+        val strippedFood = STRIP_UNIT_TOKENS_REGEX.replace(cleaned, "").trim().ifBlank { cleaned }
+
+        val profile = findProfile(strippedFood)
+        val isLiquid = profile.usesMilliliters
+        val baseSuffix = profile.measureUnitSuffix
+        val unitSing = PAREN_GRAMS_ML_REGEX.replace(profile.unitNameSingular, "").trim().ifBlank { if (isLiquid) "glass" else "piece" }
+        val unitPlur = PAREN_GRAMS_ML_REGEX.replace(profile.unitNamePlural, "").trim().ifBlank { if (isLiquid) "glasses" else "pieces" }
+
+        val countableUnits = setOf(
+            "dosa", "idli", "vada", "appam", "puttu", "uthappam", "paniyaram", "parotta",
+            "roti", "paratha", "naan", "poori", "egg", "egg white", "omelette", "banana",
+            "fruit", "slice", "bun shawarma", "roll", "momo", "piece", "burger", "taco",
+            "wrap", "strip", "wing", "nugget", "scoop", "softgel", "tsp", "tbsp/handful"
+        )
+
+        val isWeightFirstDish = !isLiquid && unitSing.lowercase() !in countableUnits &&
+            (unitSing.contains("bowl", ignoreCase = true) ||
+                unitSing.contains("plate", ignoreCase = true) ||
+                unitSing.contains("serving", ignoreCase = true) ||
+                unitSing.contains("fillet", ignoreCase = true) ||
+                unitSing.contains("breast", ignoreCase = true))
+
+        val recommendedMode = when {
+            isLiquid -> FoodServingUnitMode.MILLILITERS
+            isWeightFirstDish -> FoodServingUnitMode.GRAMS
+            else -> FoodServingUnitMode.QUANTITY
+        }
+
+        val defaultAmt = when (recommendedMode) {
+            FoodServingUnitMode.MILLILITERS -> profile.gramsPerUnit.coerceIn(100, 500)
+            FoodServingUnitMode.GRAMS -> profile.gramsPerUnit.coerceIn(3, 500)
+            FoodServingUnitMode.QUANTITY -> 1
+        }
+
+        val badgeText = when {
+            isLiquid -> "🎯 Predicted Unit: Milliliters (ml) or ${unitSing.replaceFirstChar { it.uppercase() }} (1 $unitSing = ${profile.gramsPerUnit}ml)"
+            profile.gramsPerUnit <= 35 -> "🎯 Predicted Unit: ${unitSing.replaceFirstChar { it.uppercase() }} (1 $unitSing = ${profile.gramsPerUnit}g) or Grams (g)"
+            recommendedMode == FoodServingUnitMode.QUANTITY -> "🎯 Predicted Unit: Quantity (1 $unitSing = ${profile.gramsPerUnit}g) or Grams (g)"
+            else -> "🎯 Predicted Unit: Grams (g) or ${unitSing.replaceFirstChar { it.uppercase() }} (1 $unitSing = ${profile.gramsPerUnit}g)"
+        }
+
+        return PredictedServingUnitInfo(
+            matchedFoodName = profile.displayName,
+            recommendedMode = recommendedMode,
+            isLiquidMl = isLiquid,
+            baseUnitSuffix = baseSuffix,
+            quantityUnitSingular = unitSing,
+            quantityUnitPlural = unitPlur,
+            gramsOrMlPerUnit = profile.gramsPerUnit,
+            predictedBadgeText = badgeText,
+            defaultAmountForRecommended = defaultAmt
+        )
+    }
+
+    /**
+     * Normalizes any legacy meal name so juices/liquids always display 'ml' instead of 'g' (e.g., "Mosambi Juice (200g)" -> "Mosambi Juice (200ml)").
+     */
+    fun normalizeMealNameUnits(rawMealName: String): String {
+        val trimmed = rawMealName.trim()
+        if (trimmed.isBlank()) return trimmed
+        // Fast path: if the string doesn't contain a parenthesized gram suffix like "200g)", skip lookup completely
+        if (!trimmed.contains("g)", ignoreCase = true)) return trimmed
+        val stripped = PAREN_GRAMS_ML_REGEX.replace(trimmed, "").trim().ifBlank { trimmed }
+        val profile = findProfile(stripped)
+        return if (profile.usesMilliliters) {
+            PAREN_GRAMS_ONLY_REGEX.replace(trimmed) { m ->
+                "(${m.groupValues[1]}ml)"
+            }
+        } else {
+            trimmed
+        }
     }
 
     /**
@@ -2479,20 +2907,18 @@ object SmartFoodNutritionEngine {
     private fun parseMultiFoodInput(rawInput: String): List<ParsedSubItem> {
         val cleaned = rawInput.trim()
         if (cleaned.isBlank()) return emptyList()
+        // Fast exit if input contains no digits at all (e.g. plain dish name like "Mosambi Juice" or "Chicken Breast")
+        if (cleaned.none { it.isDigit() }) return emptyList()
 
         val stopWords = setOf("in", "with", "and", "of", "plus", "into", "mixed", "for", "to", "a", "an", "the")
-        val unitRegexStr = "g|gm|gms|gram|grams|ml|pcs|pc|piece|pieces|nos|no|cups|cup|bowls|bowl|plates|plate|slices|slice|scoops|scoop|tsp|tbsp"
 
         // Rewrite any "<food words> <number><unit>" segments (e.g., "creatine 3g in 250 ml water" -> "3g creatine , 250 ml water")
         val normalizedSegments = cleaned
-            .split(Regex("""(?:\s*[,+&]\s*|\s+\b(?:in|with|and|plus|into|mixed\s+in|mixed\s+with)\b\s+)""", RegexOption.IGNORE_CASE))
+            .split(MULTI_SEGMENT_SPLIT_REGEX)
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .joinToString(" , ") { seg ->
-                val trailingMatch = Regex(
-                    """^([a-zA-Z][a-zA-Z\s\-]{1,32}?)\s+(\d{1,4})\s*($unitRegexStr)?$""",
-                    RegexOption.IGNORE_CASE
-                ).matchEntire(seg)
+                val trailingMatch = TRAILING_NUM_UNIT_REGEX.matchEntire(seg)
                 if (trailingMatch != null) {
                     val foodPart = trailingMatch.groupValues[1].trim()
                     val numPart = trailingMatch.groupValues[2].trim()
@@ -2503,36 +2929,31 @@ object SmartFoodNutritionEngine {
                 }
             }
 
-        val itemPattern = Regex(
-            """(\d{1,4})\s*($unitRegexStr)?\s+([a-zA-Z][a-zA-Z0-9\s\-]{1,32}?)(?=\s+\d|\s*[,+&]|\s+and\s+|\s*$)""",
-            RegexOption.IGNORE_CASE
-        )
-        val matches = itemPattern.findAll(normalizedSegments).toList()
+        val matches = MULTI_ITEM_PATTERN_REGEX.findAll(normalizedSegments).toList()
         if (matches.isEmpty()) return emptyList()
 
         val parsedItems = matches.mapNotNull { m ->
             val num = m.groupValues[1].toIntOrNull()?.coerceIn(1, 5000) ?: return@mapNotNull null
             val unitToken = m.groupValues[2].lowercase().trim()
             val rawFood = m.groupValues[3]
-                .split(Regex("\\s+"))
+                .split(WHITESPACE_REGEX)
                 .filterNot { it.lowercase() in stopWords }
                 .joinToString(" ")
                 .trim()
             if (rawFood.isBlank() || rawFood.lowercase() in stopWords) return@mapNotNull null
 
-            // Do not treat "2500 kcal diet plan" as a food item
             val lowerFood = rawFood.lowercase()
             if (lowerFood.contains("kcal") || lowerFood.contains("calorie") || lowerFood.contains("diet") || lowerFood.contains("plan")) {
                 return@mapNotNull null
             }
 
             val profile = findProfile(rawFood)
-            val isWaterItem = profile.displayName.contains("Plain Drinking Water", ignoreCase = true)
-            val isExplicitGrams = unitToken in setOf("g", "gm", "gms", "gram", "grams", "ml") ||
+            val isLiquidItem = profile.usesMilliliters
+            val isExplicitGramsOrMl = unitToken in setOf("g", "gm", "gms", "gram", "grams", "ml") ||
                 (num >= 35 && unitToken.isEmpty() && profile.gramsPerUnit >= 100)
-            if (isExplicitGrams) {
+            if (isExplicitGramsOrMl) {
                 val g = num.coerceIn(1, 5000)
-                val unitSuffix = if (unitToken == "ml" || isWaterItem) "ml" else "g"
+                val unitSuffix = if (unitToken == "ml" || isLiquidItem) "ml" else "g"
                 ParsedSubItem(
                     foodQuery = rawFood,
                     grams = g,
@@ -2544,18 +2965,18 @@ object SmartFoodNutritionEngine {
                 val qty = num.coerceIn(1, 100)
                 val g = (qty * profile.gramsPerUnit).coerceIn(1, 5000)
                 val unitWord = if (qty == 1) profile.unitNameSingular else profile.unitNamePlural
+                val unitSuffix = profile.measureUnitSuffix
                 ParsedSubItem(
                     foodQuery = rawFood,
                     grams = g,
                     quantity = qty,
                     isQuantityBased = true,
-                    label = "$qty $unitWord ${profile.displayName} (${g}g)"
+                    label = "$qty $unitWord ${profile.displayName} (${g}$unitSuffix)"
                 )
             }
         }
 
         // If the user typed something like "creatine 3g in 250 ml water", keep Creatine as the primary nutrition item
-        // (or combine with Plain Drinking Water without inflating solid food gram weight)
         if (parsedItems.size >= 2 && parsedItems.any { findProfile(it.foodQuery).displayName.contains("Plain Drinking Water") }) {
             val nonWaterItems = parsedItems.filterNot { findProfile(it.foodQuery).displayName.contains("Plain Drinking Water") }
             val waterItems = parsedItems.filter { findProfile(it.foodQuery).displayName.contains("Plain Drinking Water") }
@@ -2575,7 +2996,58 @@ object SmartFoodNutritionEngine {
     }
 
     /**
-     * Unified smart calculator for Grams OR Quantity/Pieces.
+     * Splits a multi-item food query (or single food query) into a list of individual CalculatedFoodNutrition items
+     * so each dish is logged as its own separate entry rather than combined into one item.
+     */
+    fun calculateIndividualFoodItems(
+        foodInput: String,
+        amountValue: Int,
+        isQuantityMode: Boolean
+    ): List<CalculatedFoodNutrition> {
+        val round1 = { v: Double -> ((v * 10.0).roundToInt()) / 10.0 }
+        val inlineParsed = parseMultiFoodInput(foodInput)
+        if (inlineParsed.size >= 2) {
+            return inlineParsed.map { item ->
+                val profile = findProfile(item.foodQuery)
+                val safeGrams = item.grams.coerceIn(1, 5000)
+                val factor = safeGrams / 100.0
+                val isLiq = profile.usesMilliliters
+                val suffix = profile.measureUnitSuffix
+                val computedCalories = if (profile.caloriesPer100g == 0) {
+                    0
+                } else {
+                    (profile.caloriesPer100g * factor).roundToInt().coerceAtLeast(1)
+                }
+                val unitWord = if (item.quantity == 1) profile.unitNameSingular else profile.unitNamePlural
+                val servLabel = if (item.isQuantityBased) {
+                    "${item.quantity} $unitWord (${safeGrams}$suffix)"
+                } else {
+                    "${safeGrams}$suffix"
+                }
+                CalculatedFoodNutrition(
+                    foodName = profile.displayName,
+                    grams = safeGrams,
+                    quantityCount = item.quantity.coerceAtLeast(1),
+                    isQuantityBased = item.isQuantityBased,
+                    isLiquidMl = isLiq,
+                    unitSuffix = suffix,
+                    servingLabel = servLabel,
+                    description = profile.description,
+                    calories = computedCalories,
+                    carbsG = round1(profile.carbsPer100g * factor),
+                    fatsG = round1(profile.fatsPer100g * factor),
+                    proteinG = round1(profile.proteinPer100g * factor),
+                    fiberG = round1(profile.fiberPer100g * factor),
+                    micronutrients = profile.micronutrients,
+                    pairingTip = profile.pairingTip
+                )
+            }
+        }
+        return listOf(calculateForGramsOrQuantity(foodInput, amountValue, isQuantityMode))
+    }
+
+    /**
+     * Unified smart calculator for Grams/Milliliters OR Quantity/Pieces.
      */
     fun calculateForGramsOrQuantity(
         foodInput: String,
@@ -2588,6 +3060,8 @@ object SmartFoodNutritionEngine {
         if (inlineParsed.size == 1 && !inlineParsed[0].isQuantityBased) {
             val single = inlineParsed[0]
             val profile = findProfile(single.foodQuery)
+            val isLiq = profile.usesMilliliters
+            val suffix = profile.measureUnitSuffix
             val safeGrams = single.grams.coerceIn(1, 5000)
             val factor = safeGrams / 100.0
             val approxQty = (safeGrams.toDouble() / profile.gramsPerUnit.coerceAtLeast(1)).roundToInt().coerceAtLeast(1)
@@ -2601,7 +3075,9 @@ object SmartFoodNutritionEngine {
                 grams = safeGrams,
                 quantityCount = approxQty,
                 isQuantityBased = false,
-                servingLabel = "${safeGrams}g",
+                isLiquidMl = isLiq,
+                unitSuffix = suffix,
+                servingLabel = "${safeGrams}$suffix",
                 description = profile.description,
                 calories = computedCalories,
                 carbsG = round1(profile.carbsPer100g * factor),
@@ -2622,6 +3098,7 @@ object SmartFoodNutritionEngine {
             var totalFiber = 0.0
             var totalQty = 0
             var anyNonZeroCalorieProfile = false
+            var allLiquid = true
             val names = mutableListOf<String>()
             val descriptions = mutableListOf<String>()
             val micros = mutableSetOf<String>()
@@ -2629,6 +3106,7 @@ object SmartFoodNutritionEngine {
 
             inlineParsed.forEach { item ->
                 val profile = findProfile(item.foodQuery)
+                if (!profile.usesMilliliters) allLiquid = false
                 val factor = item.grams / 100.0
                 totalGrams += item.grams
                 totalQty += item.quantity
@@ -2646,13 +3124,16 @@ object SmartFoodNutritionEngine {
                 tips.add(profile.pairingTip)
             }
 
+            val suffix = if (allLiquid) "ml" else "g"
             val combinedLabel = names.joinToString(" + ")
             return CalculatedFoodNutrition(
                 foodName = combinedLabel,
                 grams = totalGrams.coerceAtLeast(1),
                 quantityCount = totalQty.coerceAtLeast(1),
                 isQuantityBased = true,
-                servingLabel = "${totalGrams}g",
+                isLiquidMl = allLiquid,
+                unitSuffix = suffix,
+                servingLabel = "${totalGrams}$suffix",
                 description = descriptions.distinct().joinToString(" "),
                 calories = if (anyNonZeroCalorieProfile) totalCalories.coerceAtLeast(1) else 0,
                 carbsG = round1(totalCarbs),
@@ -2665,6 +3146,8 @@ object SmartFoodNutritionEngine {
         }
 
         val profile = findProfile(foodInput)
+        val isLiq = profile.usesMilliliters
+        val suffix = profile.measureUnitSuffix
         return if (isQuantityMode) {
             val safeQty = amountValue.coerceIn(1, 100)
             val computedGrams = (safeQty * profile.gramsPerUnit).coerceIn(1, 5000)
@@ -2675,12 +3158,15 @@ object SmartFoodNutritionEngine {
             } else {
                 (profile.caloriesPer100g * factor).roundToInt().coerceAtLeast(1)
             }
+            val cleanUnitWord = PAREN_GRAMS_ML_REGEX.replace(unitWord, "").trim()
             CalculatedFoodNutrition(
                 foodName = profile.displayName,
                 grams = computedGrams,
                 quantityCount = safeQty,
                 isQuantityBased = true,
-                servingLabel = "$safeQty $unitWord (${computedGrams}g)",
+                isLiquidMl = isLiq,
+                unitSuffix = suffix,
+                servingLabel = "$safeQty $cleanUnitWord (${computedGrams}$suffix)",
                 description = profile.description,
                 calories = computedCalories,
                 carbsG = round1(profile.carbsPer100g * factor),
@@ -2699,12 +3185,18 @@ object SmartFoodNutritionEngine {
             } else {
                 (profile.caloriesPer100g * factor).roundToInt().coerceAtLeast(1)
             }
+            val cleanUnitWord = PAREN_GRAMS_ML_REGEX.replace(
+                if (approxQty == 1) profile.unitNameSingular else profile.unitNamePlural,
+                ""
+            ).trim()
             CalculatedFoodNutrition(
                 foodName = profile.displayName,
                 grams = safeGrams,
                 quantityCount = approxQty,
                 isQuantityBased = false,
-                servingLabel = "${safeGrams}g (~$approxQty ${if (approxQty == 1) profile.unitNameSingular else profile.unitNamePlural})",
+                isLiquidMl = isLiq,
+                unitSuffix = suffix,
+                servingLabel = "${safeGrams}$suffix (~$approxQty $cleanUnitWord)",
                 description = profile.description,
                 calories = computedCalories,
                 carbsG = round1(profile.carbsPer100g * factor),
@@ -2718,7 +3210,7 @@ object SmartFoodNutritionEngine {
     }
 
     /**
-     * Converts (foodName, grams) into exact Calories, Carbs, Fats, Protein, and Fiber.
+     * Converts (foodName, gramsOrMl) into exact Calories, Carbs, Fats, Protein, and Fiber.
      */
     fun calculateForGrams(foodInput: String, grams: Int): CalculatedFoodNutrition {
         return calculateForGramsOrQuantity(
@@ -2728,8 +3220,10 @@ object SmartFoodNutritionEngine {
         )
     }
 
+    private val EXTRACT_GRAMS_REGEX = Regex("(\\d{1,4})\\s*(g|gm|gms|gram|grams|ml)\\b", RegexOption.IGNORE_CASE)
+
     /**
-     * Extracts either a gram weight (e.g. "3g creatine", "200g chicken gravy") or quantity count (e.g. "3 dosa 4 idly") from a query.
+     * Extracts either a gram/ml weight (e.g. "3g creatine", "200ml mosambi juice") or quantity count (e.g. "3 dosa 4 idly") from a query.
      */
     fun extractGramsFromQuery(query: String): Pair<String, Int> {
         val multiParsed = parseMultiFoodInput(query)
@@ -2737,8 +3231,7 @@ object SmartFoodNutritionEngine {
             val totalGrams = multiParsed.sumOf { it.grams }.coerceIn(1, 5000)
             return Pair(query.trim(), totalGrams)
         }
-        val regex = Regex("(\\d{1,4})\\s*(g|gm|gms|gram|grams|ml)\\b", RegexOption.IGNORE_CASE)
-        val match = regex.find(query)
+        val match = EXTRACT_GRAMS_REGEX.find(query)
         return if (match != null) {
             val grams = match.groupValues[1].toIntOrNull()?.coerceIn(1, 5000) ?: 100
             val cleanedFood = query.replace(match.value, "").trim()

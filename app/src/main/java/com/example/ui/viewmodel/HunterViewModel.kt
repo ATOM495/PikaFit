@@ -11,6 +11,8 @@ import com.example.data.model.FeedbackEntry
 import com.example.data.model.HunterBiometrics
 import com.example.data.model.HunterSystemState
 import com.example.data.model.JournalEntry
+import com.example.data.model.LoggedFoodItem
+import com.example.data.model.ProductiveTaskItem
 import com.example.data.model.QuestItem
 import com.example.data.model.StreakDateUtils
 import com.example.data.model.TacticalLog
@@ -101,8 +103,8 @@ data class FoodEntryRecord(
     val fiberG: Double = 0.0,
     val grams: Int = 100,
     val xpAwarded: Int,
-    val triggeredDailyCheckIn: Boolean,
-    val previousStreakDays: Int
+    val triggeredDailyCheckIn: Boolean = false,
+    val previousStreakDays: Int = 0
 )
 
 data class WaterEntryRecord(
@@ -405,6 +407,8 @@ class HunterViewModel(
     private fun observeRemoteSession() {
         viewModelScope.launch {
             val (wasAlreadyOnboardedLocally, restoredBio, verPair) = withContext(Dispatchers.IO) {
+                // Pre-warm SmartFoodNutritionEngine keyword index on background thread
+                SmartFoodNutritionEngine.findProfile("idli")
                 val verName = repository.getInstalledVersionName()
                 val verCode = repository.getInstalledVersionCode()
                 val onboarded = repository.isOnboardingCompletedForUser(currentUserId)
@@ -447,7 +451,7 @@ class HunterViewModel(
                 }
                 .collect { session ->
                     if (session != null) {
-                        val evaluated = withContext(Dispatchers.IO) {
+                        val (evaluated, todayResolvedItems) = withContext(Dispatchers.IO) {
                             val loaded = session.toHunterSystemState()
                             val savedEmail = repository.getSavedAccountEmail()
                             val preferredName = if (!savedEmail.isNullOrBlank() && savedEmail.contains("@")) {
@@ -468,9 +472,25 @@ class HunterViewModel(
                             if (effectiveBiometrics.onboardingCompleted) {
                                 repository.setOnboardingCompletedForUser(currentUserId, true, eval.toStateJson())
                             }
-                            eval
+                            val resolvedToday = eval.playerStatus.dailyLogsByDate[StreakDateUtils.todayDateString()]?.resolvedFoodItems().orEmpty()
+                            eval to resolvedToday
                         }
                         _systemState.value = evaluated
+                        if (_foodHistory.value.isEmpty() && todayResolvedItems.isNotEmpty()) {
+                            _foodHistory.value = todayResolvedItems.map { item ->
+                                FoodEntryRecord(
+                                    id = item.id,
+                                    mealName = item.mealName,
+                                    calories = item.calories,
+                                    proteinG = item.proteinG,
+                                    carbsG = item.carbsG,
+                                    fatsG = item.fatsG,
+                                    fiberG = item.fiberG,
+                                    grams = item.grams,
+                                    xpAwarded = 45
+                                )
+                            }
+                        }
                         hasSeededInitialSession = true
                         _isSessionLoaded.value = true
                         seedWelcomeNutritionChatIfEmpty(evaluated)
@@ -1246,10 +1266,14 @@ class HunterViewModel(
             caloriesLogged = caloriesLogged,
             proteinLogged = proteinLogged
         )
-        val cleanMealLabel = if (calc.foodName.contains("(${calc.grams}g)")) {
-            calc.foodName
+        val suffix = calc.unitSuffix
+        val cleanMealLabel = if (calc.foodName.contains("(${calc.grams}$suffix)", ignoreCase = true) ||
+            calc.foodName.contains("(${calc.grams}g)", ignoreCase = true) ||
+            calc.foodName.contains("(${calc.grams}ml)", ignoreCase = true)
+        ) {
+            SmartFoodNutritionEngine.normalizeMealNameUnits(calc.foodName)
         } else {
-            "${calc.foodName} (${calc.grams}g)"
+            SmartFoodNutritionEngine.normalizeMealNameUnits("${calc.foodName} (${calc.grams}$suffix)")
         }
         return NutritionReplyResult(
             replyText = formattedText,
@@ -1458,7 +1482,7 @@ class HunterViewModel(
             val updatedAchievements = if (!hasPhotoAchievement) {
                 xpUpdatedState.unlockedAchievements + AchievementItem(
                     title = "Visual Chronicler",
-                    description = "Uploaded and archived a physique progress photo to your Personal Hunter Journal.",
+                    description = "Uploaded and archived a physique progress photo to your Personal Trainer Journal.",
                     rarity = "EPIC"
                 )
             } else {
@@ -1521,9 +1545,11 @@ class HunterViewModel(
     ) {
         if (calories < 0 || (calories == 0 && mealName.isBlank())) return
         viewModelScope.launch {
-            val cleanMeal = mealName.trim()
-                .replace(Regex("""\(\d+g\)\s*(\(\d+g\))"""), "$1")
-                .ifBlank { "Tactical Ration" }
+            val cleanMeal = SmartFoodNutritionEngine.normalizeMealNameUnits(
+                mealName.trim()
+                    .replace(Regex("""\(\d+\s*(?:g|ml)\)\s*(\(\d+\s*(?:g|ml)\))""", RegexOption.IGNORE_CASE), "$1")
+                    .ifBlank { "Tactical Ration" }
+            )
             val safeCals = calories.coerceIn(0, 10000)
             val safePro = round(proteinG.coerceIn(0.0, 500.0) * 10.0) / 10.0
             val safeCarbs = round(carbsG.coerceIn(0.0, 1000.0) * 10.0) / 10.0
@@ -1578,8 +1604,59 @@ class HunterViewModel(
             val updatedBriefing = "Logged food \"$cleanMeal\" (+$safeCals kcal | P: ${safePro}g • C: ${safeCarbs}g • F: ${safeFats}g). Total intake: $newKcal / ${vit.caloriesTarget} kcal. $streakNote"
 
             val todayStr = StreakDateUtils.todayDateString()
-            val prevSummary = xpUpdatedState.playerStatus.dailyLogsByDate[todayStr]?.foodSummary.orEmpty()
-            val combinedSummary = if (prevSummary.isBlank()) cleanMeal else "$prevSummary, $cleanMeal"
+            val prevDailyLog = xpUpdatedState.playerStatus.dailyLogsByDate[todayStr]
+            val prevItems = prevDailyLog?.resolvedFoodItems() ?: emptyList()
+
+            // If a multi-food string ("3 Dosa (240g) + 4 Idli (168g)") was passed, split into separate individual items
+            val newIndividualItems: List<LoggedFoodItem> = if (cleanMeal.contains(" + ")) {
+                val parts = cleanMeal.split(" + ").map { it.trim() }.filter { it.isNotBlank() }
+                if (parts.size >= 2) {
+                    parts.map { part ->
+                        val amtMatch = Regex("""\((\d+)\s*(?:g|ml)\)""", RegexOption.IGNORE_CASE).find(part)
+                        val gVal = amtMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 100
+                        val subCalc = SmartFoodNutritionEngine.calculateForGrams(part, gVal)
+                        LoggedFoodItem(
+                            id = UUID.randomUUID().toString(),
+                            mealName = SmartFoodNutritionEngine.normalizeMealNameUnits(part),
+                            calories = subCalc.calories,
+                            proteinG = subCalc.proteinG,
+                            carbsG = subCalc.carbsG,
+                            fatsG = subCalc.fatsG,
+                            fiberG = subCalc.fiberG,
+                            grams = subCalc.grams
+                        )
+                    }
+                } else {
+                    listOf(
+                        LoggedFoodItem(
+                            id = UUID.randomUUID().toString(),
+                            mealName = cleanMeal,
+                            calories = safeCals,
+                            proteinG = safePro,
+                            carbsG = safeCarbs,
+                            fatsG = safeFats,
+                            fiberG = safeFiber,
+                            grams = safeGrams
+                        )
+                    )
+                }
+            } else {
+                listOf(
+                    LoggedFoodItem(
+                        id = UUID.randomUUID().toString(),
+                        mealName = cleanMeal,
+                        calories = safeCals,
+                        proteinG = safePro,
+                        carbsG = safeCarbs,
+                        fatsG = safeFats,
+                        fiberG = safeFiber,
+                        grams = safeGrams
+                    )
+                )
+            }
+
+            val updatedItems = prevItems + newIndividualItems
+            val combinedSummary = updatedItems.joinToString(", ") { it.mealName }.take(500)
             val updatedDailyLog = DailyDateLog(
                 date = todayStr,
                 calories = newKcal,
@@ -1587,7 +1664,9 @@ class HunterViewModel(
                 carbsG = newCarbs,
                 fatsG = newFats,
                 waterLiters = xpUpdatedState.statBreakdown.stamina.waterLiters,
-                foodSummary = combinedSummary.take(400)
+                foodSummary = combinedSummary,
+                foodItems = updatedItems,
+                tasksCompleted = prevDailyLog?.tasksCompleted ?: emptyList()
             )
 
             val finalState = xpUpdatedState.copy(
@@ -1608,18 +1687,23 @@ class HunterViewModel(
                 tacticalBriefing = updatedBriefing
             )
 
-            _foodHistory.value = _foodHistory.value + FoodEntryRecord(
-                mealName = cleanMeal,
-                calories = safeCals,
-                proteinG = safePro,
-                carbsG = safeCarbs,
-                fatsG = safeFats,
-                fiberG = safeFiber,
-                grams = safeGrams,
-                xpAwarded = totalXpGain,
-                triggeredDailyCheckIn = newlyCheckedIn,
-                previousStreakDays = current.playerStatus.streakDays
-            )
+            val xpPerItem = (totalXpGain / newIndividualItems.size.coerceAtLeast(1)).coerceAtLeast(10)
+            val newHistoryEntries = newIndividualItems.mapIndexed { idx, item ->
+                FoodEntryRecord(
+                    id = item.id,
+                    mealName = item.mealName,
+                    calories = item.calories,
+                    proteinG = item.proteinG,
+                    carbsG = item.carbsG,
+                    fatsG = item.fatsG,
+                    fiberG = item.fiberG,
+                    grams = item.grams,
+                    xpAwarded = if (idx == 0) totalXpGain - (xpPerItem * (newIndividualItems.size - 1)) else xpPerItem,
+                    triggeredDailyCheckIn = idx == 0 && newlyCheckedIn,
+                    previousStreakDays = current.playerStatus.streakDays
+                )
+            }
+            _foodHistory.value = _foodHistory.value + newHistoryEntries
 
             _systemState.value = finalState
             repository.saveOrUpdateSession(finalState)
@@ -1650,7 +1734,8 @@ class HunterViewModel(
         carbsG: Double,
         fatsG: Double,
         waterLiters: Double,
-        foodSummary: String
+        foodSummary: String,
+        foodItems: List<LoggedFoodItem> = emptyList()
     ) {
         if (dateStr.isBlank()) return
         viewModelScope.launch {
@@ -1660,11 +1745,16 @@ class HunterViewModel(
             val safeCarbs = round(carbsG.coerceIn(0.0, 5000.0) * 10.0) / 10.0
             val safeFats = round(fatsG.coerceIn(0.0, 2000.0) * 10.0) / 10.0
             val safeWater = round(waterLiters.coerceIn(0.0, 50.0) * 100.0) / 100.0
-            val cleanSummary = foodSummary.trim().take(400).ifBlank {
-                if (safeCals > 0) "Edited Food Log ($safeCals kcal, ${safePro.toInt()}g P)" else "Cleared Food Log"
+            val cleanSummary = if (foodItems.isNotEmpty()) {
+                foodItems.joinToString(", ") { it.mealName }.take(500)
+            } else {
+                foodSummary.trim().take(500).ifBlank {
+                    if (safeCals > 0) "Edited Food Log ($safeCals kcal, ${safePro.toInt()}g P)" else "Cleared Food Log"
+                }
             }
 
             val current = _systemState.value.evaluateStreakOnLogin()
+            val existingTasks = current.playerStatus.dailyLogsByDate[dateStr]?.tasksCompleted ?: emptyList()
             val newDayEntry = DailyDateLog(
                 date = dateStr,
                 calories = safeCals,
@@ -1672,12 +1762,14 @@ class HunterViewModel(
                 carbsG = safeCarbs,
                 fatsG = safeFats,
                 waterLiters = safeWater,
-                foodSummary = cleanSummary
+                foodSummary = cleanSummary,
+                foodItems = foodItems,
+                tasksCompleted = existingTasks
             )
             val updatedLogsMap = (current.playerStatus.dailyLogsByDate + (dateStr to newDayEntry))
                 .entries.sortedBy { it.key }.takeLast(14).associate { it.key to it.value }
 
-            val isProductiveDay = safeCals > 0 || safePro > 0.0 || safeWater > 0.0
+            val isProductiveDay = safeCals > 0 || safePro > 0.0 || safeWater > 0.0 || existingTasks.isNotEmpty()
             val updatedHistoryDates = if (isProductiveDay) {
                 (current.playerStatus.productiveHistoryDates + dateStr).distinct().sorted().takeLast(14)
             } else {
@@ -1690,7 +1782,8 @@ class HunterViewModel(
             if (todayCheckedIn) streakCount++
             for (daysAgo in 1..14) {
                 val d = StreakDateUtils.daysAgoDateString(daysAgo)
-                val activeOnD = updatedHistoryDates.contains(d) || (updatedLogsMap[d]?.calories ?: 0) > 0
+                val dl = updatedLogsMap[d]
+                val activeOnD = updatedHistoryDates.contains(d) || (dl?.calories ?: 0) > 0 || (dl?.tasksCompleted?.isNotEmpty() == true)
                 if (activeOnD) {
                     streakCount++
                 } else {
@@ -1718,10 +1811,26 @@ class HunterViewModel(
                         else -> q
                     }
                 }
+                if (foodItems.isNotEmpty() || safeCals == 0) {
+                    _foodHistory.value = foodItems.map { item ->
+                        FoodEntryRecord(
+                            id = item.id,
+                            mealName = item.mealName,
+                            calories = item.calories,
+                            proteinG = item.proteinG,
+                            carbsG = item.carbsG,
+                            fatsG = item.fatsG,
+                            fiberG = item.fiberG,
+                            grams = item.grams,
+                            xpAwarded = 35
+                        )
+                    }
+                }
                 current.copy(
                     playerStatus = current.playerStatus.copy(
                         streakDays = finalStreakDays,
                         checkedInToday = todayCheckedIn,
+                        todayFoodInputs = if (foodItems.isNotEmpty()) foodItems.size else if (safeCals > 0) maxOf(1, current.playerStatus.todayFoodInputs) else 0,
                         lastProductiveDate = if (todayCheckedIn) todayStr else current.playerStatus.lastProductiveDate,
                         productiveHistoryDates = updatedHistoryDates,
                         dailyLogsByDate = updatedLogsMap,
@@ -1762,6 +1871,136 @@ class HunterViewModel(
                 xpDelta = 15
             )
             _aiSyncState.value = AiSyncState.Success("Saved food log for $dateStr: $safeCals kcal • ${safePro}g Protein • ${safeWater}L Water")
+        }
+    }
+
+    /**
+     * Logs a completed productive task for Today (or a specific date), awards Trainer XP,
+     * and checks the user in for their Daily Productive Streak!
+     */
+    fun logProductiveTask(
+        title: String,
+        category: String = "WORK",
+        dateStr: String = StreakDateUtils.todayDateString()
+    ) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return
+        viewModelScope.launch {
+            val todayStr = StreakDateUtils.todayDateString()
+            val targetDate = dateStr.ifBlank { todayStr }
+            val timeLabel = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.US).format(java.util.Date())
+            val rawCurrent = _systemState.value
+            val current = rawCurrent.evaluateStreakOnLogin()
+
+            val baseXp = 35
+            val (xpUpdatedState, scaledXp) = current.applyScaledXpProgress(baseXp)
+            val newTask = ProductiveTaskItem(
+                title = cleanTitle,
+                category = category.uppercase(),
+                xpAwarded = scaledXp,
+                completedAt = timeLabel
+            )
+
+            val existingDayLog = xpUpdatedState.playerStatus.dailyLogsByDate[targetDate] ?: DailyDateLog(
+                date = targetDate,
+                calories = if (targetDate == todayStr) xpUpdatedState.statBreakdown.vitality.caloriesLogged else 0,
+                proteinG = if (targetDate == todayStr) xpUpdatedState.statBreakdown.vitality.proteinG else 0.0,
+                carbsG = if (targetDate == todayStr) xpUpdatedState.statBreakdown.vitality.carbsG else 0.0,
+                fatsG = if (targetDate == todayStr) xpUpdatedState.statBreakdown.vitality.fatsG else 0.0,
+                waterLiters = if (targetDate == todayStr) xpUpdatedState.statBreakdown.stamina.waterLiters else 0.0
+            )
+            val updatedTasks = existingDayLog.tasksCompleted + newTask
+            val updatedDayLog = existingDayLog.copy(tasksCompleted = updatedTasks)
+            val updatedLogsMap = (xpUpdatedState.playerStatus.dailyLogsByDate + (targetDate to updatedDayLog))
+                .entries.sortedBy { it.key }.takeLast(14).associate { it.key to it.value }
+            val updatedHistoryDates = (xpUpdatedState.playerStatus.productiveHistoryDates + targetDate).distinct().sorted().takeLast(14)
+
+            val ps = xpUpdatedState.playerStatus
+            val isToday = targetDate == todayStr
+            val newlyCheckedIn = isToday && (!ps.checkedInToday || ps.lastProductiveDate != todayStr)
+            val newStreakDays = if (newlyCheckedIn) ps.streakDays + 1 else maxOf(ps.streakDays, 1)
+            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.tierForXp(current.playerStatus.currentXp).dailyCompletionXp else 0
+            val totalXpGain = scaledXp + dailyBonusXp
+
+            val finalState = if (dailyBonusXp > 0) {
+                xpUpdatedState.applyScaledXpProgress(dailyBonusXp, isRawAlreadyScaled = true).first
+            } else {
+                xpUpdatedState
+            }
+
+            val briefing = "Completed productive task \"$cleanTitle\" [${category.uppercase()}] on $targetDate (+$totalXpGain XP)! Total tasks on $targetDate: ${updatedTasks.size}."
+            val updatedSystem = finalState.copy(
+                playerStatus = finalState.playerStatus.copy(
+                    streakDays = newStreakDays,
+                    checkedInToday = if (isToday) true else ps.checkedInToday,
+                    lastProductiveDate = if (isToday) todayStr else ps.lastProductiveDate,
+                    todayTaskInputs = if (isToday) ps.todayTaskInputs + 1 else ps.todayTaskInputs,
+                    lastCheckInTrigger = if (isToday) "Checked in via Task Input: $cleanTitle" else ps.lastCheckInTrigger,
+                    productiveHistoryDates = updatedHistoryDates,
+                    dailyLogsByDate = updatedLogsMap
+                ),
+                tacticalBriefing = briefing
+            )
+
+            _systemState.value = updatedSystem
+            repository.saveOrUpdateSession(updatedSystem)
+            repository.appendTacticalLog(
+                commandText = "Task Completed [$targetDate]: $cleanTitle (${category.uppercase()})",
+                briefingResponse = briefing,
+                xpDelta = totalXpGain
+            )
+            _aiSyncState.value = AiSyncState.Success("Task Completed: $cleanTitle (+$totalXpGain XP)")
+        }
+    }
+
+    fun editProductiveTask(
+        dateStr: String,
+        taskId: String,
+        newTitle: String,
+        newCategory: String
+    ) {
+        val cleanTitle = newTitle.trim()
+        if (dateStr.isBlank() || taskId.isBlank() || cleanTitle.isBlank()) return
+        viewModelScope.launch {
+            val current = _systemState.value
+            val dayLog = current.playerStatus.dailyLogsByDate[dateStr] ?: return@launch
+            val updatedTasks = dayLog.tasksCompleted.map { t ->
+                if (t.id == taskId) t.copy(title = cleanTitle, category = newCategory.uppercase()) else t
+            }
+            val updatedDayLog = dayLog.copy(tasksCompleted = updatedTasks)
+            val updatedLogsMap = current.playerStatus.dailyLogsByDate + (dateStr to updatedDayLog)
+            val updatedState = current.copy(
+                playerStatus = current.playerStatus.copy(dailyLogsByDate = updatedLogsMap),
+                tacticalBriefing = "Updated task on $dateStr: \"$cleanTitle\" [${newCategory.uppercase()}]."
+            )
+            _systemState.value = updatedState
+            repository.saveOrUpdateSession(updatedState)
+            _aiSyncState.value = AiSyncState.Success("Updated task: $cleanTitle")
+        }
+    }
+
+    fun removeProductiveTask(dateStr: String, taskId: String) {
+        if (dateStr.isBlank() || taskId.isBlank()) return
+        viewModelScope.launch {
+            val todayStr = StreakDateUtils.todayDateString()
+            val current = _systemState.value
+            val dayLog = current.playerStatus.dailyLogsByDate[dateStr] ?: return@launch
+            val removedTask = dayLog.tasksCompleted.find { it.id == taskId } ?: return@launch
+            val updatedTasks = dayLog.tasksCompleted.filterNot { it.id == taskId }
+            val updatedDayLog = dayLog.copy(tasksCompleted = updatedTasks)
+            val updatedLogsMap = current.playerStatus.dailyLogsByDate + (dateStr to updatedDayLog)
+            val isToday = dateStr == todayStr
+            val newTodayTasks = if (isToday) (current.playerStatus.todayTaskInputs - 1).coerceAtLeast(0) else current.playerStatus.todayTaskInputs
+            val updatedState = current.copy(
+                playerStatus = current.playerStatus.copy(
+                    todayTaskInputs = newTodayTasks,
+                    dailyLogsByDate = updatedLogsMap
+                ),
+                tacticalBriefing = "Removed task \"${removedTask.title}\" from $dateStr."
+            )
+            _systemState.value = updatedState
+            repository.saveOrUpdateSession(updatedState)
+            _aiSyncState.value = AiSyncState.Success("Removed task: ${removedTask.title}")
         }
     }
 
@@ -1898,7 +2137,39 @@ class HunterViewModel(
                 "Vitality updated to $newKcal kcal (${newProtein.toInt()}g protein). $remaining kcal remaining to clear your daily hypertrophy surplus.$streakSuffix"
             }
 
+            val todayStr = StreakDateUtils.todayDateString()
+            val prevDailyLog = xpUpdatedState.playerStatus.dailyLogsByDate[todayStr]
+            val prevItems = prevDailyLog?.resolvedFoodItems() ?: emptyList()
+            val quickEntryId = UUID.randomUUID().toString()
+            val updatedDayItems = if (deltaKcal > 0) {
+                prevItems + LoggedFoodItem(
+                    id = quickEntryId,
+                    mealName = "Quick +$deltaKcal kcal (${deltaProteinG.toInt()}g P)",
+                    calories = deltaKcal,
+                    proteinG = deltaProteinG,
+                    carbsG = round(deltaKcal * 0.11 * 10.0) / 10.0,
+                    fatsG = 0.0,
+                    grams = 150
+                )
+            } else {
+                prevItems
+            }
+            val updatedDayLog = DailyDateLog(
+                date = todayStr,
+                calories = newKcal,
+                proteinG = newProtein,
+                carbsG = newCarbs,
+                fatsG = vit.fatsG,
+                waterLiters = xpUpdatedState.statBreakdown.stamina.waterLiters,
+                foodSummary = updatedDayItems.joinToString(", ") { it.mealName }.take(500),
+                foodItems = updatedDayItems,
+                tasksCompleted = prevDailyLog?.tasksCompleted ?: emptyList()
+            )
+
             val updated = xpUpdatedState.copy(
+                playerStatus = xpUpdatedState.playerStatus.copy(
+                    dailyLogsByDate = xpUpdatedState.playerStatus.dailyLogsByDate + (todayStr to updatedDayLog)
+                ),
                 statBreakdown = xpUpdatedState.statBreakdown.copy(
                     vitality = vit.copy(
                         caloriesLogged = newKcal,
@@ -1913,10 +2184,11 @@ class HunterViewModel(
 
             if (deltaKcal > 0) {
                 _foodHistory.value = _foodHistory.value + FoodEntryRecord(
-                    mealName = "Quick +$deltaKcal kcal",
+                    id = quickEntryId,
+                    mealName = "Quick +$deltaKcal kcal (${deltaProteinG.toInt()}g P)",
                     calories = deltaKcal,
                     proteinG = deltaProteinG,
-                    carbsG = deltaKcal * 0.11,
+                    carbsG = round(deltaKcal * 0.11 * 10.0) / 10.0,
                     fatsG = 0.0,
                     xpAwarded = totalXpGain,
                     triggeredDailyCheckIn = newlyCheckedIn,
@@ -2070,11 +2342,44 @@ class HunterViewModel(
 
             val updatedBriefing = "Undid food entry \"$removeLabel\" (-$removeCals kcal, -${removePro}g protein). Updated total: $newKcal / ${vit.caloriesTarget} kcal."
 
+            val todayStr = StreakDateUtils.todayDateString()
+            val prevDailyLog = xpRevertedState.playerStatus.dailyLogsByDate[todayStr]
+            val prevItems = prevDailyLog?.resolvedFoodItems() ?: emptyList()
+            val updatedDayItems = if (targetRecord != null && prevItems.any { it.id == targetRecord.id }) {
+                prevItems.filterNot { it.id == targetRecord.id }
+            } else if (targetRecord != null && prevItems.any { it.mealName == targetRecord.mealName && it.calories == targetRecord.calories }) {
+                var removedOne = false
+                prevItems.filter { item ->
+                    if (!removedOne && item.mealName == targetRecord.mealName && item.calories == targetRecord.calories) {
+                        removedOne = true
+                        false
+                    } else {
+                        true
+                    }
+                }
+            } else if (prevItems.isNotEmpty()) {
+                prevItems.dropLast(1)
+            } else {
+                emptyList()
+            }
+            val updatedDayLog = DailyDateLog(
+                date = todayStr,
+                calories = newKcal,
+                proteinG = newProtein,
+                carbsG = newCarbs,
+                fatsG = newFats,
+                waterLiters = xpRevertedState.statBreakdown.stamina.waterLiters,
+                foodSummary = updatedDayItems.joinToString(", ") { it.mealName }.take(500),
+                foodItems = updatedDayItems,
+                tasksCompleted = prevDailyLog?.tasksCompleted ?: emptyList()
+            )
+
             val updatedState = xpRevertedState.copy(
                 playerStatus = xpRevertedState.playerStatus.copy(
                     todayFoodInputs = newFoodInputs,
                     checkedInToday = newCheckedIn,
-                    streakDays = newStreakDays
+                    streakDays = newStreakDays,
+                    dailyLogsByDate = xpRevertedState.playerStatus.dailyLogsByDate + (todayStr to updatedDayLog)
                 ),
                 statBreakdown = xpRevertedState.statBreakdown.copy(
                     vitality = vit.copy(
@@ -2343,7 +2648,7 @@ class HunterViewModel(
                     if (clearJournalHistory) {
                         "All progress & journal history reset to Beginner (0 XP, 0D Streak)."
                     } else {
-                        "Hunter progress reset to Beginner (0 XP, 0D Streak). Biometrics preserved."
+                        "Trainer progress reset to Beginner (0 XP, 0D Streak). Biometrics preserved."
                     }
                 )
             } else {
@@ -2373,7 +2678,7 @@ class HunterViewModel(
             if (res.isSuccess) {
                 val (xpUpdatedState, scaledXpGain) = current.applyScaledXpProgress(35)
                 val updated = xpUpdatedState.copy(
-                    tacticalBriefing = "Public feedback ($category • ${rating}★) transmitted to the Creator Feedback Board. Thank you for helping evolve the Hunter System!"
+                    tacticalBriefing = "Public feedback ($category • ${rating}★) transmitted to the Creator Feedback Board. Thank you for helping evolve the Trainer System!"
                 )
                 _systemState.value = updated
                 repository.saveOrUpdateSession(updated)

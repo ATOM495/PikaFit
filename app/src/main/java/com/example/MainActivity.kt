@@ -1,9 +1,13 @@
 package com.example
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -14,6 +18,7 @@ import androidx.compose.ui.Modifier
 import com.example.ui.auth.AuthScreen
 import com.example.ui.screens.MainHunterScreen
 import com.example.ui.theme.HunterSystemTheme
+import com.example.util.PikaFitNotificationScheduler
 import com.example.util.configureAppCheck
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
@@ -39,6 +44,8 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Configure App Check synchronously with launch intent before any UI or Firebase calls
+        configureAppCheck(this, intent)
         enableEdgeToEdge()
 
         setContent {
@@ -47,12 +54,17 @@ class MainActivity : ComponentActivity() {
             var activeAccountId by rememberSaveable { mutableStateOf<String?>(null) }
             var isStartupReady by remember { mutableStateOf(false) }
 
-            // Let both initial window SurfaceSyncGroup transactions (wmsSync-VRI#2 and VRI#3 from enableEdgeToEdge)
-            // commit to SurfaceFlinger before mounting AuthScreen/MainHunterScreen or touching Firebase/SharedPreferences.
+            val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                if (granted) {
+                    PikaFitNotificationScheduler.startAutomaticRandomNotifications(applicationContext)
+                }
+            }
+
+            // Let initial window SurfaceSyncGroup transactions commit before mounting heavy screens
             LaunchedEffect(Unit) {
-                repeat(3) { withFrameNanos { } }
-                kotlinx.coroutines.delay(120)
-                configureAppCheck(applicationContext, intent)
+                repeat(2) { withFrameNanos { } }
 
                 val resolvedInitialAccount = withContext(Dispatchers.IO) {
                     val prefs = applicationContext.getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
@@ -81,6 +93,16 @@ class MainActivity : ComponentActivity() {
                     activeAccountId = resolvedInitialAccount
                 }
                 isStartupReady = true
+
+                // Automatically request POST_NOTIFICATIONS permission and start random background notifications
+                PikaFitNotificationScheduler.ensureNotificationChannel(applicationContext)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    !PikaFitNotificationScheduler.hasNotificationPermission(applicationContext)
+                ) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    PikaFitNotificationScheduler.startAutomaticRandomNotifications(applicationContext)
+                }
 
                 // Observe Firebase Auth state updates on IO after first frame
                 try {
