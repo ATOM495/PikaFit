@@ -17,7 +17,8 @@ class ExampleUnitTest {
             yesterdayDate = yesterday
         )
         assertFalse("Login alone must not mark user as checked in", initial.playerStatus.checkedInToday)
-        assertEquals("Streak days must remain unchanged on login alone", 4, initial.playerStatus.streakDays)
+        assertEquals("Streak days must remain unchanged on login alone", 0, initial.playerStatus.streakDays)
+        assertEquals(0, initial.playerStatus.classLevel)
         assertEquals(0, initial.playerStatus.todayFoodInputs)
         assertEquals(0, initial.playerStatus.todayExerciseInputs)
     }
@@ -31,7 +32,7 @@ class ExampleUnitTest {
             yesterdayDate = yesterday
         )
 
-        // 1. User inputs food data -> checks in and increments streak 4 -> 5
+        // 1. User inputs food data -> checks in and increments streak 0 -> 1 (Promotes to Level 1 Beginner • Pikachu)
         val (afterFood, newlyCheckedIn1) = afterLogin.applyProductiveInput(
             isFoodInput = true,
             inputSummary = "Chicken & Rice (+600 kcal)",
@@ -39,10 +40,12 @@ class ExampleUnitTest {
         )
         assertTrue(newlyCheckedIn1)
         assertTrue(afterFood.playerStatus.checkedInToday)
-        assertEquals(5, afterFood.playerStatus.streakDays)
+        assertEquals(1, afterFood.playerStatus.streakDays)
+        assertEquals(1, afterFood.playerStatus.classLevel)
+        assertEquals("Beginner", afterFood.playerStatus.currentTier.classTitle)
         assertEquals(1, afterFood.playerStatus.todayFoodInputs)
 
-        // 2. User inputs exercise data on the same day -> increments exercise counter, keeps streak at 5
+        // 2. User inputs exercise data on the same day -> increments exercise counter, keeps streak at 1
         val (afterExercise, newlyCheckedIn2) = afterFood.applyProductiveInput(
             isFoodInput = false,
             inputSummary = "Bench Press 3x10",
@@ -50,7 +53,7 @@ class ExampleUnitTest {
         )
         assertFalse(newlyCheckedIn2)
         assertTrue(afterExercise.playerStatus.checkedInToday)
-        assertEquals(5, afterExercise.playerStatus.streakDays)
+        assertEquals(1, afterExercise.playerStatus.streakDays)
         assertEquals(1, afterExercise.playerStatus.todayFoodInputs)
         assertEquals(1, afterExercise.playerStatus.todayExerciseInputs)
     }
@@ -62,6 +65,7 @@ class ExampleUnitTest {
             waterTargetLiters = 4.5
         )
         assertEquals(1, reset.playerStatus.level)
+        assertEquals(0, reset.playerStatus.classLevel)
         assertEquals(0, reset.playerStatus.currentXp)
         assertEquals(0, reset.playerStatus.streakDays)
         assertFalse(reset.playerStatus.checkedInToday)

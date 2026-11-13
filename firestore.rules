@@ -234,5 +234,12 @@ service cloud.firestore {
       allow list: if true;
       allow write: if isAppCreator();
     }
+
+    // Declarative JSON OTA patch document (safe rule/nutrition config hotfixes)
+    match /system/app_patch {
+      allow get: if true;
+      allow list: if true;
+      allow write: if isAppCreator();
+    }
   }
 }

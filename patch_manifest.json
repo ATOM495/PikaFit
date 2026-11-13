@@ -1,0 +1,118 @@
+{
+  "patch_number": 10301,
+  "patch_version": "1.0.3-patch.1",
+  "base_app_version": "1.0.2",
+  "min_native_version_code": 2,
+  "release_title": "PikaFit • Streak Classes & Heatmap Patch",
+  "patch_notes": "Live OTA Patch: Streak-oriented Pokémon Class ladder (Level 0 Unranked -> Level 7 Champion Arceus at 500 days), continuous XP Leveling, 1-day missed streak restore for 1,000 XP, dedicated Streaks Heatmap tab, and zero-redirect GitHub OTA patch delivery.",
+  "announcement_banner": "Patch v1.0.3-patch.1 active! Class promotions now track verified daily streaks while XP Levels keep climbing.",
+  "published_at": "2026-11-13T12:00:00Z",
+  "xp_per_level": 500,
+  "streak_restore_cost_xp": 1000,
+  "class_tiers": [
+    {
+      "tier_level": 0,
+      "class_title": "Unranked",
+      "required_streak_days": 0,
+      "pokemon_name": "Spark Egg",
+      "pokemon_subtitle": "Dormant Potential",
+      "rarity": "COMMON"
+    },
+    {
+      "tier_level": 1,
+      "class_title": "Beginner",
+      "required_streak_days": 1,
+      "pokemon_name": "Pikachu",
+      "pokemon_subtitle": "Thunder Spark Partner",
+      "rarity": "COMMON"
+    },
+    {
+      "tier_level": 2,
+      "class_title": "Challenger",
+      "required_streak_days": 25,
+      "pokemon_name": "Charizard",
+      "pokemon_subtitle": "Sky Flame Vanguard",
+      "rarity": "RARE"
+    },
+    {
+      "tier_level": 3,
+      "class_title": "Leader",
+      "required_streak_days": 50,
+      "pokemon_name": "Greninja",
+      "pokemon_subtitle": "Water Shuriken Tactician",
+      "rarity": "RARE"
+    },
+    {
+      "tier_level": 4,
+      "class_title": "Elite I",
+      "required_streak_days": 100,
+      "pokemon_name": "Lucario",
+      "pokemon_subtitle": "Aura Sphere Master",
+      "rarity": "EPIC"
+    },
+    {
+      "tier_level": 5,
+      "class_title": "Elite II",
+      "required_streak_days": 175,
+      "pokemon_name": "Shadow Mewtwo",
+      "pokemon_subtitle": "Obsidian Psystrike Sovereign",
+      "rarity": "EPIC"
+    },
+    {
+      "tier_level": 6,
+      "class_title": "Elite III",
+      "required_streak_days": 275,
+      "pokemon_name": "Yveltal",
+      "pokemon_subtitle": "Crimson Oblivion Apex",
+      "rarity": "LEGENDARY"
+    },
+    {
+      "tier_level": 7,
+      "class_title": "Champion",
+      "required_streak_days": 500,
+      "pokemon_name": "Arceus",
+      "pokemon_subtitle": "Mythic Alpha Creator",
+      "rarity": "LEGENDARY"
+    }
+  ],
+  "food_database_patches": [
+    {
+      "keywords": ["ragi malt", "ragi drink", "ragi java", "finger millet drink"],
+      "display_name": "Ragi Malt Drink",
+      "description": "Calcium-rich South Indian finger millet malt drink blended with milk/water.",
+      "calories_per_100g": 78,
+      "carbs_per_100g": 13.5,
+      "fats_per_100g": 1.4,
+      "protein_per_100g": 2.9,
+      "fiber_per_100g": 1.6,
+      "micronutrients": "Calcium, Iron, Amino Acids, B-Vitamins",
+      "pairing_tip": "Enjoy 250ml warm in the morning or post-workout for mineral recovery.",
+      "grams_per_unit": 250,
+      "unit_name_singular": "glass",
+      "unit_name_plural": "glasses",
+      "is_liquid_ml": true
+    },
+    {
+      "keywords": ["dragon fruit", "dragonfruit", "pitaya"],
+      "display_name": "Dragon Fruit (Pitaya)",
+      "description": "Refreshing antioxidant-rich superfruit packed with prebiotic fiber and vitamin C.",
+      "calories_per_100g": 60,
+      "carbs_per_100g": 13.0,
+      "fats_per_100g": 0.4,
+      "protein_per_100g": 1.2,
+      "fiber_per_100g": 3.0,
+      "micronutrients": "Vitamin C, Magnesium, Iron, Betacyanins",
+      "pairing_tip": "Slice 1 fruit (~200g) alongside Greek yogurt or soaked almonds.",
+      "grams_per_unit": 200,
+      "unit_name_singular": "fruit",
+      "unit_name_plural": "fruits",
+      "is_liquid_ml": false
+    }
+  ],
+  "extra_reminder_messages": {
+    "STREAK_RESTORE": [
+      "Missed yesterday? Open PikaFit -> Streaks to spend 1,000 XP and save your Pokémon class streak!",
+      "Your streak shield is ready! Restore your 1-day missed streak using 1,000 XP before it expires."
+    ]
+  }
+}

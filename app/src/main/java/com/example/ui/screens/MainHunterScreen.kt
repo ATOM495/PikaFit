@@ -1,8 +1,6 @@
 package com.example.ui.screens
 
 import android.Manifest
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -405,7 +403,7 @@ fun AppUpdateDialog(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "NEW UPDATE AVAILABLE",
+                                text = "IN-APP OTA PATCH READY",
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = FontWeight.ExtraBold,
                                     letterSpacing = 0.8.sp
@@ -448,7 +446,7 @@ fun AppUpdateDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "${releaseInfo.releaseTitle} (v${releaseInfo.latestVersionName})",
+                    text = "${releaseInfo.releaseTitle} (v${releaseInfo.patchVersion.ifBlank { releaseInfo.latestVersionName }})",
                     style = MaterialTheme.typography.headlineSmall.copy(
                         fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold
@@ -461,7 +459,7 @@ fun AppUpdateDialog(
 
                 Text(
                     text = releaseInfo.releaseNotes.ifBlank {
-                        "A new version of PikaFit is available! Tap download below to install the latest APK update."
+                        "A new live OTA patch is ready for PikaFit! Tap Apply Patch Now to install updates in-app with zero APK reinstall."
                     },
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontSize = 14.sp,
@@ -473,8 +471,6 @@ fun AppUpdateDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Download URL Destination preview card
-                val cleanUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -487,14 +483,14 @@ fun AppUpdateDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.OpenInBrowser,
+                            imageVector = Icons.Filled.VerifiedUser,
                             contentDescription = null,
-                            tint = PikaVoltYellow,
+                            tint = HunterDoneGreen,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = cleanUrl,
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                            text = "Automatic In-App GitHub Patch • No APK Reinstall Required",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                             color = TextSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -535,13 +531,13 @@ fun AppUpdateDialog(
                         )
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.CloudDownload,
+                            imageVector = Icons.Filled.SystemUpdate,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Download APK",
+                            text = "Apply Patch Now",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.ExtraBold
@@ -1996,6 +1992,7 @@ fun MainHunterScreen(
     val journalState by viewModel.journalState.collectAsStateWithLifecycle()
     val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
     val releaseInfo by viewModel.appReleaseInfo.collectAsStateWithLifecycle()
+    val otaPatch by viewModel.otaPatchManifest.collectAsStateWithLifecycle()
     val installedVersionName by viewModel.installedVersionName.collectAsStateWithLifecycle()
     val installedVersionCode by viewModel.installedVersionCode.collectAsStateWithLifecycle()
     val dismissedUpdateVersion by viewModel.dismissedUpdateVersion.collectAsStateWithLifecycle()
@@ -2017,363 +2014,451 @@ fun MainHunterScreen(
         3 -> R.drawable.pika_orange_wave
         else -> when (selectedTab) {
             0 -> R.drawable.pika_logo_hi
-            1 -> R.drawable.pika_pokeball_bg
-            2 -> R.drawable.pika_orange_wave
-            3 -> R.drawable.pika_pokeball_bg
+            1 -> R.drawable.pika_orange_wave
+            2 -> R.drawable.pika_pokeball_bg
+            3 -> R.drawable.pika_orange_wave
+            4 -> R.drawable.pika_pokeball_bg
             else -> R.drawable.pika_logo_hi
         }
     }
 
     val topBarAccent = if (isDark) PikaVoltYellow else PikaCheekCrimson
+    val navTabs = remember {
+        listOf(
+            Triple(0, "Home", Icons.Filled.Bolt),
+            Triple(1, "Streaks", Icons.Filled.LocalFireDepartment),
+            Triple(2, "Charts", Icons.AutoMirrored.Filled.ShowChart),
+            Triple(3, "Workout", Icons.Filled.FitnessCenter),
+            Triple(4, "Journal", Icons.Filled.Person),
+            Triple(5, "PikaBot", Icons.Filled.SmartToy),
+            Triple(6, "Settings", Icons.Filled.Settings)
+        )
+    }
 
     // Render the entire Scaffold INSIDE PikachuWallpaperBackground so the Pikachu wallpaper
-    // is visible edge-to-edge behind the TopAppBar, content, and NavigationBar!
+    // is visible edge-to-edge behind the TopAppBar, content, and NavigationBar / NavigationRail!
     PikachuWallpaperBackground(
         wallpaperRes = activeWallpaperRes,
         isDark = isDark,
         wallpaperAlpha = if (isDark) 0.52f else 0.56f,
         modifier = Modifier.fillMaxSize()
     ) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets.safeDrawing,
-            topBar = {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        titleContentColor = TextPrimary
-                    ),
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF6792A4))
-                                    .border(2.dp, PikaVoltYellow, CircleShape)
-                                    .clickable { showTutorial = true },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                PikachuMascotBadge(
-                                    drawableRes = R.drawable.pika_logo_hi,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "PikaFit • ${state.biometrics.hunterName}",
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    ),
-                                    color = TextPrimary
-                                )
-                                val streakLabel = if (state.playerStatus.checkedInToday) {
-                                    "🔥 ${state.playerStatus.streakDays}D Streak"
-                                } else {
-                                    "🔥 ${state.playerStatus.streakDays}D • Edit"
-                                }
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val useNavigationRail = maxWidth >= 600.dp
+
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = Color.Transparent,
+                contentWindowInsets = WindowInsets.safeDrawing,
+                topBar = {
+                    TopAppBar(
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                            titleContentColor = TextPrimary
+                        ),
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF6792A4))
+                                        .border(2.dp, PikaVoltYellow, CircleShape)
+                                        .clickable { showTutorial = true },
+                                    contentAlignment = Alignment.Center
                                 ) {
+                                    PikachuMascotBadge(
+                                        drawableRes = R.drawable.pika_logo_hi,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
                                     Text(
-                                        text = "Lvl ${state.playerStatus.level} • ${state.playerStatus.currentTier.classTitle}",
-                                        style = MaterialTheme.typography.labelLarge.copy(
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
+                                        text = "PikaFit • ${state.biometrics.hunterName}",
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.ExtraBold
                                         ),
                                         maxLines = 1,
-                                        softWrap = false,
                                         overflow = TextOverflow.Ellipsis,
-                                        color = TextSecondary,
-                                        modifier = Modifier.weight(1f, fill = false)
+                                        color = TextPrimary
                                     )
-                                    Surface(
-                                        modifier = Modifier
-                                            .clickable { showEditStreakFoodDialog = true }
-                                            .testTag("top_bar_streak_edit_button"),
-                                        shape = RoundedCornerShape(50),
-                                        color = (if (state.playerStatus.checkedInToday) HunterDoneGreen else topBarAccent).copy(alpha = 0.16f),
-                                        border = BorderStroke(
-                                            1.dp,
-                                            if (state.playerStatus.checkedInToday) HunterDoneGreen else topBarAccent
-                                        )
+                                    val streakLabel = when {
+                                        state.playerStatus.restorableStreakDays > 0 ->
+                                            "⚡ Restore ${state.playerStatus.restorableStreakDays}D"
+                                        state.playerStatus.checkedInToday ->
+                                            "🔥 ${state.playerStatus.streakDays}D Streak"
+                                        else ->
+                                            "🔥 ${state.playerStatus.streakDays}D Streak"
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                                     ) {
                                         Text(
-                                            text = streakLabel,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.ExtraBold
+                                            text = "XP Lvl ${state.playerStatus.level} • C${state.playerStatus.classLevel} ${state.playerStatus.currentTier.classTitle}",
+                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
                                             ),
                                             maxLines = 1,
                                             softWrap = false,
-                                            color = if (state.playerStatus.checkedInToday) HunterDoneGreen else topBarAccent
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = TextSecondary,
+                                            modifier = Modifier.weight(1f, fill = false)
                                         )
+                                        Surface(
+                                            modifier = Modifier
+                                                .clickable { selectedTab = 1 }
+                                                .testTag("top_bar_streak_edit_button"),
+                                            shape = RoundedCornerShape(50),
+                                            color = when {
+                                                state.playerStatus.restorableStreakDays > 0 ->
+                                                    PikaCheekCrimson.copy(alpha = 0.2f)
+                                                state.playerStatus.checkedInToday ->
+                                                    HunterDoneGreen.copy(alpha = 0.16f)
+                                                else -> topBarAccent.copy(alpha = 0.16f)
+                                            },
+                                            border = BorderStroke(
+                                                1.dp,
+                                                when {
+                                                    state.playerStatus.restorableStreakDays > 0 -> PikaCheekCrimson
+                                                    state.playerStatus.checkedInToday -> HunterDoneGreen
+                                                    else -> topBarAccent
+                                                }
+                                            )
+                                        ) {
+                                            Text(
+                                                text = streakLabel,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.ExtraBold
+                                                ),
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                color = when {
+                                                    state.playerStatus.restorableStreakDays > 0 -> PikaCheekCrimson
+                                                    state.playerStatus.checkedInToday -> HunterDoneGreen
+                                                    else -> topBarAccent
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
-                    },
-                    actions = {
-                        // Button to cycle Pikachu background wallpapers across all pages
-                        IconButton(
-                            onClick = { wallpaperMode = (wallpaperMode + 1) % 4 },
-                            modifier = Modifier
-                                .padding(end = 4.dp)
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Wallpaper,
-                                contentDescription = "Cycle Pikachu Wallpaper",
-                                tint = topBarAccent,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = onToggleTheme,
-                            modifier = Modifier
-                                .padding(end = 4.dp)
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Icon(
-                                imageVector = if (isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
-                                contentDescription = "Toggle Light/Dark Theme",
-                                tint = topBarAccent,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        // Sign Out Button so user can switch Google accounts and test one-time onboarding
-                        IconButton(
-                            onClick = {
-                                signOutHunter(
-                                    credentialManager = credentialManager,
-                                    onSignOutComplete = onSignedOut,
-                                    scope = scope
-                                )
-                            },
-                            modifier = Modifier
-                                .padding(end = 6.dp)
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(PikaCheekCrimson.copy(alpha = 0.16f))
-                                .testTag("sign_out_top_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Logout,
-                                contentDescription = "Sign Out of Google Account",
-                                tint = PikaCheekCrimson,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                )
-            },
-            bottomBar = {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                    contentColor = TextPrimary,
-                    windowInsets = WindowInsets.navigationBars
-                ) {
-                    val tabs = listOf(
-                        Triple(0, "Home", Icons.Filled.Bolt),
-                        Triple(1, "Charts", Icons.AutoMirrored.Filled.ShowChart),
-                        Triple(2, "Workout", Icons.Filled.FitnessCenter),
-                        Triple(3, "Journal", Icons.Filled.Person),
-                        Triple(4, "PikaBot", Icons.Filled.SmartToy),
-                        Triple(5, "Settings", Icons.Filled.Settings)
-                    )
-                    tabs.forEach { (idx, label, icon) ->
-                        NavigationBarItem(
-                            selected = selectedTab == idx,
-                            onClick = {
-                                if (idx == 5) settingsFocusSection = 0
-                                selectedTab = idx
-                            },
-                            modifier = Modifier.testTag("nav_tab_${label.lowercase()}"),
-                            icon = { Icon(imageVector = icon, contentDescription = label, modifier = Modifier.size(22.dp)) },
-                            label = {
-                                Text(
-                                    text = label,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Visible,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = 10.sp,
-                                        letterSpacing = (-0.2).sp,
-                                        fontWeight = if (selectedTab == idx) FontWeight.ExtraBold else FontWeight.SemiBold
-                                    )
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = if (isDark) PikaVoltYellow else PikaCheekCrimson,
-                                selectedTextColor = if (isDark) PikaVoltYellow else PikaCheekCrimson,
-                                indicatorColor = (if (isDark) PikaVoltYellow else PikaCheekCrimson).copy(alpha = 0.18f),
-                                unselectedIconColor = TextSecondary,
-                                unselectedTextColor = TextSecondary
-                            )
-                        )
-                    }
-                }
-            }
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.TopCenter
-            ) {
-                Column(modifier = Modifier.fillMaxSize().widthIn(max = 640.dp)) {
-                    AiSyncStatusBanner(aiSyncState = aiSyncState, onDismiss = viewModel::dismissAiSyncBanner)
-
-                    when (selectedTab) {
-                        0 -> EmbeddedDashboard(
-                            state = state,
-                            pikaCoachState = pikaCoachState,
-                            isDark = isDark,
-                            onToggleTheme = onToggleTheme,
-                            onOpenTutorial = { showTutorial = true },
-                            onOpenOnboarding = { forceShowOnboarding = true },
-                            onRefreshPikaCoach = { viewModel.generatePikaCoachTip(showAsPopup = true) },
-                            onOpenPikaCoachPopup = viewModel::reopenPikaCoachPopup,
-                            onAddWorkoutClick = { selectedTab = 2 },
-                            onAddTaskClick = { selectedTab = 2 },
-                            onQuickCalories = viewModel::quickAdjustCalories,
-                            onQuickWater = { liters -> viewModel.quickAddWater(liters) },
-                            onUndoFood = { viewModel.undoLastFoodEntry() },
-                            onUndoWater = { viewModel.undoLastWaterEntry() },
-                            onLogProductiveTask = viewModel::logProductiveTask,
-                            onEditProductiveTask = viewModel::editProductiveTask,
-                            onRemoveProductiveTask = viewModel::removeProductiveTask,
-                            onOpenEditStreakFoodDialog = { showEditStreakFoodDialog = true }
-                        )
-                        1 -> BiometricChartsScreen(
-                            state = state,
-                            journalState = journalState,
-                            nutritionChatMessages = nutritionChatMessages,
-                            isNutritionChatLoading = isNutritionChatLoading,
-                            onSendNutritionMessage = viewModel::sendNutritionChatMessage,
-                            onClearNutritionChat = viewModel::clearNutritionChat,
-                            onLogBiometricPoint = viewModel::logBiometricPointToFirestore,
-                            onLogFoodItem = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
-                            onLogExerciseSet = viewModel::addExerciseSet,
-                            onUndoFood = { viewModel.undoLastFoodEntry() },
-                            onUndoWater = { viewModel.undoLastWaterEntry() },
-                            onUpdateHistoricalDayFoodLog = viewModel::updateHistoricalDayFoodLog,
-                            onLogProductiveTask = viewModel::logProductiveTask,
-                            onRemoveProductiveTask = viewModel::removeProductiveTask
-                        )
-                        2 -> StatsBreakdownTab(
-                            state = state,
-                            foodHistory = foodHistory,
-                            waterHistory = waterHistory,
-                            onQuickCalories = viewModel::quickAdjustCalories,
-                            onLogFoodItem = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
-                            onLogSmartFoodItem = { meal, cal, pro, carbs, fats, fiber, grams ->
-                                viewModel.logFoodItem(
-                                    mealName = meal,
-                                    calories = cal,
-                                    proteinG = pro,
-                                    carbsG = carbs,
-                                    fatsG = fats,
-                                    fiberG = fiber,
-                                    grams = grams
-                                )
-                            },
-                            onQuickWater = { liters -> viewModel.quickAddWater(liters) },
-                            onLogCustomWater = { liters, label -> viewModel.quickAddWater(liters, label) },
-                            onUndoFood = viewModel::undoLastFoodEntry,
-                            onUndoWater = viewModel::undoLastWaterEntry,
-                            onAddExercise = viewModel::addExerciseSet,
-                            onToggleQuest = viewModel::toggleQuestStatus
-                        )
-                        3 -> ProfileAndJournalTab(
-                            state = state,
-                            journalState = journalState,
-                            onSaveBiometrics = viewModel::updateProfileAndBiometrics,
-                            onSaveBiometricsWithGoal = viewModel::updateProfileAndBiometrics,
-                            onLogProgressPhoto = viewModel::logProgressPhotoToJournal,
-                            onDeleteJournalEntry = viewModel::deleteJournalEntry,
-                            onOpenAchievementsInSettings = {
-                                settingsFocusSection = 4
-                                selectedTab = 5
-                            },
-                            onLogProductiveTask = viewModel::logProductiveTask,
-                            onEditProductiveTask = viewModel::editProductiveTask,
-                            onRemoveProductiveTask = viewModel::removeProductiveTask
-                        )
-                        4 -> PikaBotScreen(
-                            state = state,
-                            messages = nutritionChatMessages,
-                            isLoading = isNutritionChatLoading,
-                            onSendMessage = viewModel::sendNutritionChatMessage,
-                            onClearChat = viewModel::clearNutritionChat,
-                            onLogRecommendedFood = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
-                            onApplyDietPlan = { msgId, goalKey, planTitle, calTarget, proTarget, waterTarget ->
-                                viewModel.applyDietPlanFromPikaBot(
-                                    messageId = msgId,
-                                    goalKey = goalKey,
-                                    planTitle = planTitle,
-                                    caloriesTarget = calTarget,
-                                    proteinTargetG = proTarget,
-                                    waterTargetLiters = waterTarget
-                                )
-                            },
-                            onLogRecommendedExercise = { msgId, exName, exSets, exReps ->
-                                viewModel.logExerciseFromPikaBot(
-                                    messageId = msgId,
-                                    exerciseName = exName,
-                                    sets = exSets,
-                                    reps = exReps
+                        },
+                        actions = {
+                            // Button to cycle Pikachu background wallpapers across all pages
+                            IconButton(
+                                onClick = { wallpaperMode = (wallpaperMode + 1) % 4 },
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Wallpaper,
+                                    contentDescription = "Cycle Pikachu Wallpaper",
+                                    tint = topBarAccent,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
-                        )
-                        5 -> SettingsAndFeedbackScreen(
-                            state = state,
-                            feedbackState = feedbackState,
-                            currentUserId = currentUserId,
-                            initialFocusSection = settingsFocusSection,
-                            releaseInfo = releaseInfo,
-                            installedVersionName = installedVersionName,
-                            installedVersionCode = installedVersionCode,
-                            isDark = isDark,
-                            onToggleTheme = onToggleTheme,
-                            onBack = { selectedTab = 0 },
-                            onCheckForUpdates = { viewModel.checkForAppUpdates(manualUserTrigger = true) },
-                            onMarkUpdateInstalled = { viewModel.markLatestUpdateInstalled(releaseInfo) },
-                            onPublishRelease = { _, versionName, releaseNotes, downloadUrl ->
-                                viewModel.publishNewAppRelease(
-                                    versionName = versionName,
-                                    releaseTitle = "PikaFit v$versionName Update",
-                                    releaseNotes = releaseNotes,
-                                    downloadUrl = downloadUrl
+
+                            IconButton(
+                                onClick = onToggleTheme,
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Icon(
+                                    imageVector = if (isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                                    contentDescription = "Toggle Light/Dark Theme",
+                                    tint = topBarAccent,
+                                    modifier = Modifier.size(18.dp)
                                 )
-                            },
-                            onSaveProfileAndTargets = viewModel::updateSettingsProfileAndTargets,
-                            onSaveProfileWithGoal = viewModel::updateSettingsProfileAndTargets,
-                            onResetProgress = { clearJournal ->
-                                viewModel.resetHunterProgress(clearJournal)
-                                forceShowOnboarding = true
-                            },
-                            onSubmitFeedback = viewModel::submitPublicFeedback,
-                            onUpdateFeedbackStatus = viewModel::updateFeedbackStatus,
-                            onDeleteFeedback = viewModel::deleteFeedback
-                        )
-                        else -> TacticalAiConsoleTab(
-                            state = state,
-                            aiSyncState = aiSyncState,
-                            logsState = logsState,
-                            onTransmitCommand = viewModel::submitTacticalCommand
-                        )
+                            }
+
+                            // Sign Out Button so user can switch Google accounts and test one-time onboarding
+                            IconButton(
+                                onClick = {
+                                    signOutHunter(
+                                        credentialManager = credentialManager,
+                                        onSignOutComplete = onSignedOut,
+                                        scope = scope
+                                    )
+                                },
+                                modifier = Modifier
+                                    .padding(end = 6.dp)
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(PikaCheekCrimson.copy(alpha = 0.16f))
+                                    .testTag("sign_out_top_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Logout,
+                                    contentDescription = "Sign Out of Google Account",
+                                    tint = PikaCheekCrimson,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    )
+                },
+                bottomBar = {
+                    if (!useNavigationRail) {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                            contentColor = TextPrimary,
+                            windowInsets = WindowInsets.navigationBars
+                        ) {
+                            navTabs.forEach { (idx, label, icon) ->
+                                NavigationBarItem(
+                                    selected = selectedTab == idx,
+                                    onClick = {
+                                        if (idx == 6) settingsFocusSection = 0
+                                        selectedTab = idx
+                                    },
+                                    modifier = Modifier.testTag("nav_tab_${label.lowercase()}"),
+                                    icon = { Icon(imageVector = icon, contentDescription = label, modifier = Modifier.size(20.dp)) },
+                                    label = {
+                                        Text(
+                                            text = label,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Visible,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 9.sp,
+                                                letterSpacing = (-0.3).sp,
+                                                fontWeight = if (selectedTab == idx) FontWeight.ExtraBold else FontWeight.SemiBold
+                                            )
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = if (isDark) PikaVoltYellow else PikaCheekCrimson,
+                                        selectedTextColor = if (isDark) PikaVoltYellow else PikaCheekCrimson,
+                                        indicatorColor = (if (isDark) PikaVoltYellow else PikaCheekCrimson).copy(alpha = 0.18f),
+                                        unselectedIconColor = TextSecondary,
+                                        unselectedTextColor = TextSecondary
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            ) { innerPadding ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    if (useNavigationRail) {
+                        NavigationRail(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                            contentColor = TextPrimary
+                        ) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            navTabs.forEach { (idx, label, icon) ->
+                                NavigationRailItem(
+                                    selected = selectedTab == idx,
+                                    onClick = {
+                                        if (idx == 6) settingsFocusSection = 0
+                                        selectedTab = idx
+                                    },
+                                    modifier = Modifier.testTag("nav_tab_${label.lowercase()}"),
+                                    icon = { Icon(imageVector = icon, contentDescription = label) },
+                                    label = {
+                                        Text(
+                                            text = label,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = if (selectedTab == idx) FontWeight.ExtraBold else FontWeight.SemiBold
+                                            )
+                                        )
+                                    },
+                                    colors = NavigationRailItemDefaults.colors(
+                                        selectedIconColor = if (isDark) PikaVoltYellow else PikaCheekCrimson,
+                                        selectedTextColor = if (isDark) PikaVoltYellow else PikaCheekCrimson,
+                                        indicatorColor = (if (isDark) PikaVoltYellow else PikaCheekCrimson).copy(alpha = 0.18f),
+                                        unselectedIconColor = TextSecondary,
+                                        unselectedTextColor = TextSecondary
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        Column(modifier = Modifier.fillMaxSize().widthIn(max = 640.dp)) {
+                            AiSyncStatusBanner(aiSyncState = aiSyncState, onDismiss = viewModel::dismissAiSyncBanner)
+
+                            when (selectedTab) {
+                                0 -> EmbeddedDashboard(
+                                    state = state,
+                                    pikaCoachState = pikaCoachState,
+                                    isDark = isDark,
+                                    onToggleTheme = onToggleTheme,
+                                    onOpenTutorial = { showTutorial = true },
+                                    onOpenOnboarding = { forceShowOnboarding = true },
+                                    onRefreshPikaCoach = { viewModel.generatePikaCoachTip(showAsPopup = true) },
+                                    onOpenPikaCoachPopup = viewModel::reopenPikaCoachPopup,
+                                    onAddWorkoutClick = { selectedTab = 3 },
+                                    onAddTaskClick = { selectedTab = 3 },
+                                    onQuickCalories = viewModel::quickAdjustCalories,
+                                    onQuickWater = { liters -> viewModel.quickAddWater(liters) },
+                                    onUndoFood = { viewModel.undoLastFoodEntry() },
+                                    onUndoWater = { viewModel.undoLastWaterEntry() },
+                                    onLogProductiveTask = viewModel::logProductiveTask,
+                                    onEditProductiveTask = viewModel::editProductiveTask,
+                                    onRemoveProductiveTask = viewModel::removeProductiveTask,
+                                    onOpenEditStreakFoodDialog = { showEditStreakFoodDialog = true }
+                                )
+                                1 -> StreaksTab(
+                                    state = state,
+                                    isDark = isDark,
+                                    onRestoreMissedStreak = viewModel::restoreMissedStreakWithXp,
+                                    onLogFoodItem = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
+                                    onLogExerciseSet = viewModel::addExerciseSet,
+                                    onLogProductiveTask = viewModel::logProductiveTask,
+                                    onRemoveProductiveTask = viewModel::removeProductiveTask,
+                                    onUndoFood = { viewModel.undoLastFoodEntry() },
+                                    onUndoWater = { viewModel.undoLastWaterEntry() },
+                                    onUpdateHistoricalDayFoodLog = viewModel::updateHistoricalDayFoodLog
+                                )
+                                2 -> BiometricChartsScreen(
+                                    state = state,
+                                    journalState = journalState,
+                                    nutritionChatMessages = nutritionChatMessages,
+                                    isNutritionChatLoading = isNutritionChatLoading,
+                                    onSendNutritionMessage = viewModel::sendNutritionChatMessage,
+                                    onClearNutritionChat = viewModel::clearNutritionChat,
+                                    onLogBiometricPoint = viewModel::logBiometricPointToFirestore,
+                                    onLogFoodItem = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
+                                    onLogExerciseSet = viewModel::addExerciseSet,
+                                    onUndoFood = { viewModel.undoLastFoodEntry() },
+                                    onUndoWater = { viewModel.undoLastWaterEntry() },
+                                    onUpdateHistoricalDayFoodLog = viewModel::updateHistoricalDayFoodLog,
+                                    onLogProductiveTask = viewModel::logProductiveTask,
+                                    onRemoveProductiveTask = viewModel::removeProductiveTask
+                                )
+                                3 -> StatsBreakdownTab(
+                                    state = state,
+                                    foodHistory = foodHistory,
+                                    waterHistory = waterHistory,
+                                    onQuickCalories = viewModel::quickAdjustCalories,
+                                    onLogFoodItem = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
+                                    onLogSmartFoodItem = { meal, cal, pro, carbs, fats, fiber, grams ->
+                                        viewModel.logFoodItem(
+                                            mealName = meal,
+                                            calories = cal,
+                                            proteinG = pro,
+                                            carbsG = carbs,
+                                            fatsG = fats,
+                                            fiberG = fiber,
+                                            grams = grams
+                                        )
+                                    },
+                                    onQuickWater = { liters -> viewModel.quickAddWater(liters) },
+                                    onLogCustomWater = { liters, label -> viewModel.quickAddWater(liters, label) },
+                                    onUndoFood = viewModel::undoLastFoodEntry,
+                                    onUndoWater = viewModel::undoLastWaterEntry,
+                                    onAddExercise = viewModel::addExerciseSet,
+                                    onToggleQuest = viewModel::toggleQuestStatus
+                                )
+                                4 -> ProfileAndJournalTab(
+                                    state = state,
+                                    journalState = journalState,
+                                    onSaveBiometrics = viewModel::updateProfileAndBiometrics,
+                                    onSaveBiometricsWithGoal = viewModel::updateProfileAndBiometrics,
+                                    onLogProgressPhoto = viewModel::logProgressPhotoToJournal,
+                                    onDeleteJournalEntry = viewModel::deleteJournalEntry,
+                                    onOpenAchievementsInSettings = {
+                                        settingsFocusSection = 4
+                                        selectedTab = 6
+                                    },
+                                    onLogProductiveTask = viewModel::logProductiveTask,
+                                    onEditProductiveTask = viewModel::editProductiveTask,
+                                    onRemoveProductiveTask = viewModel::removeProductiveTask
+                                )
+                                5 -> PikaBotScreen(
+                                    state = state,
+                                    messages = nutritionChatMessages,
+                                    isLoading = isNutritionChatLoading,
+                                    onSendMessage = viewModel::sendNutritionChatMessage,
+                                    onClearChat = viewModel::clearNutritionChat,
+                                    onLogRecommendedFood = { meal, cal, pro -> viewModel.logFoodItem(meal, cal, pro) },
+                                    onApplyDietPlan = { msgId, goalKey, planTitle, calTarget, proTarget, waterTarget ->
+                                        viewModel.applyDietPlanFromPikaBot(
+                                            messageId = msgId,
+                                            goalKey = goalKey,
+                                            planTitle = planTitle,
+                                            caloriesTarget = calTarget,
+                                            proteinTargetG = proTarget,
+                                            waterTargetLiters = waterTarget
+                                        )
+                                    },
+                                    onLogRecommendedExercise = { msgId, exName, exSets, exReps ->
+                                        viewModel.logExerciseFromPikaBot(
+                                            messageId = msgId,
+                                            exerciseName = exName,
+                                            sets = exSets,
+                                            reps = exReps
+                                        )
+                                    }
+                                )
+                                6 -> SettingsAndFeedbackScreen(
+                                    state = state,
+                                    feedbackState = feedbackState,
+                                    currentUserId = currentUserId,
+                                    initialFocusSection = settingsFocusSection,
+                                    releaseInfo = releaseInfo,
+                                    otaPatchManifest = otaPatch,
+                                    installedVersionName = installedVersionName,
+                                    installedVersionCode = installedVersionCode,
+                                    isDark = isDark,
+                                    onToggleTheme = onToggleTheme,
+                                    onBack = { selectedTab = 0 },
+                                    onCheckForUpdates = { viewModel.checkForAppUpdates(manualUserTrigger = true) },
+                                    onMarkUpdateInstalled = { viewModel.markLatestUpdateInstalled(releaseInfo) },
+                                    onPublishOtaPatch = { pVer, pNum, banner, notes ->
+                                        viewModel.publishOtaPatchBroadcast(pVer, pNum, banner, notes)
+                                    },
+                                    onPublishRelease = { _, versionName, releaseNotes, downloadUrl ->
+                                        viewModel.publishNewAppRelease(
+                                            versionName = versionName,
+                                            releaseTitle = "PikaFit v$versionName Update",
+                                            releaseNotes = releaseNotes,
+                                            downloadUrl = downloadUrl
+                                        )
+                                    },
+                                    onSaveProfileAndTargets = viewModel::updateSettingsProfileAndTargets,
+                                    onSaveProfileWithGoal = viewModel::updateSettingsProfileAndTargets,
+                                    onResetProgress = { clearJournal ->
+                                        viewModel.resetHunterProgress(clearJournal)
+                                        forceShowOnboarding = true
+                                    },
+                                    onSubmitFeedback = viewModel::submitPublicFeedback,
+                                    onUpdateFeedbackStatus = viewModel::updateFeedbackStatus,
+                                    onDeleteFeedback = viewModel::deleteFeedback
+                                )
+                                else -> TacticalAiConsoleTab(
+                                    state = state,
+                                    aiSyncState = aiSyncState,
+                                    logsState = logsState,
+                                    onTransmitCommand = viewModel::submitTacticalCommand
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -2397,28 +2482,26 @@ fun MainHunterScreen(
             )
         }
 
-        val isNewVersionAvailable = (releaseInfo.isUpdateAvailable || releaseInfo.latestVersionCode > installedVersionCode) &&
-            dismissedUpdateVersion != releaseInfo.latestVersionCode
+        val isNewVersionAvailable = (
+            releaseInfo.isUpdateAvailable ||
+                releaseInfo.latestVersionCode > installedVersionCode ||
+                releaseInfo.patchNumber > otaPatch.patchNumber
+            ) &&
+            dismissedUpdateVersion != releaseInfo.latestVersionCode &&
+            dismissedUpdateVersion != releaseInfo.patchNumber
 
         if (isNewVersionAvailable) {
             AppUpdateDialog(
                 releaseInfo = releaseInfo,
                 isDark = isDark,
                 onDismiss = {
-                    viewModel.dismissUpdatePrompt(releaseInfo.latestVersionCode)
+                    val dismissKey = maxOf(releaseInfo.latestVersionCode, releaseInfo.patchNumber)
+                    viewModel.dismissUpdatePrompt(dismissKey)
                 },
                 onDownload = {
+                    // Apply OTA patch silently in-app without any GitHub browser redirect or APK reinstall
                     viewModel.markLatestUpdateInstalled(releaseInfo)
-                    val rawUrl = releaseInfo.downloadUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
-                    val targetUri = Uri.parse(
-                        if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) "https://$rawUrl" else rawUrl
-                    )
-                    try {
-                        val browserIntent = Intent(Intent.ACTION_VIEW, targetUri).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        context.startActivity(browserIntent)
-                    } catch (_: Exception) {}
+                    viewModel.checkForAppUpdates(manualUserTrigger = false)
                 }
             )
         }
@@ -2433,7 +2516,7 @@ fun MainHunterScreen(
                     when (activeTip.actionType) {
                         "LOG_FOOD" -> viewModel.quickAdjustCalories(350, 28.0)
                         "LOG_WATER" -> viewModel.quickAddWater(0.5)
-                        "LOG_WORKOUT" -> selectedTab = 2
+                        "LOG_WORKOUT" -> selectedTab = 3
                         else -> {}
                     }
                 },

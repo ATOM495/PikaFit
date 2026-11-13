@@ -18,9 +18,9 @@ import kotlin.math.roundToInt
 data class TrainerRankTier(
     val tierLevel: Int,
     val classTitle: String,
-    val minXp: Int,
-    val maxXp: Int?, // null for 10,000+ (Champion)
-    val xpRangeLabel: String,
+    val requiredStreakDays: Int,
+    val nextTierStreakDays: Int?,
+    val streakRangeLabel: String,
     val pokemonName: String,
     val pokemonSubtitle: String,
     @DrawableRes val pokemonDrawableRes: Int,
@@ -31,190 +31,282 @@ data class TrainerRankTier(
     val rewardTitle: String,
     val rewardDescription: String,
     val rarity: String
+) {
+    // Compatibility properties for legacy call sites
+    val minXp: Int get() = requiredStreakDays
+    val maxXp: Int? get() = nextTierStreakDays
+    val xpRangeLabel: String get() = streakRangeLabel
+}
+
+data class ClassTierPatchOverride(
+    val tierLevel: Int,
+    val classTitle: String,
+    val requiredStreakDays: Int,
+    val pokemonName: String,
+    val pokemonSubtitle: String,
+    val rarity: String
 )
 
 object TrainerRankProgression {
-    val tiers: List<TrainerRankTier> = listOf(
+    @Volatile
+    var xpPerLevel: Int = 500
+        private set
+
+    @Volatile
+    var streakRestoreCostXp: Int = 1000
+        private set
+
+    val defaultTiers: List<TrainerRankTier> = listOf(
+        TrainerRankTier(
+            tierLevel = 0,
+            classTitle = "Unranked",
+            requiredStreakDays = 0,
+            nextTierStreakDays = 1,
+            streakRangeLabel = "0 days",
+            pokemonName = "Spark Egg",
+            pokemonSubtitle = "Dormant Trainer Spark",
+            pokemonDrawableRes = R.drawable.pika_logo_hi,
+            xpMultiplier = 1.00,
+            dailyCompletionXp = 80,
+            xpPaceLabel = "Log 1 productive day to awaken Pikachu",
+            achievementTitle = "Trainer Awakening (Level 0)",
+            rewardTitle = "Dormant Spark Crest",
+            rewardDescription = "Assigned at 0 verified streak days. Log Food, Exercise, or a Task today to reach Level 1 Beginner (Pikachu)!",
+            rarity = "COMMON"
+        ),
         TrainerRankTier(
             tierLevel = 1,
             classTitle = "Beginner",
-            minXp = 0,
-            maxXp = 1500,
-            xpRangeLabel = "0 – 1,500 XP",
+            requiredStreakDays = 1,
+            nextTierStreakDays = 25,
+            streakRangeLabel = "1 – 24 days",
             pokemonName = "Pikachu",
             pokemonSubtitle = "Thunder Spark Partner",
             pokemonDrawableRes = R.drawable.rank_1_beginner_pikachu,
-            xpMultiplier = 1.60,
-            dailyCompletionXp = 160,
-            xpPaceLabel = "1.6x Early-Stage Boost (Fast XP Gain)",
+            xpMultiplier = 1.15,
+            dailyCompletionXp = 100,
+            xpPaceLabel = "1.15x Partner Bond Bonus (25d -> Challenger)",
             achievementTitle = "Class Achieved: Beginner (Pikachu)",
-            rewardTitle = "Pikachu Spark Badge & +60% Rookie XP Surge",
-            rewardDescription = "Unlocked at 0–1,500 XP. Grants Pikachu Guardian Emblem & 1.6x accelerated XP gain for daily completions.",
+            rewardTitle = "Pikachu Spark Badge • 1-Day Streak",
+            rewardDescription = "Unlocked at 1 verified streak day. Keep logging daily for 25 days to evolve to Challenger (Charizard)!",
             rarity = "COMMON"
         ),
         TrainerRankTier(
             tierLevel = 2,
             classTitle = "Challenger",
-            minXp = 1500,
-            maxXp = 3000,
-            xpRangeLabel = "1,500 – 3,000 XP",
+            requiredStreakDays = 25,
+            nextTierStreakDays = 50,
+            streakRangeLabel = "25 – 49 days",
             pokemonName = "Charizard",
             pokemonSubtitle = "Sky Flame Vanguard",
             pokemonDrawableRes = R.drawable.rank_2_challenger_charizard,
-            xpMultiplier = 1.30,
-            dailyCompletionXp = 125,
-            xpPaceLabel = "1.3x Challenger Momentum Boost",
+            xpMultiplier = 1.25,
+            dailyCompletionXp = 130,
+            xpPaceLabel = "1.25x Flame Vanguard Bonus (50d -> Leader)",
             achievementTitle = "Class Achieved: Challenger (Charizard)",
-            rewardTitle = "Charizard Flame Crest & Challenger Armor",
-            rewardDescription = "Unlocked at 1,500 XP. Unlocks Charizard Guardian Emblem, Flame Wing Buff, and Official Challenger Class Title.",
+            rewardTitle = "Charizard Flame Crest • 25-Day Streak",
+            rewardDescription = "Unlocked at a 25-day streak! Proves dedicated habit formation and unlocks the Sky Flame Vanguard emblem.",
             rarity = "RARE"
         ),
         TrainerRankTier(
             tierLevel = 3,
             classTitle = "Leader",
-            minXp = 3000,
-            maxXp = 5000,
-            xpRangeLabel = "3,000 – 5,000 XP",
+            requiredStreakDays = 50,
+            nextTierStreakDays = 100,
+            streakRangeLabel = "50 – 99 days",
             pokemonName = "Greninja",
             pokemonSubtitle = "Water Shuriken Tactician",
             pokemonDrawableRes = R.drawable.rank_3_leader_greninja,
-            xpMultiplier = 1.00,
-            dailyCompletionXp = 95,
-            xpPaceLabel = "1.0x Standard Gym Leader Pace",
+            xpMultiplier = 1.35,
+            dailyCompletionXp = 160,
+            xpPaceLabel = "1.35x Gym Leader Pace (100d -> Elite I)",
             achievementTitle = "Class Achieved: Leader (Greninja)",
-            rewardTitle = "Greninja Shuriken Seal & Gym Leader Crown",
-            rewardDescription = "Unlocked at 3,000 XP. Unlocks Greninja Guardian Emblem, Shinobi Focus Buff, and Official Leader Class Title.",
+            rewardTitle = "Greninja Shuriken Seal • 50-Day Streak",
+            rewardDescription = "Unlocked at 50 consecutive streak days! Unlocks Official Gym Leader Class Title & Shinobi Focus Buff.",
             rarity = "RARE"
         ),
         TrainerRankTier(
             tierLevel = 4,
             classTitle = "Elite I",
-            minXp = 5000,
-            maxXp = 7500,
-            xpRangeLabel = "5,000 – 7,500 XP",
-            pokemonName = "Mega Lucario",
+            requiredStreakDays = 100,
+            nextTierStreakDays = 175,
+            streakRangeLabel = "100 – 174 days",
+            pokemonName = "Lucario",
             pokemonSubtitle = "Aura Sphere Master",
             pokemonDrawableRes = R.drawable.rank_4_elite1_lucario,
-            xpMultiplier = 0.80,
-            dailyCompletionXp = 75,
-            xpPaceLabel = "0.80x Elite I Tempering Pace (Slowed XP)",
-            achievementTitle = "Class Achieved: Elite I (Mega Lucario)",
-            rewardTitle = "Mega Lucario Aura Seal & Steel Will Relic",
-            rewardDescription = "Unlocked at 5,000 XP. Unlocks Mega Lucario Guardian Emblem, Aura Mastery Buff, and Elite I Class Title.",
+            xpMultiplier = 1.50,
+            dailyCompletionXp = 200,
+            xpPaceLabel = "1.50x Aura Mastery Bonus (175d -> Elite II)",
+            achievementTitle = "Class Achieved: Elite I (Lucario)",
+            rewardTitle = "Lucario Aura Seal • 100-Day Streak",
+            rewardDescription = "Unlocked at 100 consecutive streak days! Century milestone granting Elite I Status & Aura Steel Will Relic.",
             rarity = "EPIC"
         ),
         TrainerRankTier(
             tierLevel = 5,
             classTitle = "Elite II",
-            minXp = 7500,
-            maxXp = 9000,
-            xpRangeLabel = "7,500 – 9,000 XP",
+            requiredStreakDays = 175,
+            nextTierStreakDays = 275,
+            streakRangeLabel = "175 – 274 days",
             pokemonName = "Shadow Mewtwo",
             pokemonSubtitle = "Obsidian Psystrike Sovereign",
             pokemonDrawableRes = R.drawable.rank_5_elite2_mewtwo,
-            xpMultiplier = 0.65,
-            dailyCompletionXp = 60,
-            xpPaceLabel = "0.65x Elite II High-Gravity Pace (Slowed XP)",
+            xpMultiplier = 1.65,
+            dailyCompletionXp = 240,
+            xpPaceLabel = "1.65x Psystrike Sovereign Bonus (275d -> Elite III)",
             achievementTitle = "Class Achieved: Elite II (Shadow Mewtwo)",
-            rewardTitle = "Shadow Mewtwo Core & Psystrike Mantle",
-            rewardDescription = "Unlocked at 7,500 XP. Unlocks Shadow Mewtwo Guardian Emblem, Obsidian Aura Frame, and Elite II Class Title.",
+            rewardTitle = "Shadow Mewtwo Core • 175-Day Streak",
+            rewardDescription = "Unlocked at 175 streak days! Grants Obsidian Psystrike Aura and Elite II Sovereignty.",
             rarity = "EPIC"
         ),
         TrainerRankTier(
             tierLevel = 6,
             classTitle = "Elite III",
-            minXp = 9000,
-            maxXp = 10000,
-            xpRangeLabel = "9,000 – 10,000 XP",
+            requiredStreakDays = 275,
+            nextTierStreakDays = 500,
+            streakRangeLabel = "275 – 499 days",
             pokemonName = "Yveltal",
             pokemonSubtitle = "Crimson Oblivion Apex",
             pokemonDrawableRes = R.drawable.rank_6_elite3_yveltal,
-            xpMultiplier = 0.50,
-            dailyCompletionXp = 45,
-            xpPaceLabel = "0.50x Elite III Crucible Pace (Slowed XP)",
+            xpMultiplier = 1.80,
+            dailyCompletionXp = 280,
+            xpPaceLabel = "1.80x Oblivion Apex Bonus (500d -> Champion)",
             achievementTitle = "Class Achieved: Elite III (Yveltal)",
-            rewardTitle = "Yveltal Oblivion Wings & Apex Predator Seal",
-            rewardDescription = "Unlocked at 9,000 XP. Unlocks Yveltal Guardian Emblem, Crimson Wing Buff, and Elite III Class Title.",
+            rewardTitle = "Yveltal Oblivion Wings • 275-Day Streak",
+            rewardDescription = "Unlocked at 275 streak days! Near-year mastery unlocking Yveltal Crimson Wings & Elite III Title.",
             rarity = "LEGENDARY"
         ),
         TrainerRankTier(
             tierLevel = 7,
             classTitle = "Champion",
-            minXp = 10000,
-            maxXp = null,
-            xpRangeLabel = "10,000+ XP",
+            requiredStreakDays = 500,
+            nextTierStreakDays = null,
+            streakRangeLabel = "500+ days",
             pokemonName = "Arceus",
             pokemonSubtitle = "Mythic Alpha Creator",
             pokemonDrawableRes = R.drawable.rank_7_champion_arceus,
-            xpMultiplier = 0.40,
-            dailyCompletionXp = 35,
-            xpPaceLabel = "0.40x Mythic Champion Mastery Pace",
+            xpMultiplier = 2.00,
+            dailyCompletionXp = 350,
+            xpPaceLabel = "2.00x Immortal Champion Mastery",
             achievementTitle = "Class Achieved: Champion (Arceus)",
-            rewardTitle = "Arceus Alpha Halo, Sovereign Trophy & Champion Title",
-            rewardDescription = "Unlocked at 10,000+ XP. Unlocks Mythic Arceus Guardian Emblem, Alpha Plates Halo, and Immortal Champion Title.",
+            rewardTitle = "Arceus Alpha Halo • 500-Day Champion",
+            rewardDescription = "Unlocked at 500 verified streak days! Supreme Champion rank with Arceus Alpha Creator Halo.",
             rarity = "LEGENDARY"
         )
     )
 
-    fun tierForXp(totalXp: Int): TrainerRankTier {
-        val safeXp = totalXp.coerceAtLeast(0)
-        return when {
-            safeXp >= 10000 -> tiers[6]
-            safeXp >= 9000 -> tiers[5]
-            safeXp >= 7500 -> tiers[4]
-            safeXp >= 5000 -> tiers[3]
-            safeXp >= 3000 -> tiers[2]
-            safeXp >= 1500 -> tiers[1]
-            else -> tiers[0]
+    @Volatile
+    private var activeTiersOverride: List<TrainerRankTier>? = null
+
+    val tiers: List<TrainerRankTier>
+        get() = activeTiersOverride ?: defaultTiers
+
+    fun applyOtaPatchRules(
+        xpPerLevelOverride: Int? = null,
+        streakRestoreCostOverride: Int? = null,
+        tierOverrides: List<ClassTierPatchOverride> = emptyList()
+    ) {
+        if (xpPerLevelOverride != null && xpPerLevelOverride >= 100) {
+            xpPerLevel = xpPerLevelOverride.coerceIn(100, 10000)
+        }
+        if (streakRestoreCostOverride != null && streakRestoreCostOverride >= 100) {
+            streakRestoreCostXp = streakRestoreCostOverride.coerceIn(100, 50000)
+        }
+        if (tierOverrides.isNotEmpty()) {
+            val merged = defaultTiers.map { base ->
+                val ov = tierOverrides.firstOrNull { it.tierLevel == base.tierLevel }
+                if (ov != null) {
+                    base.copy(
+                        classTitle = ov.classTitle.ifBlank { base.classTitle },
+                        requiredStreakDays = ov.requiredStreakDays.coerceAtLeast(0),
+                        pokemonName = ov.pokemonName.ifBlank { base.pokemonName },
+                        pokemonSubtitle = ov.pokemonSubtitle.ifBlank { base.pokemonSubtitle },
+                        rarity = ov.rarity.ifBlank { base.rarity },
+                        achievementTitle = if (base.tierLevel == 0) base.achievementTitle else "Class Achieved: ${ov.classTitle.ifBlank { base.classTitle }} (${ov.pokemonName.ifBlank { base.pokemonName }})"
+                    )
+                } else base
+            }.sortedBy { it.requiredStreakDays }
+            activeTiersOverride = merged.mapIndexed { idx, t ->
+                val nextDays = merged.getOrNull(idx + 1)?.requiredStreakDays
+                val label = if (nextDays == null) {
+                    "${t.requiredStreakDays}+ days"
+                } else if (t.requiredStreakDays == 0 && nextDays == 1) {
+                    "0 days"
+                } else {
+                    "${t.requiredStreakDays} – ${nextDays - 1} days"
+                }
+                t.copy(nextTierStreakDays = nextDays, streakRangeLabel = label)
+            }
         }
     }
 
-    fun nextTierForXp(totalXp: Int): TrainerRankTier? {
-        val current = tierForXp(totalXp)
-        return tiers.getOrNull(current.tierLevel)
+    fun resetToDefaultRules() {
+        xpPerLevel = 500
+        streakRestoreCostXp = 1000
+        activeTiersOverride = null
     }
 
-    fun nextThresholdForXp(totalXp: Int): Int {
-        val safeXp = totalXp.coerceAtLeast(0)
-        val tier = tierForXp(safeXp)
-        return tier.maxXp ?: (10000 + (((safeXp - 10000) / 2500 + 1) * 2500))
+    fun tierForStreakDays(streakDays: Int): TrainerRankTier {
+        val safeDays = streakDays.coerceAtLeast(0)
+        val currentList = tiers
+        return currentList.lastOrNull { safeDays >= it.requiredStreakDays } ?: currentList.first()
     }
 
-    fun progressPercentForXp(totalXp: Int): Double {
-        val safeXp = totalXp.coerceAtLeast(0)
-        val tier = tierForXp(safeXp)
-        val max = tier.maxXp
-        val raw = if (max != null) {
-            ((safeXp - tier.minXp).toDouble() / (max - tier.minXp).coerceAtLeast(1).toDouble()) * 100.0
-        } else {
-            (((safeXp - 10000) % 2500).toDouble() / 2500.0) * 100.0
-        }
-        return ((raw * 10.0).roundToInt() / 10.0).coerceIn(0.0, 100.0)
+    fun nextTierForStreakDays(streakDays: Int): TrainerRankTier? {
+        val safeDays = streakDays.coerceAtLeast(0)
+        val current = tierForStreakDays(safeDays)
+        return tiers.firstOrNull { it.requiredStreakDays > current.requiredStreakDays }
     }
 
-    /**
-     * Scales raw XP gain based on the user's current progression tier:
-     * Higher XP in the beginning stage (1.6x in Beginner, 1.3x in Challenger),
-     * slowing down gradually at higher ranks (0.80x -> 0.65x -> 0.50x -> 0.40x)
-     * so users keep using the app consistently to earn higher ranks.
-     */
-    fun scaleActionXp(baseXp: Int, currentTotalXp: Int): Int {
+    fun streakProgressPercent(streakDays: Int): Double {
+        val safeDays = streakDays.coerceAtLeast(0)
+        val current = tierForStreakDays(safeDays)
+        val next = nextTierForStreakDays(safeDays) ?: return 100.0
+        val span = (next.requiredStreakDays - current.requiredStreakDays).coerceAtLeast(1)
+        val pct = ((safeDays - current.requiredStreakDays).toDouble() / span.toDouble()) * 100.0
+        return ((pct * 10.0).roundToInt() / 10.0).coerceIn(0.0, 100.0)
+    }
+
+    // Continuous numeric XP Leveling — always climbs with lifetime XP gained!
+    fun xpLevelForLifetimeXp(lifetimeXp: Int): Int {
+        val safeXp = lifetimeXp.coerceAtLeast(0)
+        val perLevel = xpPerLevel.coerceAtLeast(100)
+        return (1 + (safeXp / perLevel)).coerceIn(1, 999)
+    }
+
+    fun nextXpLevelThreshold(lifetimeXp: Int): Int {
+        val perLevel = xpPerLevel.coerceAtLeast(100)
+        return xpLevelForLifetimeXp(lifetimeXp) * perLevel
+    }
+
+    fun xpLevelProgressPercent(lifetimeXp: Int): Double {
+        val safeXp = lifetimeXp.coerceAtLeast(0)
+        val perLevel = xpPerLevel.coerceAtLeast(100)
+        val intoLevel = safeXp % perLevel
+        val pct = (intoLevel.toDouble() / perLevel.toDouble()) * 100.0
+        return ((pct * 10.0).roundToInt() / 10.0).coerceIn(0.0, 100.0)
+    }
+
+    // Compatibility delegates pointing to streak-based class tier (0d -> Lv0, 1d -> Lv1)
+    fun tierForXp(totalXp: Int): TrainerRankTier = tierForStreakDays(if (totalXp <= 0) 0 else 1)
+
+    fun scaleActionXp(baseXp: Int, streakDays: Int): Int {
         if (baseXp <= 0) return baseXp
-        val tier = tierForXp(currentTotalXp)
+        val tier = tierForStreakDays(streakDays)
         return (baseXp * tier.xpMultiplier).roundToInt().coerceAtLeast(5)
     }
 
-    fun dailyCheckInBonusXp(currentTotalXp: Int): Int {
-        return tierForXp(currentTotalXp).dailyCompletionXp
+    fun dailyCheckInBonusXp(streakDays: Int): Int {
+        return tierForStreakDays(streakDays).dailyCompletionXp
     }
 
-    fun unlockedClassAchievementsForXp(
-        totalXp: Int,
+    fun unlockedClassAchievementsForStreak(
+        streakDays: Int,
         existingAchievements: List<AchievementItem>
     ): List<AchievementItem> {
-        val safeXp = totalXp.coerceAtLeast(0)
+        val safeDays = streakDays.coerceAtLeast(0)
         val earnedTierAchievements = tiers
-            .filter { safeXp >= it.minXp }
+            .filter { it.tierLevel >= 1 && safeDays >= it.requiredStreakDays }
             .map { tier ->
                 AchievementItem(
                     title = tier.achievementTitle,
@@ -222,9 +314,12 @@ object TrainerRankProgression {
                     rarity = tier.rarity
                 )
             }
+        val tierTitleSet = tiers.map { it.achievementTitle }.toSet()
+        val preservedNonTierAndPreviouslyEarned = existingAchievements.filter { ach ->
+            ach.title !in tierTitleSet || earnedTierAchievements.any { it.title == ach.title }
+        }
         val existingTitles = earnedTierAchievements.map { it.title }.toSet()
-        val preservedCustom = existingAchievements.filterNot { it.title in existingTitles }
-        return earnedTierAchievements + preservedCustom
+        return earnedTierAchievements + preservedNonTierAndPreviouslyEarned.filterNot { it.title in existingTitles }
     }
 }
 
@@ -488,6 +583,33 @@ object StreakDateUtils {
         cal.add(Calendar.DAY_OF_YEAR, -daysAgo)
         val sdf = SimpleDateFormat(DATE_PATTERN, Locale.US)
         return sdf.format(cal.time)
+    }
+
+    fun daysBetween(earlierDateStr: String, laterDateStr: String): Int {
+        if (earlierDateStr.isBlank() || laterDateStr.isBlank()) return -1
+        return try {
+            val sdf = SimpleDateFormat(DATE_PATTERN, Locale.US).apply { isLenient = false }
+            val d1 = sdf.parse(earlierDateStr.trim()) ?: return -1
+            val d2 = sdf.parse(laterDateStr.trim()) ?: return -1
+            val c1 = Calendar.getInstance().apply {
+                time = d1
+                set(Calendar.HOUR_OF_DAY, 12)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val c2 = Calendar.getInstance().apply {
+                time = d2
+                set(Calendar.HOUR_OF_DAY, 12)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val diffMillis = c2.timeInMillis - c1.timeInMillis
+            (diffMillis / 86_400_000L).toInt()
+        } catch (_: Exception) {
+            -1
+        }
     }
 
     fun defaultHistoryDates(nowMillis: Long = System.currentTimeMillis()): List<String> {
@@ -835,13 +957,19 @@ data class DailyDateLog(
 }
 
 data class PlayerStatus(
-    val level: Int = 1,
-    val rank: String = "Beginner",
-    val currentXp: Int = 0,
-    val nextLevelXp: Int = 1500,
+    val level: Int = 1,               // Continuous XP Level (always increases with lifetime XP!)
+    val classLevel: Int = 0,          // Streak-oriented Pokémon Class Level (0..7)
+    val rank: String = "Unranked",
+    val currentXp: Int = 0,           // Spendable XP balance (spent on 1,000 XP streak restore)
+    val lifetimeXp: Int = 0,          // Cumulative XP earned (drives continuous XP Level)
+    val nextLevelXp: Int = 500,
     val progressPercent: Double = 0.0,
     val hpPercent: Double = 100.0,
     val streakDays: Int = 0,
+    val bestStreakDays: Int = 0,
+    val restorableStreakDays: Int = 0,
+    val missedStreakDate: String = "",
+    val restoredDates: List<String> = emptyList(),
     val checkedInToday: Boolean = false,
     val lastProductiveDate: String = "",
     val lastDailyResetDate: String = "",
@@ -851,14 +979,23 @@ data class PlayerStatus(
     val lastCheckInTrigger: String = "No activity logged today — input food, exercise, or completed tasks to check in",
     val productiveHistoryDates: List<String> = emptyList(),
     val dailyLogsByDate: Map<String, DailyDateLog> = emptyMap(),
-    val activeBuffs: List<String> = listOf("Pikachu (1.6x XP)"),
+    val activeBuffs: List<String> = listOf("Spark Egg (0D)"),
     val activeDebuffs: List<String> = emptyList()
 ) {
     val currentTier: TrainerRankTier
-        get() = TrainerRankProgression.tierForXp(currentXp)
+        get() = TrainerRankProgression.tierForStreakDays(streakDays)
 
     val nextTier: TrainerRankTier?
-        get() = TrainerRankProgression.nextTierForXp(currentXp)
+        get() = TrainerRankProgression.nextTierForStreakDays(streakDays)
+
+    val streakClassProgressPercent: Double
+        get() = TrainerRankProgression.streakProgressPercent(streakDays)
+
+    val canRestoreMissedStreak: Boolean
+        get() = restorableStreakDays > 0 && currentXp >= TrainerRankProgression.streakRestoreCostXp
+
+    val xpNeededForRestore: Int
+        get() = (TrainerRankProgression.streakRestoreCostXp - currentXp).coerceAtLeast(0)
 }
 
 data class VitalityStats(
@@ -918,8 +1055,8 @@ data class HunterSystemState(
         QuestItem("Clear Daily Calorie Target", "IN_PROGRESS", 120),
         QuestItem("Daily Productive Streak Check-In (Input Food or Exercise)", "IN_PROGRESS", 50)
     ),
-    val unlockedAchievements: List<AchievementItem> = TrainerRankProgression.unlockedClassAchievementsForXp(0, emptyList()),
-    val tacticalBriefing: String = "System online. Input your meals, water, or workout sets to start tracking your daily progress and earn XP!",
+    val unlockedAchievements: List<AchievementItem> = TrainerRankProgression.unlockedClassAchievementsForStreak(0, emptyList()),
+    val tacticalBriefing: String = "System online. Input your meals, water, or workout sets to awaken Day 1 (Beginner • Pikachu) and earn XP!",
     val suggestedActions: List<String> = listOf(
         "LOG FIRST MEAL",
         "LOG WORKOUT SET",
@@ -1022,11 +1159,11 @@ data class HunterSystemState(
             )
             return (ps.dailyLogsByDate + (prevDate to archivedEntry)).entries
                 .sortedBy { it.key }
-                .takeLast(14)
+                .takeLast(45)
                 .associate { it.key to it.value }
         }
 
-        // Case 1: Already verified via food or exercise input earlier today
+        // Case 1: Already verified via food, exercise, or task input earlier today
         if (ps.lastProductiveDate == todayDate && ps.checkedInToday) {
             val cleanedTrigger = ps.lastCheckInTrigger
                 .replace(Regex("""\(\d+g\)\s*(\(\d+g\))"""), "$1")
@@ -1071,68 +1208,189 @@ data class HunterSystemState(
             }
         }
 
-        // Case 2: Already performed the daily rollover reset for todayDate (e.g. user logged water today before logging food/workout)
+        // Case 2: Already performed the daily rollover reset for todayDate (preserves today's water/restorable alert)
         if (ps.lastDailyResetDate == todayDate) {
             return this
         }
 
-        // Case 3: First evaluation on a new calendar day (or brand-new Day 1 account)
-        return if (ps.lastProductiveDate.isBlank()) {
-            // Brand-new Day 1 profile — do NOT wipe any water/stats logged today; just stamp lastDailyResetDate = todayDate
-            copy(
-                playerStatus = ps.copy(
-                    checkedInToday = false,
-                    lastDailyResetDate = todayDate
+        // Case 3: First evaluation on a new calendar day (or brand-new Day 0 account)
+        val dayGap = StreakDateUtils.daysBetween(ps.lastProductiveDate, todayDate)
+        return when {
+            ps.lastProductiveDate.isBlank() -> {
+                copy(
+                    playerStatus = ps.copy(
+                        checkedInToday = false,
+                        lastDailyResetDate = todayDate
+                    )
                 )
-            )
-        } else if (ps.lastProductiveDate == yesterdayDate) {
-            // Yesterday was productive -> archive yesterday's food log, preserve streakDays, reset daily intake stats ONCE for todayDate
-            val archivedLogs = archivePreviousDayIfPresent()
-            val (freshStats, freshQuests) = resetDailyIntakeStats()
-            copy(
-                playerStatus = ps.copy(
-                    checkedInToday = false,
-                    lastDailyResetDate = todayDate,
-                    todayFoodInputs = 0,
-                    todayExerciseInputs = 0,
-                    todayTaskInputs = 0,
-                    dailyLogsByDate = archivedLogs,
-                    lastCheckInTrigger = "Unverified today — log any food, exercise, or task to check in"
-                ),
-                statBreakdown = freshStats,
-                questLog = freshQuests
-            )
-        } else {
-            // Missed a full calendar day without logging food or exercise -> archive previous day, streak resets to 0 and daily intake resets ONCE for todayDate
-            val archivedLogs = archivePreviousDayIfPresent()
-            val debuffLabel = "Streak Reset (Missed Productive Day)"
-            val updatedDebuffs = if (ps.activeDebuffs.contains(debuffLabel)) {
-                ps.activeDebuffs
-            } else {
-                ps.activeDebuffs + debuffLabel
             }
-            val (freshStats, freshQuests) = resetDailyIntakeStats()
-            copy(
-                playerStatus = ps.copy(
-                    streakDays = 0,
-                    checkedInToday = false,
-                    lastDailyResetDate = todayDate,
-                    todayFoodInputs = 0,
-                    todayExerciseInputs = 0,
-                    todayTaskInputs = 0,
-                    dailyLogsByDate = archivedLogs,
-                    lastCheckInTrigger = "Streak reset — input food, exercise, or task to start Day 1",
-                    activeDebuffs = updatedDebuffs
-                ),
-                statBreakdown = freshStats,
-                questLog = freshQuests
-            )
+            ps.lastProductiveDate == yesterdayDate || dayGap == 1 -> {
+                // Yesterday was productive -> archive yesterday's log, preserve streakDays, reset daily intake ONCE
+                val archivedLogs = archivePreviousDayIfPresent()
+                val (freshStats, freshQuests) = resetDailyIntakeStats()
+                val activeTier = TrainerRankProgression.tierForStreakDays(ps.streakDays)
+                copy(
+                    playerStatus = ps.copy(
+                        classLevel = activeTier.tierLevel,
+                        rank = activeTier.classTitle,
+                        checkedInToday = false,
+                        lastDailyResetDate = todayDate,
+                        todayFoodInputs = 0,
+                        todayExerciseInputs = 0,
+                        todayTaskInputs = 0,
+                        restorableStreakDays = 0,
+                        missedStreakDate = "",
+                        dailyLogsByDate = archivedLogs,
+                        lastCheckInTrigger = "Unverified today — log any food, exercise, or task to keep your ${ps.streakDays}D streak!"
+                    ),
+                    statBreakdown = freshStats,
+                    questLog = freshQuests
+                )
+            }
+            dayGap == 2 && ps.streakDays > 0 -> {
+                // Missed EXACTLY 1 day (yesterdayDate) -> store restorableStreakDays so user can restore for 1,000 XP!
+                val archivedLogs = archivePreviousDayIfPresent()
+                val restoreCost = TrainerRankProgression.streakRestoreCostXp
+                val debuffLabel = "Missed 1 Day ($yesterdayDate) • Restore ${ps.streakDays}D Streak for $restoreCost XP"
+                val cleanedDebuffs = ps.activeDebuffs.filterNot {
+                    it.contains("Streak Reset", ignoreCase = true) || it.contains("Missed 1 Day", ignoreCase = true)
+                }
+                val (freshStats, freshQuests) = resetDailyIntakeStats()
+                val resetTier = TrainerRankProgression.tierForStreakDays(0)
+                copy(
+                    playerStatus = ps.copy(
+                        classLevel = resetTier.tierLevel,
+                        rank = resetTier.classTitle,
+                        streakDays = 0,
+                        bestStreakDays = maxOf(ps.bestStreakDays, ps.streakDays),
+                        restorableStreakDays = ps.streakDays,
+                        missedStreakDate = yesterdayDate,
+                        checkedInToday = false,
+                        lastDailyResetDate = todayDate,
+                        todayFoodInputs = 0,
+                        todayExerciseInputs = 0,
+                        todayTaskInputs = 0,
+                        dailyLogsByDate = archivedLogs,
+                        lastCheckInTrigger = "Missed 1 day ($yesterdayDate)! Restore your ${ps.streakDays}D streak for $restoreCost XP or log today to start Day 1.",
+                        activeDebuffs = cleanedDebuffs + debuffLabel
+                    ),
+                    statBreakdown = freshStats,
+                    questLog = freshQuests,
+                    biometrics = biometrics.copy(hunterTitle = "${resetTier.classTitle} • ${resetTier.pokemonName}")
+                )
+            }
+            else -> {
+                // Missed 2+ calendar days -> permanent streak reset
+                val archivedLogs = archivePreviousDayIfPresent()
+                val debuffLabel = "Streak Reset (Missed Productive Days)"
+                val cleanedDebuffs = ps.activeDebuffs.filterNot {
+                    it.contains("Missed 1 Day", ignoreCase = true) || it.contains("Streak Reset", ignoreCase = true)
+                }
+                val (freshStats, freshQuests) = resetDailyIntakeStats()
+                val resetTier = TrainerRankProgression.tierForStreakDays(0)
+                copy(
+                    playerStatus = ps.copy(
+                        classLevel = resetTier.tierLevel,
+                        rank = resetTier.classTitle,
+                        streakDays = 0,
+                        bestStreakDays = maxOf(ps.bestStreakDays, ps.streakDays),
+                        restorableStreakDays = 0,
+                        missedStreakDate = "",
+                        checkedInToday = false,
+                        lastDailyResetDate = todayDate,
+                        todayFoodInputs = 0,
+                        todayExerciseInputs = 0,
+                        todayTaskInputs = 0,
+                        dailyLogsByDate = archivedLogs,
+                        lastCheckInTrigger = "Streak reset — input food, exercise, or task to start Day 1",
+                        activeDebuffs = cleanedDebuffs + debuffLabel
+                    ),
+                    statBreakdown = freshStats,
+                    questLog = freshQuests,
+                    biometrics = biometrics.copy(hunterTitle = "${resetTier.classTitle} • ${resetTier.pokemonName}")
+                )
+            }
         }
     }
 
     /**
+     * Restores a 1-day missed streak by spending 1,000 XP (or patched streakRestoreCostXp).
+     * Continuous lifetime XP Level is preserved; spendable currentXp decreases by 1,000.
+     */
+    fun restoreLostStreak(todayDate: String = StreakDateUtils.todayDateString()): Result<HunterSystemState> {
+        val ps = playerStatus
+        val cost = TrainerRankProgression.streakRestoreCostXp
+        if (ps.restorableStreakDays <= 0 || ps.missedStreakDate.isBlank()) {
+            return Result.failure(IllegalStateException("No eligible 1-day missed streak to restore."))
+        }
+        if (ps.currentXp < cost) {
+            return Result.failure(IllegalStateException("Need $cost XP to restore streak (you have ${ps.currentXp} XP)."))
+        }
+
+        val restoredStreak = ps.restorableStreakDays + (if (ps.checkedInToday) 1 else 0)
+        val newSpendableXp = (ps.currentXp - cost).coerceAtLeast(0)
+        val safeLifetimeXp = maxOf(ps.lifetimeXp, ps.currentXp)
+        val xpLevel = TrainerRankProgression.xpLevelForLifetimeXp(safeLifetimeXp)
+        val nextXpTarget = TrainerRankProgression.nextXpLevelThreshold(safeLifetimeXp)
+        val xpProgress = TrainerRankProgression.xpLevelProgressPercent(safeLifetimeXp)
+        val restoredTier = TrainerRankProgression.tierForStreakDays(restoredStreak)
+        val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForStreak(
+            restoredStreak,
+            unlockedAchievements
+        )
+        val autoTitle = "${restoredTier.classTitle} • ${restoredTier.pokemonName}"
+
+        val updatedHistory = (ps.productiveHistoryDates + ps.missedStreakDate).distinct().sorted().takeLast(365)
+        val updatedRestoredDates = (ps.restoredDates + ps.missedStreakDate).distinct().sorted().takeLast(365)
+        val existingMissedLog = ps.dailyLogsByDate[ps.missedStreakDate]
+        val restoredDayLog = existingMissedLog?.copy(
+            foodSummary = existingMissedLog.foodSummary.ifBlank { "Streak Restored (-$cost XP Shield)" }
+        ) ?: DailyDateLog(
+            date = ps.missedStreakDate,
+            foodSummary = "Streak Restored (-$cost XP Shield)"
+        )
+        val updatedLogsMap = (ps.dailyLogsByDate + (ps.missedStreakDate to restoredDayLog))
+            .entries.sortedBy { it.key }.takeLast(45).associate { it.key to it.value }
+
+        val cleanedDebuffs = ps.activeDebuffs.filterNot {
+            it.contains("Missed 1 Day", ignoreCase = true) || it.contains("Streak Reset", ignoreCase = true)
+        }
+        val cleanedBuffs = ps.activeBuffs.filterNot {
+            it.startsWith("Productive Streak") || it.startsWith("Streak Shield") || it.contains("Spark Egg")
+        } + "${restoredTier.pokemonName} (${restoredStreak}D)" + "Streak Shield Restored"
+
+        val restoredState = copy(
+            playerStatus = ps.copy(
+                level = xpLevel,
+                classLevel = restoredTier.tierLevel,
+                rank = restoredTier.classTitle,
+                currentXp = newSpendableXp,
+                lifetimeXp = safeLifetimeXp,
+                nextLevelXp = nextXpTarget,
+                progressPercent = xpProgress,
+                streakDays = restoredStreak,
+                bestStreakDays = maxOf(ps.bestStreakDays, restoredStreak),
+                restorableStreakDays = 0,
+                missedStreakDate = "",
+                restoredDates = updatedRestoredDates,
+                lastProductiveDate = if (ps.checkedInToday) todayDate else ps.missedStreakDate,
+                productiveHistoryDates = updatedHistory,
+                dailyLogsByDate = updatedLogsMap,
+                activeBuffs = cleanedBuffs.distinct(),
+                activeDebuffs = cleanedDebuffs,
+                lastCheckInTrigger = "Restored ${restoredStreak}D streak for -$cost XP! (${restoredTier.classTitle} • ${restoredTier.pokemonName})"
+            ),
+            unlockedAchievements = syncedAchievements,
+            biometrics = biometrics.copy(hunterTitle = autoTitle),
+            tacticalBriefing = "Streak Shield activated! Spent $cost XP to restore your ${restoredStreak}-day streak and ${restoredTier.classTitle} (${restoredTier.pokemonName}) class rank."
+        )
+        return Result.success(restoredState)
+    }
+
+    /**
      * Called ONLY when the user inputs actual food/calorie data or exercise/workout data.
-     * Returns Pair(updatedHunterSystemState, newlyCheckedInToday).
+     * Class promotion is strictly governed by verified streakDays (0, 1, 25, 50, 100, 175, 275, 500),
+     * while continuous XP Level rises steadily with every XP point earned.
      */
     fun applyProductiveInput(
         isFoodInput: Boolean,
@@ -1146,12 +1404,11 @@ data class HunterSystemState(
 
         val alreadyCheckedInToday = ps.checkedInToday && ps.lastProductiveDate == todayDate
         val newStreakDays = if (alreadyCheckedInToday) ps.streakDays else ps.streakDays + 1
-        val updatedHistory = (ps.productiveHistoryDates + todayDate).distinct().takeLast(14)
+        val updatedHistory = (ps.productiveHistoryDates + todayDate).distinct().sorted().takeLast(365)
 
-        val streakBuffPrefix = "Productive Streak"
-        val cleanedBuffs = ps.activeBuffs.filterNot { it.startsWith(streakBuffPrefix) }
-        val updatedBuffs = cleanedBuffs + "$streakBuffPrefix (${newStreakDays}D Checked In)"
-        val cleanedDebuffs = ps.activeDebuffs.filterNot { it.contains("Streak Reset", ignoreCase = true) }
+        val cleanedDebuffs = ps.activeDebuffs.filterNot {
+            it.contains("Streak Reset", ignoreCase = true) || it.contains("Missed 1 Day", ignoreCase = true)
+        }
 
         val updatedQuests = questLog.map { q ->
             if (q.questName.contains("Streak Check-In", ignoreCase = true)) {
@@ -1185,23 +1442,37 @@ data class HunterSystemState(
             unlockedAchievements
         }
 
-        // Dynamic XP scaling: higher daily check-in XP in the beginning stage, slowing down as rank increases
-        val bonusXp = if (!alreadyCheckedInToday) TrainerRankProgression.dailyCheckInBonusXp(ps.currentXp) else 0
-        val newTotalXp = (ps.currentXp + bonusXp).coerceAtLeast(0)
-        val tier = TrainerRankProgression.tierForXp(newTotalXp)
-        val nextXpThreshold = TrainerRankProgression.nextThresholdForXp(newTotalXp)
-        val progress = TrainerRankProgression.progressPercentForXp(newTotalXp)
-        val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForXp(newTotalXp, baseAchievements)
-        val autoTitle = "${tier.classTitle} • ${tier.pokemonName}"
+        val bonusXp = if (!alreadyCheckedInToday) TrainerRankProgression.dailyCheckInBonusXp(newStreakDays) else 0
+        val newSpendableXp = (ps.currentXp + bonusXp).coerceAtLeast(0)
+        val newLifetimeXp = (maxOf(ps.lifetimeXp, ps.currentXp) + bonusXp).coerceAtLeast(0)
+
+        // XP Level climbs with lifetime XP; Class Tier climbs strictly with verified streakDays!
+        val xpLevel = TrainerRankProgression.xpLevelForLifetimeXp(newLifetimeXp)
+        val nextXpThreshold = TrainerRankProgression.nextXpLevelThreshold(newLifetimeXp)
+        val xpProgress = TrainerRankProgression.xpLevelProgressPercent(newLifetimeXp)
+        val classTier = TrainerRankProgression.tierForStreakDays(newStreakDays)
+        val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForStreak(newStreakDays, baseAchievements)
+        val autoTitle = "${classTier.classTitle} • ${classTier.pokemonName}"
+
+        val streakBuffPrefix = "Productive Streak"
+        val cleanedBuffs = ps.activeBuffs.filterNot { b ->
+            b.startsWith(streakBuffPrefix) || TrainerRankProgression.tiers.any { t -> b.startsWith(t.pokemonName) }
+        }
+        val updatedBuffs = listOf("${classTier.pokemonName} (${classTier.xpMultiplier}x XP)") +
+            cleanedBuffs +
+            "$streakBuffPrefix (${newStreakDays}D Checked In)"
 
         val updatedState = copy(
             playerStatus = ps.copy(
-                level = tier.tierLevel,
-                rank = tier.classTitle,
-                currentXp = newTotalXp,
+                level = xpLevel,
+                classLevel = classTier.tierLevel,
+                rank = classTier.classTitle,
+                currentXp = newSpendableXp,
+                lifetimeXp = newLifetimeXp,
                 nextLevelXp = nextXpThreshold,
-                progressPercent = progress,
+                progressPercent = xpProgress,
                 streakDays = newStreakDays,
+                bestStreakDays = maxOf(ps.bestStreakDays, newStreakDays),
                 checkedInToday = true,
                 lastProductiveDate = todayDate,
                 lastDailyResetDate = todayDate,
@@ -1209,7 +1480,7 @@ data class HunterSystemState(
                 todayExerciseInputs = newExerciseCount,
                 lastCheckInTrigger = "Checked in via $categoryLabel: $inputSummary",
                 productiveHistoryDates = updatedHistory,
-                activeBuffs = updatedBuffs,
+                activeBuffs = updatedBuffs.distinct(),
                 activeDebuffs = cleanedDebuffs
             ),
             questLog = updatedQuests,
@@ -1221,24 +1492,27 @@ data class HunterSystemState(
     }
 
     /**
-     * Applies a raw XP change using the dynamic progression curve (higher in early ranks, slower in higher ranks)
-     * and automatically synchronizes the user's Class/Title, Level, Next Threshold, and Class Achievements.
+     * Applies an XP change to spendable currentXp and lifetimeXp, advancing numeric XP Level
+     * continuously while preserving the user's Streak-Oriented Pokémon Class Tier.
      */
     fun applyScaledXpProgress(rawBaseXpDelta: Int, isRawAlreadyScaled: Boolean = false): Pair<HunterSystemState, Int> {
         val ps = playerStatus
         val effectiveDelta = if (rawBaseXpDelta > 0 && !isRawAlreadyScaled) {
-            TrainerRankProgression.scaleActionXp(rawBaseXpDelta, ps.currentXp)
+            TrainerRankProgression.scaleActionXp(rawBaseXpDelta, ps.streakDays)
         } else {
             rawBaseXpDelta
         }
-        val newTotalXp = (ps.currentXp + effectiveDelta).coerceAtLeast(0)
-        val tier = TrainerRankProgression.tierForXp(newTotalXp)
-        val nextXpThreshold = TrainerRankProgression.nextThresholdForXp(newTotalXp)
-        val progress = TrainerRankProgression.progressPercentForXp(newTotalXp)
-        val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForXp(newTotalXp, unlockedAchievements)
-        val autoTitle = "${tier.classTitle} • ${tier.pokemonName}"
+        val newSpendableXp = (ps.currentXp + effectiveDelta).coerceAtLeast(0)
+        val newLifetimeXp = (maxOf(ps.lifetimeXp, ps.currentXp) + effectiveDelta).coerceAtLeast(0)
+        val xpLevel = TrainerRankProgression.xpLevelForLifetimeXp(newLifetimeXp)
+        val nextXpThreshold = TrainerRankProgression.nextXpLevelThreshold(newLifetimeXp)
+        val xpProgress = TrainerRankProgression.xpLevelProgressPercent(newLifetimeXp)
 
-        val rewardBuff = "${tier.pokemonName} (${tier.xpMultiplier}x XP)"
+        val classTier = TrainerRankProgression.tierForStreakDays(ps.streakDays)
+        val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForStreak(ps.streakDays, unlockedAchievements)
+        val autoTitle = "${classTier.classTitle} • ${classTier.pokemonName}"
+
+        val rewardBuff = "${classTier.pokemonName} (${classTier.xpMultiplier}x XP)"
         val cleanedBuffs = ps.activeBuffs.filterNot { b ->
             TrainerRankProgression.tiers.any { t -> b.startsWith(t.pokemonName) }
         }
@@ -1247,12 +1521,14 @@ data class HunterSystemState(
         return Pair(
             copy(
                 playerStatus = ps.copy(
-                    level = tier.tierLevel,
-                    rank = tier.classTitle,
-                    currentXp = newTotalXp,
+                    level = xpLevel,
+                    classLevel = classTier.tierLevel,
+                    rank = classTier.classTitle,
+                    currentXp = newSpendableXp,
+                    lifetimeXp = newLifetimeXp,
                     nextLevelXp = nextXpThreshold,
-                    progressPercent = progress,
-                    activeBuffs = updatedBuffs
+                    progressPercent = xpProgress,
+                    activeBuffs = updatedBuffs.distinct()
                 ),
                 unlockedAchievements = syncedAchievements,
                 biometrics = biometrics.copy(hunterTitle = autoTitle)
@@ -1273,6 +1549,13 @@ data class HunterSystemState(
         root.put("today_task_inputs", playerStatus.todayTaskInputs)
         root.put("last_check_in_trigger", playerStatus.lastCheckInTrigger)
         root.put("productive_history_dates", JSONArray(playerStatus.productiveHistoryDates))
+        root.put("restored_dates", JSONArray(playerStatus.restoredDates))
+        root.put("class_level", playerStatus.classLevel)
+        root.put("lifetime_xp", maxOf(playerStatus.lifetimeXp, playerStatus.currentXp))
+        root.put("best_streak_days", maxOf(playerStatus.bestStreakDays, playerStatus.streakDays))
+        root.put("restorable_streak_days", playerStatus.restorableStreakDays)
+        root.put("missed_streak_date", playerStatus.missedStreakDate)
+
         val dailyLogsArr = JSONArray()
         playerStatus.dailyLogsByDate.values.forEach { dl ->
             dailyLogsArr.put(dl.toJsonObject())
@@ -1546,28 +1829,34 @@ data class HunterSystemState(
             caloriesTarget: Int = existingBiometrics.recommendedCaloriesTarget,
             waterTargetLiters: Double = existingBiometrics.recommendedWaterLiters
         ): HunterSystemState {
-            val startTier = TrainerRankProgression.tierForXp(0)
+            val startTier = TrainerRankProgression.tierForStreakDays(0)
             val autoTitle = "${startTier.classTitle} • ${startTier.pokemonName}"
             val proTarget = existingBiometrics.recommendedProteinG
             val safeCal = caloriesTarget.coerceIn(1000, 15000)
             val safeWater = waterTargetLiters.coerceIn(1.0, 20.0)
             return HunterSystemState(
                 playerStatus = PlayerStatus(
-                    level = startTier.tierLevel,
+                    level = 1,
+                    classLevel = startTier.tierLevel,
                     rank = startTier.classTitle,
                     currentXp = 0,
-                    nextLevelXp = startTier.maxXp ?: 1500,
+                    lifetimeXp = 0,
+                    nextLevelXp = TrainerRankProgression.xpPerLevel,
                     progressPercent = 0.0,
                     hpPercent = 100.0,
                     streakDays = 0,
+                    bestStreakDays = 0,
+                    restorableStreakDays = 0,
+                    missedStreakDate = "",
+                    restoredDates = emptyList(),
                     checkedInToday = false,
                     lastProductiveDate = "",
                     lastDailyResetDate = StreakDateUtils.todayDateString(),
                     todayFoodInputs = 0,
                     todayExerciseInputs = 0,
-                    lastCheckInTrigger = "Fresh calibration — log any meal or exercise set to start Day 1!",
+                    lastCheckInTrigger = "Fresh calibration — log any meal, exercise, or task to reach Level 1 Beginner (Pikachu)!",
                     productiveHistoryDates = emptyList(),
-                    activeBuffs = listOf("${startTier.pokemonName} (${startTier.xpMultiplier}x XP)", existingBiometrics.goalDisplayLabel),
+                    activeBuffs = listOf("${startTier.pokemonName} (${startTier.requiredStreakDays}D)", existingBiometrics.goalDisplayLabel),
                     activeDebuffs = emptyList()
                 ),
                 statBreakdown = StatBreakdown(
@@ -1598,10 +1887,10 @@ data class HunterSystemState(
                     QuestItem("Clear $safeCal kcal Target (0 / $safeCal logged)", "IN_PROGRESS", 120),
                     QuestItem("Daily Productive Streak Check-In (Input Food or Exercise)", "IN_PROGRESS", 50)
                 ),
-                unlockedAchievements = TrainerRankProgression.unlockedClassAchievementsForXp(0, emptyList()),
-                tacticalBriefing = "Pika-Pika! Welcome to PikaFit, Trainer ${existingBiometrics.hunterName}! You start in Class ${startTier.classTitle} (0–1,500 XP) with ${startTier.pokemonName} and a ${startTier.xpMultiplier}x early-stage XP boost! Log your first meal or workout set to earn boosted XP toward Challenger (Charizard)!",
+                unlockedAchievements = TrainerRankProgression.unlockedClassAchievementsForStreak(0, emptyList()),
+                tacticalBriefing = "Pika-Pika! Welcome to PikaFit, Trainer ${existingBiometrics.hunterName}! Your XP Level climbs continuously as you train, while your Class evolves through verified Daily Streaks: Beginner (1d) → Challenger (25d) → Champion (500d)!",
                 suggestedActions = listOf(
-                    "LOG FIRST MEAL (+BOOSTED XP)",
+                    "LOG FIRST MEAL (START DAY 1)",
                     "LOG FIRST WORKOUT SET",
                     "DRINK 500ML WATER"
                 ),
@@ -1785,25 +2074,44 @@ data class HunterSession(
         val cleanXp = if (isLegacyMockNutrition && isLegacyMockExercises && resolvedXp == 620L) 0 else resolvedXp.toInt().coerceAtLeast(0)
         val cleanStreak = if (isLegacyMockNutrition && isLegacyMockExercises && resolvedStreak == 4L) 0 else resolvedStreak.toInt()
 
+        val restoredArr = parsedJson.optJSONArray("restored_dates")
+        val restoredDates = if (restoredArr != null) {
+            (0 until restoredArr.length()).map { restoredArr.getString(it) }
+        } else {
+            emptyList()
+        }
+        val bestStreakSaved = parsedJson.optInt("best_streak_days", 0)
+        val restorableStreakSaved = parsedJson.optInt("restorable_streak_days", 0)
+        val missedStreakDateSaved = parsedJson.optString("missed_streak_date", "")
+
         val syncedXp = cleanXp
-        val tier = TrainerRankProgression.tierForXp(syncedXp)
-        val nextXp = TrainerRankProgression.nextThresholdForXp(syncedXp)
-        val progress = TrainerRankProgression.progressPercentForXp(syncedXp)
+        val savedLifetimeXp = parsedJson.optInt("lifetime_xp", syncedXp).coerceAtLeast(syncedXp)
+        val xpLevel = TrainerRankProgression.xpLevelForLifetimeXp(savedLifetimeXp)
+        val nextXp = TrainerRankProgression.nextXpLevelThreshold(savedLifetimeXp)
+        val progress = TrainerRankProgression.xpLevelProgressPercent(savedLifetimeXp)
+
+        val classTier = TrainerRankProgression.tierForStreakDays(cleanStreak)
         val cleanAchievements = achievements.filterNot {
             (it.title == "Iron Foundation" || it.title == "Caloric Vanguard") && syncedXp == 0
         }
-        val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForXp(syncedXp, cleanAchievements)
-        val autoTitle = "${tier.classTitle} • ${tier.pokemonName}"
+        val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForStreak(cleanStreak, cleanAchievements)
+        val autoTitle = "${classTier.classTitle} • ${classTier.pokemonName}"
 
         return HunterSystemState(
             playerStatus = PlayerStatus(
-                level = tier.tierLevel,
-                rank = tier.classTitle,
+                level = xpLevel,
+                classLevel = classTier.tierLevel,
+                rank = classTier.classTitle,
                 currentXp = syncedXp,
+                lifetimeXp = savedLifetimeXp,
                 nextLevelXp = nextXp,
                 progressPercent = progress,
                 hpPercent = hpPercent,
                 streakDays = cleanStreak,
+                bestStreakDays = maxOf(bestStreakSaved, cleanStreak),
+                restorableStreakDays = restorableStreakSaved,
+                missedStreakDate = missedStreakDateSaved,
+                restoredDates = restoredDates,
                 checkedInToday = checkedInToday,
                 lastProductiveDate = lastProductiveDate,
                 lastDailyResetDate = lastDailyResetDate.ifBlank { StreakDateUtils.todayDateString() },
@@ -1811,7 +2119,7 @@ data class HunterSession(
                 todayExerciseInputs = todayExerciseInputs,
                 todayTaskInputs = todayTaskInputs,
                 lastCheckInTrigger = lastCheckInTrigger,
-                productiveHistoryDates = if (cleanStreak == 0 && !checkedInToday && parsedDailyLogs.isEmpty()) emptyList() else historyDates,
+                productiveHistoryDates = if (cleanStreak == 0 && !checkedInToday && parsedDailyLogs.isEmpty() && restorableStreakSaved == 0) emptyList() else historyDates,
                 dailyLogsByDate = parsedDailyLogs,
                 activeBuffs = buffs,
                 activeDebuffs = debuffs
@@ -1856,7 +2164,7 @@ data class HunterSession(
                 id = id,
                 userId = userId,
                 level = state.playerStatus.level.toLong().coerceIn(1L, 999L),
-                rank = state.playerStatus.rank.take(80).ifBlank { "Beginner" },
+                rank = state.playerStatus.rank.take(80).ifBlank { "Unranked" },
                 currentXp = state.playerStatus.currentXp.toLong().coerceIn(0L, 10000000L),
                 nextLevelXp = state.playerStatus.nextLevelXp.toLong().coerceIn(100L, 10000000L),
                 progressPercent = state.playerStatus.progressPercent.coerceIn(0.0, 100.0),
@@ -1907,12 +2215,34 @@ data class FeedbackEntry(
 @IgnoreExtraProperties
 data class AppReleaseInfo(
     val latestVersionCode: Long = 2L,
-    val latestVersionName: String = "1.0.2",
-    val releaseTitle: String = "PikaFit Update",
-    val releaseNotes: String = "South/North Indian & Fast Food databases, PikaBot muscle exercise & workout plans, editable streak food logs, and automatic GitHub release notifications.",
-    val downloadUrl: String = "https://github.com/ATOM495/PikaFit/releases",
+    val latestVersionName: String = "1.0.3-patch.1",
+    val releaseTitle: String = "PikaFit OTA Patch",
+    val releaseNotes: String = "Streak-oriented Pokémon classes (0–500 days), continuous XP levels, 1,000 XP 1-day streak restore, Streaks heatmap tab, and automatic GitHub OTA patch installation.",
+    val downloadUrl: String = "https://raw.githubusercontent.com/ATOM495/PikaFit/main/patch_manifest.json",
     val isMandatory: Boolean = false,
     val publishedAt: String = "",
-    val isUpdateAvailable: Boolean = false
+    val isUpdateAvailable: Boolean = false,
+    val patchNumber: Long = 10301L,
+    val patchVersion: String = "1.0.3-patch.1",
+    val patchAppliedAutomatically: Boolean = false,
+    val announcementBanner: String = "",
+    val patchedFoodsCount: Int = 0
+)
+
+data class OtaPatchManifest(
+    val patchNumber: Long = 10301L,
+    val patchVersion: String = "1.0.3-patch.1",
+    val baseAppVersion: String = "1.0.2",
+    val minNativeVersionCode: Long = 2L,
+    val releaseTitle: String = "PikaFit OTA Patch",
+    val patchNotes: String = "",
+    val announcementBanner: String = "",
+    val publishedAt: String = "",
+    val xpPerLevel: Int = 500,
+    val streakRestoreCostXp: Int = 1000,
+    val classTiers: List<ClassTierPatchOverride> = emptyList(),
+    val patchedFoodCount: Int = 0,
+    val sourceLabel: String = "Built-in",
+    val appliedAtMillis: Long = 0L
 )
 

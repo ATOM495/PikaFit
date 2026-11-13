@@ -2535,8 +2535,15 @@ object SmartFoodNutritionEngine {
         val keywords: List<IndexedKeyword>
     )
 
-    private val indexedDatabase: List<IndexedFoodProfile> by lazy {
-        database.map { p ->
+    @Volatile
+    private var otaPatchedFoods: List<FoodPer100gProfile> = emptyList()
+
+    @Volatile
+    private var cachedIndexData: Pair<List<IndexedFoodProfile>, Map<String, FoodPer100gProfile>>? = null
+
+    private fun buildIndexData(extra: List<FoodPer100gProfile>): Pair<List<IndexedFoodProfile>, Map<String, FoodPer100gProfile>> {
+        val combined = if (extra.isEmpty()) database else (extra + database)
+        val indexed = combined.map { p ->
             val dNorm = normalizeFoodQuery(p.displayName)
             val dTokens = dNorm.split(' ').filter { it.length >= 2 }.toSet()
             val kws = p.keywords.map { kw ->
@@ -2554,21 +2561,41 @@ object SmartFoodNutritionEngine {
                 keywords = kws
             )
         }
-    }
-
-    private val exactKeywordLookup: Map<String, FoodPer100gProfile> by lazy {
-        val map = HashMap<String, FoodPer100gProfile>(database.size * 6)
-        for (item in indexedDatabase) {
+        val map = HashMap<String, FoodPer100gProfile>(combined.size * 6)
+        for (item in indexed) {
             map.putIfAbsent(item.displayNorm, item.profile)
             for (kw in item.keywords) {
                 map.putIfAbsent(kw.kwNorm, item.profile)
                 map.putIfAbsent(kw.rawLower, item.profile)
             }
         }
-        map
+        return indexed to map
     }
 
+    private fun getOrBuildIndexData(): Pair<List<IndexedFoodProfile>, Map<String, FoodPer100gProfile>> {
+        cachedIndexData?.let { return it }
+        return synchronized(this) {
+            cachedIndexData ?: buildIndexData(otaPatchedFoods).also { cachedIndexData = it }
+        }
+    }
+
+    private val indexedDatabase: List<IndexedFoodProfile>
+        get() = getOrBuildIndexData().first
+
+    private val exactKeywordLookup: Map<String, FoodPer100gProfile>
+        get() = getOrBuildIndexData().second
+
     private val profileLookupCache = java.util.concurrent.ConcurrentHashMap<String, FoodPer100gProfile>(256)
+
+    fun applyOtaFoodPatches(extraProfiles: List<FoodPer100gProfile>) {
+        synchronized(this) {
+            otaPatchedFoods = extraProfiles
+            cachedIndexData = buildIndexData(extraProfiles)
+            profileLookupCache.clear()
+        }
+    }
+
+    fun getPatchedFoodCount(): Int = otaPatchedFoods.size
 
     /**
      * Checks if `haystack` contains `needle` at word boundaries without allocating any Regex.

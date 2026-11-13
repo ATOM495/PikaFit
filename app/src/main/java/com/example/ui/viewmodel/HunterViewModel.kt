@@ -12,12 +12,15 @@ import com.example.data.model.HunterBiometrics
 import com.example.data.model.HunterSystemState
 import com.example.data.model.JournalEntry
 import com.example.data.model.LoggedFoodItem
+import com.example.data.model.OtaPatchManifest
 import com.example.data.model.ProductiveTaskItem
 import com.example.data.model.QuestItem
 import com.example.data.model.StreakDateUtils
 import com.example.data.model.TacticalLog
 import com.example.data.model.TrainerRankProgression
 import com.example.data.repository.HunterRepository
+import com.example.util.PatchUpdateManager
+import com.example.util.PikaFitNotificationScheduler
 import com.example.util.SmartFoodNutritionEngine
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
@@ -189,6 +192,13 @@ class HunterViewModel(
             initialValue = AppReleaseInfo()
         )
 
+    val otaPatchManifest: StateFlow<OtaPatchManifest> = repository.observeOtaPatchManifest()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = PatchUpdateManager.defaultBuiltInManifest()
+        )
+
     private val _installedVersionName = MutableStateFlow("1.0.2")
     val installedVersionName: StateFlow<String> = _installedVersionName.asStateFlow()
 
@@ -205,37 +215,74 @@ class HunterViewModel(
     fun checkForAppUpdates(manualUserTrigger: Boolean = true) {
         viewModelScope.launch {
             if (manualUserTrigger) {
-                _aiSyncState.value = AiSyncState.Analyzing("Checking GitHub Releases for new PikaFit updates")
+                _aiSyncState.value = AiSyncState.Analyzing("Syncing GitHub OTA patch_manifest.json in-app")
             }
+            val patchResult = repository.syncAndApplyOtaPatch()
             val checkedInfo = repository.checkGitHubAndFirestoreForUpdates()
             _installedVersionName.value = repository.getInstalledVersionName()
             _installedVersionCode.value = repository.getInstalledVersionCode()
-            if (checkedInfo.isUpdateAvailable || checkedInfo.latestVersionCode > _installedVersionCode.value) {
-                // Re-enable popup so the user immediately sees the "NEW UPDATE AVAILABLE" dialog
+            val manifest = patchResult.manifest
+
+            if (patchResult.newlyApplied && patchResult.appliedFromRemote) {
+                _aiSyncState.value = AiSyncState.Success(
+                    "Auto-installed GitHub OTA Patch v${manifest.patchVersion} (#${manifest.patchNumber}) in-app! Zero APK download required."
+                )
+            } else if (checkedInfo.isUpdateAvailable || checkedInfo.latestVersionCode > _installedVersionCode.value) {
                 _dismissedUpdateVersion.value = null
                 if (manualUserTrigger) {
                     _aiSyncState.value = AiSyncState.Success(
-                        "New Update Available: v${checkedInfo.latestVersionName} (${checkedInfo.releaseTitle})!"
+                        "Update v${checkedInfo.latestVersionName} ready • Patch v${manifest.patchVersion} already active!"
                     )
                 }
             } else if (manualUserTrigger) {
                 _aiSyncState.value = AiSyncState.Success(
-                    "PikaFit v${_installedVersionName.value} is up to date with GitHub Releases!"
+                    "PikaFit v${_installedVersionName.value} is synced (OTA Patch v${manifest.patchVersion} • #${manifest.patchNumber})."
                 )
             }
         }
     }
 
     fun markLatestUpdateInstalled(info: AppReleaseInfo) {
-        repository.markVersionInstalled(
-            versionName = info.latestVersionName,
-            versionCode = info.latestVersionCode,
-            publishedAt = info.publishedAt
-        )
-        _installedVersionName.value = repository.getInstalledVersionName()
-        _installedVersionCode.value = repository.getInstalledVersionCode()
-        _dismissedUpdateVersion.value = info.latestVersionCode
-        _aiSyncState.value = AiSyncState.Success("App version synced to v${_installedVersionName.value} (Up to date)")
+        viewModelScope.launch {
+            val patchResult = repository.syncAndApplyOtaPatch()
+            repository.markVersionInstalled(
+                versionName = info.latestVersionName,
+                versionCode = info.latestVersionCode,
+                publishedAt = info.publishedAt
+            )
+            _installedVersionName.value = repository.getInstalledVersionName()
+            _installedVersionCode.value = repository.getInstalledVersionCode()
+            _dismissedUpdateVersion.value = info.latestVersionCode
+            _aiSyncState.value = AiSyncState.Success(
+                "In-App OTA Patch v${patchResult.manifest.patchVersion} active — synced to v${_installedVersionName.value}!"
+            )
+        }
+    }
+
+    fun publishOtaPatchBroadcast(
+        patchVersion: String,
+        patchNumber: Long,
+        announcementBanner: String,
+        patchNotes: String,
+        xpPerLevel: Int = TrainerRankProgression.xpPerLevel,
+        restoreCostXp: Int = TrainerRankProgression.streakRestoreCostXp
+    ) {
+        viewModelScope.launch {
+            val cleanVer = patchVersion.trim().ifBlank { "1.0.3-patch.2" }
+            val json = JSONObject().apply {
+                put("patch_number", patchNumber)
+                put("patch_version", cleanVer)
+                put("base_app_version", "1.0.2")
+                put("min_native_version_code", 2)
+                put("release_title", "PikaFit OTA Patch v$cleanVer")
+                put("patch_notes", patchNotes.ifBlank { "Live OTA patch applied automatically without APK reinstall." })
+                put("announcement_banner", announcementBanner.ifBlank { "OTA Patch v$cleanVer active!" })
+                put("xp_per_level", xpPerLevel.coerceIn(100, 10000))
+                put("streak_restore_cost_xp", restoreCostXp.coerceIn(100, 50000))
+            }.toString(2)
+            repository.publishOtaPatchToFirestore(json)
+            _aiSyncState.value = AiSyncState.Success("Published OTA Patch v$cleanVer (#$patchNumber) — existing apps auto-apply it seamlessly!")
+        }
     }
 
     fun publishNewAppRelease(
@@ -407,6 +454,8 @@ class HunterViewModel(
     private fun observeRemoteSession() {
         viewModelScope.launch {
             val (wasAlreadyOnboardedLocally, restoredBio, verPair) = withContext(Dispatchers.IO) {
+                // Apply cached GitHub/Cloud OTA rules & food database patches immediately
+                repository.loadCachedOtaPatch()
                 // Pre-warm SmartFoodNutritionEngine keyword index on background thread
                 SmartFoodNutritionEngine.findProfile("idli")
                 val verName = repository.getInstalledVersionName()
@@ -471,6 +520,18 @@ class HunterViewModel(
                             val eval = loaded.copy(biometrics = effectiveBiometrics.copy(hunterName = finalHunterName)).evaluateStreakOnLogin()
                             if (effectiveBiometrics.onboardingCompleted) {
                                 repository.setOnboardingCompletedForUser(currentUserId, true, eval.toStateJson())
+                            }
+                            // Notify once automatically if user missed 1 day and can restore streak for 1,000 XP
+                            if (eval.playerStatus.restorableStreakDays > 0 && eval.playerStatus.missedStreakDate.isNotBlank()) {
+                                repository.appContextOrNull()?.let { ctx ->
+                                    PikaFitNotificationScheduler.checkAndNotifyMissedStreak(
+                                        context = ctx,
+                                        restorableDays = eval.playerStatus.restorableStreakDays,
+                                        missedDate = eval.playerStatus.missedStreakDate,
+                                        currentXp = eval.playerStatus.currentXp,
+                                        restoreCost = TrainerRankProgression.streakRestoreCostXp
+                                    )
+                                }
                             }
                             val resolvedToday = eval.playerStatus.dailyLogsByDate[StreakDateUtils.todayDateString()]?.resolvedFoodItems().orEmpty()
                             eval to resolvedToday
@@ -1305,7 +1366,7 @@ class HunterViewModel(
             val cleanExp = experienceLevel.uppercase().let {
                 if (it in setOf("BEGINNER", "INTERMEDIATE", "PROFESSIONAL")) it else "BEGINNER"
             }
-            val starterTier = TrainerRankProgression.tierForXp(0)
+            val starterTier = TrainerRankProgression.tierForStreakDays(0)
             val calibratedBio = HunterBiometrics(
                 hunterName = cleanName,
                 hunterTitle = "${starterTier.classTitle} • ${starterTier.pokemonName}",
@@ -1580,7 +1641,7 @@ class HunterViewModel(
             val baseXpGain = 45
             val (xpUpdatedState, scaledActionXp) = streakUpdatedState.applyScaledXpProgress(baseXpGain)
             val ps = xpUpdatedState.playerStatus
-            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.tierForXp(current.playerStatus.currentXp).dailyCompletionXp else 0
+            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.dailyCheckInBonusXp(ps.streakDays) else 0
             val totalXpGain = scaledActionXp + dailyBonusXp
 
             val updatedQuests = xpUpdatedState.questLog.map { q ->
@@ -1767,11 +1828,11 @@ class HunterViewModel(
                 tasksCompleted = existingTasks
             )
             val updatedLogsMap = (current.playerStatus.dailyLogsByDate + (dateStr to newDayEntry))
-                .entries.sortedBy { it.key }.takeLast(14).associate { it.key to it.value }
+                .entries.sortedBy { it.key }.takeLast(45).associate { it.key to it.value }
 
             val isProductiveDay = safeCals > 0 || safePro > 0.0 || safeWater > 0.0 || existingTasks.isNotEmpty()
             val updatedHistoryDates = if (isProductiveDay) {
-                (current.playerStatus.productiveHistoryDates + dateStr).distinct().sorted().takeLast(14)
+                (current.playerStatus.productiveHistoryDates + dateStr).distinct().sorted().takeLast(365)
             } else {
                 current.playerStatus.productiveHistoryDates.filterNot { it == dateStr }
             }
@@ -1780,7 +1841,7 @@ class HunterViewModel(
             var streakCount = 0
             val todayCheckedIn = if (dateStr == todayStr) isProductiveDay else current.playerStatus.checkedInToday
             if (todayCheckedIn) streakCount++
-            for (daysAgo in 1..14) {
+            for (daysAgo in 1..365) {
                 val d = StreakDateUtils.daysAgoDateString(daysAgo)
                 val dl = updatedLogsMap[d]
                 val activeOnD = updatedHistoryDates.contains(d) || (dl?.calories ?: 0) > 0 || (dl?.tasksCompleted?.isNotEmpty() == true)
@@ -1791,6 +1852,13 @@ class HunterViewModel(
                 }
             }
             val finalStreakDays = maxOf(streakCount, if (isProductiveDay && streakCount == 0) 1 else streakCount)
+            val syncedTier = TrainerRankProgression.tierForStreakDays(finalStreakDays)
+            val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForStreak(
+                finalStreakDays,
+                current.unlockedAchievements
+            )
+            val syncedBioTitle = "${syncedTier.classTitle} • ${syncedTier.pokemonName}"
+            val updatedBestStreak = maxOf(current.playerStatus.bestStreakDays, finalStreakDays)
 
             val updatedState = if (dateStr == todayStr) {
                 val vit = current.statBreakdown.vitality
@@ -1828,7 +1896,10 @@ class HunterViewModel(
                 }
                 current.copy(
                     playerStatus = current.playerStatus.copy(
+                        classLevel = syncedTier.tierLevel,
+                        rank = syncedTier.classTitle,
                         streakDays = finalStreakDays,
+                        bestStreakDays = updatedBestStreak,
                         checkedInToday = todayCheckedIn,
                         todayFoodInputs = if (foodItems.isNotEmpty()) foodItems.size else if (safeCals > 0) maxOf(1, current.playerStatus.todayFoodInputs) else 0,
                         lastProductiveDate = if (todayCheckedIn) todayStr else current.playerStatus.lastProductiveDate,
@@ -1850,16 +1921,23 @@ class HunterViewModel(
                         )
                     ),
                     questLog = updatedQuests,
+                    unlockedAchievements = syncedAchievements,
+                    biometrics = current.biometrics.copy(hunterTitle = syncedBioTitle),
                     tacticalBriefing = "Updated Today's ($dateStr) Food & Hydration Log: $safeCals kcal, ${safePro}g protein, ${safeWater}L water."
                 )
             } else {
                 current.copy(
                     playerStatus = current.playerStatus.copy(
+                        classLevel = syncedTier.tierLevel,
+                        rank = syncedTier.classTitle,
                         streakDays = finalStreakDays,
+                        bestStreakDays = updatedBestStreak,
                         productiveHistoryDates = updatedHistoryDates,
                         dailyLogsByDate = updatedLogsMap
                     ),
-                    tacticalBriefing = "Updated Food & Calorie Log for $dateStr: $cleanSummary ($safeCals kcal, ${safePro}g protein, ${safeCarbs}g carbs, ${safeFats}g fats, ${safeWater}L water). Streak: ${finalStreakDays}D."
+                    unlockedAchievements = syncedAchievements,
+                    biometrics = current.biometrics.copy(hunterTitle = syncedBioTitle),
+                    tacticalBriefing = "Updated Food & Calorie Log for $dateStr: $cleanSummary ($safeCals kcal, ${safePro}g protein, ${safeCarbs}g carbs, ${safeFats}g fats, ${safeWater}L water). Streak: ${finalStreakDays}D (${syncedTier.classTitle})."
                 )
             }
 
@@ -1871,6 +1949,33 @@ class HunterViewModel(
                 xpDelta = 15
             )
             _aiSyncState.value = AiSyncState.Success("Saved food log for $dateStr: $safeCals kcal • ${safePro}g Protein • ${safeWater}L Water")
+        }
+    }
+
+    /**
+     * Spends 1,000 XP to restore a 1-day missed streak and reclaim the corresponding Pokémon Class Tier.
+     */
+    fun restoreMissedStreakWithXp() {
+        viewModelScope.launch {
+            val current = _systemState.value
+            val cost = TrainerRankProgression.streakRestoreCostXp
+            val result = current.restoreLostStreak()
+            result.onSuccess { restored ->
+                _systemState.value = restored
+                repository.saveOrUpdateSession(restored)
+                repository.appendTacticalLog(
+                    commandText = "Activated Streak Shield Restore (-$cost XP)",
+                    briefingResponse = restored.tacticalBriefing,
+                    xpDelta = -cost
+                )
+                _aiSyncState.value = AiSyncState.Success(
+                    "Streak Restored to ${restored.playerStatus.streakDays}D (${restored.playerStatus.currentTier.classTitle} • ${restored.playerStatus.currentTier.pokemonName}) for -$cost XP!"
+                )
+            }.onFailure { err ->
+                _aiSyncState.value = AiSyncState.Error(
+                    err.localizedMessage ?: "Unable to restore streak (Need $cost XP)."
+                )
+            }
         }
     }
 
@@ -1912,26 +2017,35 @@ class HunterViewModel(
             val updatedTasks = existingDayLog.tasksCompleted + newTask
             val updatedDayLog = existingDayLog.copy(tasksCompleted = updatedTasks)
             val updatedLogsMap = (xpUpdatedState.playerStatus.dailyLogsByDate + (targetDate to updatedDayLog))
-                .entries.sortedBy { it.key }.takeLast(14).associate { it.key to it.value }
-            val updatedHistoryDates = (xpUpdatedState.playerStatus.productiveHistoryDates + targetDate).distinct().sorted().takeLast(14)
+                .entries.sortedBy { it.key }.takeLast(45).associate { it.key to it.value }
+            val updatedHistoryDates = (xpUpdatedState.playerStatus.productiveHistoryDates + targetDate).distinct().sorted().takeLast(365)
 
             val ps = xpUpdatedState.playerStatus
             val isToday = targetDate == todayStr
             val newlyCheckedIn = isToday && (!ps.checkedInToday || ps.lastProductiveDate != todayStr)
             val newStreakDays = if (newlyCheckedIn) ps.streakDays + 1 else maxOf(ps.streakDays, 1)
-            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.tierForXp(current.playerStatus.currentXp).dailyCompletionXp else 0
+            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.dailyCheckInBonusXp(newStreakDays) else 0
             val totalXpGain = scaledXp + dailyBonusXp
 
-            val finalState = if (dailyBonusXp > 0) {
+            val bonusAppliedState = if (dailyBonusXp > 0) {
                 xpUpdatedState.applyScaledXpProgress(dailyBonusXp, isRawAlreadyScaled = true).first
             } else {
                 xpUpdatedState
             }
+            val syncedTier = TrainerRankProgression.tierForStreakDays(newStreakDays)
+            val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForStreak(
+                newStreakDays,
+                bonusAppliedState.unlockedAchievements
+            )
+            val syncedBioTitle = "${syncedTier.classTitle} • ${syncedTier.pokemonName}"
 
             val briefing = "Completed productive task \"$cleanTitle\" [${category.uppercase()}] on $targetDate (+$totalXpGain XP)! Total tasks on $targetDate: ${updatedTasks.size}."
-            val updatedSystem = finalState.copy(
-                playerStatus = finalState.playerStatus.copy(
+            val updatedSystem = bonusAppliedState.copy(
+                playerStatus = bonusAppliedState.playerStatus.copy(
+                    classLevel = syncedTier.tierLevel,
+                    rank = syncedTier.classTitle,
                     streakDays = newStreakDays,
+                    bestStreakDays = maxOf(bonusAppliedState.playerStatus.bestStreakDays, newStreakDays),
                     checkedInToday = if (isToday) true else ps.checkedInToday,
                     lastProductiveDate = if (isToday) todayStr else ps.lastProductiveDate,
                     todayTaskInputs = if (isToday) ps.todayTaskInputs + 1 else ps.todayTaskInputs,
@@ -1939,6 +2053,8 @@ class HunterViewModel(
                     productiveHistoryDates = updatedHistoryDates,
                     dailyLogsByDate = updatedLogsMap
                 ),
+                unlockedAchievements = syncedAchievements,
+                biometrics = bonusAppliedState.biometrics.copy(hunterTitle = syncedBioTitle),
                 tacticalBriefing = briefing
             )
 
@@ -2114,7 +2230,7 @@ class HunterViewModel(
             val baseXpGain = if (deltaKcal > 0) 40 else 0
             val (xpUpdatedState, scaledActionXp) = streakState.applyScaledXpProgress(baseXpGain)
             val ps = xpUpdatedState.playerStatus
-            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.tierForXp(current.playerStatus.currentXp).dailyCompletionXp else 0
+            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.dailyCheckInBonusXp(ps.streakDays) else 0
             val totalXpGain = scaledActionXp + dailyBonusXp
 
             val updatedQuests = xpUpdatedState.questLog.map { q ->
@@ -2484,7 +2600,7 @@ class HunterViewModel(
             val baseXpGain = if (overload) 75 else 45
             val (xpUpdatedState, scaledActionXp) = streakState.applyScaledXpProgress(baseXpGain)
             val ps = xpUpdatedState.playerStatus
-            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.tierForXp(current.playerStatus.currentXp).dailyCompletionXp else 0
+            val dailyBonusXp = if (newlyCheckedIn) TrainerRankProgression.dailyCheckInBonusXp(ps.streakDays) else 0
             val totalXpGain = scaledActionXp + dailyBonusXp
 
             val streakSuffix = if (newlyCheckedIn) " Daily Productive Streak Checked In (${ps.streakDays}D)!" else ""

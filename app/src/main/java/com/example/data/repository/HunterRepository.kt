@@ -9,7 +9,11 @@ import com.example.data.model.HunterBiometrics
 import com.example.data.model.HunterSession
 import com.example.data.model.HunterSystemState
 import com.example.data.model.JournalEntry
+import com.example.data.model.OtaPatchManifest
 import com.example.data.model.TacticalLog
+import com.example.util.PatchApplyResult
+import com.example.util.PatchUpdateManager
+import com.example.util.SmartFoodNutritionEngine
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.auth
@@ -62,6 +66,16 @@ class HunterRepository(
     }
 
     private val auth by lazy { Firebase.auth }
+
+    fun appContextOrNull(): Context? = context
+
+    fun loadCachedOtaPatch(): OtaPatchManifest {
+        val loaded = PatchUpdateManager.loadAndApplyCachedPatch(context)
+        localOtaPatchFlow.value = loaded
+        return loaded
+    }
+
+    fun observeOtaPatchManifest(): Flow<OtaPatchManifest> = localOtaPatchFlow
 
     private fun currentUserIdOrNull(): String? = auth.currentUser?.uid
 
@@ -608,16 +622,72 @@ class HunterRepository(
         )
     }
 
+    suspend fun syncAndApplyOtaPatch(): PatchApplyResult = withContext(Dispatchers.IO) {
+        val firestorePatchJson = try {
+            val snap = db.collection("system").document("app_patch").get().await()
+            if (snap.exists()) {
+                snap.getString("rawJson")?.takeIf { it.isNotBlank() }
+                    ?: snap.getString("manifestJson")?.takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        }
+        val result = PatchUpdateManager.fetchAndApplyPatchFromGitHub(
+            context = context,
+            firestorePatchJson = firestorePatchJson
+        )
+        localOtaPatchFlow.value = result.manifest
+        result
+    }
+
+    suspend fun publishOtaPatchToFirestore(rawJson: String): Boolean = withContext(Dispatchers.IO) {
+        val applied = PatchUpdateManager.saveAndApplyRawJson(
+            context = context,
+            rawJson = rawJson,
+            sourceLabel = "Cloud Patch Broadcast"
+        ) ?: return@withContext false
+        localOtaPatchFlow.value = applied.manifest
+        localReleaseInfoFlow.value = localReleaseInfoFlow.value.copy(
+            patchNumber = applied.manifest.patchNumber,
+            patchVersion = applied.manifest.patchVersion,
+            patchAppliedAutomatically = true,
+            patchedFoodsCount = SmartFoodNutritionEngine.getPatchedFoodCount(),
+            announcementBanner = applied.manifest.announcementBanner
+        )
+        try {
+            db.collection("system").document("app_patch")
+                .set(
+                    mapOf(
+                        "rawJson" to rawJson.trim(),
+                        "patchNumber" to applied.manifest.patchNumber,
+                        "patchVersion" to applied.manifest.patchVersion,
+                        "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    )
+                )
+                .await()
+            true
+        } catch (e: Exception) {
+            Log.w("HunterRepository", "Cloud app_patch publish failed (applied locally): ${e.message}")
+            true
+        }
+    }
+
     suspend fun checkGitHubAndFirestoreForUpdates(): AppReleaseInfo = withContext(Dispatchers.IO) {
         val installedVer = getInstalledVersionName()
         val installedCode = getInstalledVersionCode()
         val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
         val lastAckPublishedAt = prefs?.getString(KEY_ACK_PUBLISHED_AT, "") ?: ""
 
-        // 1. Query GitHub Releases API (https://api.github.com/repos/ATOM495/PikaFit/releases)
+        // 1. Automatically fetch & hot-apply GitHub OTA patch (patch_manifest.json + release patch JSON assets)
+        val patchResult = syncAndApplyOtaPatch()
+        val patchManifest = patchResult.manifest
+
+        // 2. Query GitHub Releases API (https://api.github.com/repos/ATOM495/PikaFit/releases)
         val githubInfo = fetchLatestGitHubRelease(installedVer, installedCode, lastAckPublishedAt)
 
-        // 2. Query Firestore system/app_version if available
+        // 3. Query Firestore system/app_version if available
         val firestoreInfo = try {
             val snap = db.collection("system").document("app_version").get().await()
             if (snap.exists()) snap.toObject(AppReleaseInfo::class.java) else null
@@ -625,7 +695,7 @@ class HunterRepository(
             null
         }
 
-        val resolved = when {
+        val rawResolved = when {
             githubInfo != null && firestoreInfo != null -> {
                 if (githubInfo.isUpdateAvailable) {
                     githubInfo
@@ -653,11 +723,37 @@ class HunterRepository(
                 latestVersionCode = installedCode,
                 latestVersionName = installedVer,
                 releaseTitle = "PikaFit v$installedVer",
-                releaseNotes = "You are running PikaFit v$installedVer.",
-                downloadUrl = "https://github.com/ATOM495/PikaFit/releases",
+                releaseNotes = patchManifest.patchNotes.ifBlank {
+                    "You are running PikaFit v$installedVer with auto-patch v${patchManifest.patchVersion}."
+                },
+                downloadUrl = "https://raw.githubusercontent.com/ATOM495/PikaFit/main/patch_manifest.json",
                 isUpdateAvailable = false
             )
         }
+
+        // If the remote release only represents an OTA patch (or same native binary / applied patch),
+        // keep isUpdateAvailable = false and surface patchAppliedAutomatically = true so no APK prompt interrupts!
+        val isNativeMajorBump = rawResolved.latestVersionCode > installedCode &&
+            !rawResolved.latestVersionName.contains("patch", ignoreCase = true) &&
+            !patchResult.appliedFromRemote
+        val resolved = rawResolved.copy(
+            patchNumber = patchManifest.patchNumber,
+            patchVersion = patchManifest.patchVersion,
+            patchAppliedAutomatically = patchResult.appliedFromRemote,
+            announcementBanner = patchManifest.announcementBanner,
+            patchedFoodsCount = SmartFoodNutritionEngine.getPatchedFoodCount(),
+            releaseTitle = if (patchResult.appliedFromRemote && rawResolved.releaseTitle.isBlank()) {
+                patchManifest.releaseTitle
+            } else {
+                rawResolved.releaseTitle
+            },
+            releaseNotes = if (patchResult.newlyApplied && patchManifest.patchNotes.isNotBlank()) {
+                patchManifest.patchNotes
+            } else {
+                rawResolved.releaseNotes
+            },
+            isUpdateAvailable = isNativeMajorBump
+        )
 
         localReleaseInfoFlow.value = resolved
         resolved
@@ -679,7 +775,7 @@ class HunterRepository(
                     connectTimeout = 7000
                     readTimeout = 7000
                     setRequestProperty("Accept", "application/vnd.github+json")
-                    setRequestProperty("User-Agent", "PikaFit-Android-Updater")
+                    setRequestProperty("User-Agent", "PikafitPro-Android-Updater")
                 }
                 val code = conn.responseCode
                 if (code in 200..299) {
@@ -697,20 +793,20 @@ class HunterRepository(
                         if (cleanTag.isNotBlank()) {
                             val title = releaseObj.optString("name", "").trim().ifBlank { "PikaFit Release $rawTag" }
                             val notes = releaseObj.optString("body", "").trim()
-                                .ifBlank { "New GitHub release $rawTag is available for download." }
+                                .ifBlank { "GitHub OTA patch $rawTag is synced automatically." }
                             val htmlUrl = releaseObj.optString("html_url", "https://github.com/ATOM495/PikaFit/releases")
                             val publishedAt = releaseObj.optString("published_at", "")
 
-                            var apkAssetUrl = ""
+                            var patchJsonAssetUrl = ""
                             val assetsArr = releaseObj.optJSONArray("assets")
                             if (assetsArr != null) {
                                 for (i in 0 until assetsArr.length()) {
                                     val asset = assetsArr.optJSONObject(i) ?: continue
                                     val assetName = asset.optString("name", "").lowercase()
                                     val dlUrl = asset.optString("browser_download_url", "")
-                                    if (dlUrl.isNotBlank() && (assetName.endsWith(".apk") || apkAssetUrl.isBlank())) {
-                                        apkAssetUrl = dlUrl
-                                        if (assetName.endsWith(".apk")) break
+                                    if (dlUrl.isNotBlank() && assetName.endsWith(".json")) {
+                                        patchJsonAssetUrl = dlUrl
+                                        break
                                     }
                                 }
                             }
@@ -721,7 +817,8 @@ class HunterRepository(
                                 publishedAt > lastAckPublishedAt
                             val isDifferentUnacknowledgedTag = cleanTag != installedVer &&
                                 (lastAckPublishedAt.isBlank() || lastAckPublishedAt != publishedAt)
-                            val updateAvailable = semCompare > 0 || isNewerTimestamp || isDifferentUnacknowledgedTag
+                            val updateAvailable = (semCompare > 0 || isNewerTimestamp || isDifferentUnacknowledgedTag) &&
+                                patchJsonAssetUrl.isBlank()
                             val computedCode = if (updateAvailable) {
                                 maxOf(installedCode + 1L, deriveVersionCode(cleanTag, installedCode + 1L))
                             } else {
@@ -733,7 +830,7 @@ class HunterRepository(
                                 latestVersionName = cleanTag,
                                 releaseTitle = title,
                                 releaseNotes = notes.take(1500),
-                                downloadUrl = apkAssetUrl.ifBlank { htmlUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" } },
+                                downloadUrl = patchJsonAssetUrl.ifBlank { htmlUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" } },
                                 isMandatory = false,
                                 publishedAt = publishedAt,
                                 isUpdateAvailable = updateAvailable
@@ -847,5 +944,6 @@ class HunterRepository(
         private val localJournalByUid = mutableMapOf<String, MutableStateFlow<List<JournalEntry>>>()
         private val localFeedbackFlow = MutableStateFlow<List<FeedbackEntry>>(emptyList())
         private val localReleaseInfoFlow = MutableStateFlow(AppReleaseInfo())
+        private val localOtaPatchFlow = MutableStateFlow(PatchUpdateManager.defaultBuiltInManifest())
     }
 }

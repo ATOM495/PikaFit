@@ -64,6 +64,14 @@ enum class ReminderCategory(
             "Productivity check-in! Record the work, study, or personal tasks you finished today to earn +35 XP.",
             "Been productive today? Add your completed tasks to your Daily Productivity Log in the Journal page!"
         )
+    ),
+    STREAK_RESTORE(
+        key = "STREAK_RESTORE",
+        title = "🛡️ PikaFit • Streak Shield Alert",
+        defaultMessages = listOf(
+            "You missed yesterday! Open Streaks tab to restore your lost streak using 1,000 XP!",
+            "1-Day Streak Recovery Available! Spend 1,000 XP in PikaFit → Streaks to save your Pokémon class rank."
+        )
     )
 }
 
@@ -86,12 +94,27 @@ object PikaFitNotificationScheduler {
     private const val KEY_NEXT_CATEGORY = "reminders_next_category"
     private const val KEY_LAST_SENT_TIME = "reminders_last_sent_millis"
     private const val KEY_LAST_CATEGORY = "reminders_last_category"
+    private const val KEY_LAST_MISSED_STREAK_NOTIFIED_DATE = "last_missed_streak_notified_date"
 
     private const val ALARM_REQUEST_CODE = 4950
+
+    @Volatile
+    private var otaExtraMessages: Map<String, List<String>> = emptyMap()
 
     private val autoReminderScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile
     private var autoLoopJob: Job? = null
+
+    fun applyOtaExtraMessages(extra: Map<String, List<String>>) {
+        otaExtraMessages = extra.mapKeys { it.key.trim().uppercase() }
+            .mapValues { (_, list) -> list.map { it.trim() }.filter { it.isNotBlank() } }
+            .filterValues { it.isNotEmpty() }
+    }
+
+    fun getMessagesForCategory(category: ReminderCategory): List<String> {
+        val extras = otaExtraMessages[category.key].orEmpty()
+        return if (extras.isEmpty()) category.defaultMessages else (category.defaultMessages + extras).distinct()
+    }
 
     fun ensureNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -100,7 +123,7 @@ object PikaFitNotificationScheduler {
                 "PikaFit Automatic Reminders",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Automatic random reminders to drink water, log food intake, input exercises, and log productive tasks."
+                description = "Automatic random reminders for water, food, workouts, tasks, and 1-day missed streak recovery."
                 enableVibration(true)
             }
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
@@ -137,10 +160,66 @@ object PikaFitNotificationScheduler {
     fun pickNextRandomCategory(context: Context): ReminderCategory {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val lastKey = prefs.getString(KEY_LAST_CATEGORY, null)
-        val candidates = ReminderCategory.entries.filter { it.key != lastKey }.ifEmpty {
-            ReminderCategory.entries
-        }
+        val routinePool = ReminderCategory.entries.filter { it != ReminderCategory.STREAK_RESTORE }
+        val candidates = routinePool.filter { it.key != lastKey }.ifEmpty { routinePool }
         return candidates[Random.nextInt(candidates.size)]
+    }
+
+    /**
+     * Automatically notifies once per missed date when a Trainer misses 1 day so they can restore
+     * their lost streak using 1,000 XP.
+     */
+    fun checkAndNotifyMissedStreak(
+        context: Context,
+        restorableDays: Int,
+        missedDate: String,
+        currentXp: Int,
+        restoreCost: Int
+    ): Boolean {
+        if (restorableDays <= 0 || missedDate.isBlank()) return false
+        val appContext = context.applicationContext
+        ensureNotificationChannel(appContext)
+        if (!hasNotificationPermission(appContext)) return false
+
+        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val lastNotifiedDate = prefs.getString(KEY_LAST_MISSED_STREAK_NOTIFIED_DATE, "") ?: ""
+        if (lastNotifiedDate == missedDate) return false
+
+        val message = if (currentXp >= restoreCost) {
+            "You missed 1 day ($missedDate)! Your ${restorableDays}-day streak can be restored right now for $restoreCost XP (You have $currentXp XP). Open Streaks tab to restore!"
+        } else {
+            val need = (restoreCost - currentXp).coerceAtLeast(0)
+            "You missed 1 day ($missedDate)! Earn $need more XP to restore your ${restorableDays}-day streak (Cost: $restoreCost XP)."
+        }
+
+        val openAppIntent = Intent(appContext, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("from_reminder_category", ReminderCategory.STREAK_RESTORE.key)
+        }
+        val contentPendingIntent = PendingIntent.getActivity(
+            appContext,
+            5199,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_pikafit_notification)
+            .setContentTitle("🛡️ Restore Your ${restorableDays}D Streak ($restoreCost XP)")
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(contentPendingIntent)
+            .build()
+
+        return try {
+            NotificationManagerCompat.from(appContext).notify(5299, notification)
+            prefs.edit().putString(KEY_LAST_MISSED_STREAK_NOTIFIED_DATE, missedDate).apply()
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**
@@ -160,8 +239,6 @@ object PikaFitNotificationScheduler {
 
         if (autoLoopJob?.isActive == true) return
         autoLoopJob = autoReminderScope.launch {
-            // Initial random delay (between 60 and 150 seconds if no notification was sent recently,
-            // otherwise random 15 to 45 minutes) managed completely by the app
             val lastSent = prefs.getLong(KEY_LAST_SENT_TIME, 0L)
             val initialDelayMs = if (now - lastSent > 15 * 60_000L) {
                 Random.nextLong(60_000L, 150_000L)
@@ -173,7 +250,6 @@ object PikaFitNotificationScheduler {
             while (isActive) {
                 if (hasNotificationPermission(appContext)) {
                     val currentLastSent = prefs.getLong(KEY_LAST_SENT_TIME, 0L)
-                    // Avoid double-sending if AlarmManager just fired within the last 5 minutes
                     if (System.currentTimeMillis() - currentLastSent >= 5 * 60_000L) {
                         val category = pickNextRandomCategory(appContext)
                         showReminderNotification(appContext, category)
@@ -242,7 +318,8 @@ object PikaFitNotificationScheduler {
         }
 
         val category = categoryOverride ?: pickNextRandomCategory(appContext)
-        val message = category.defaultMessages[Random.nextInt(category.defaultMessages.size)]
+        val messages = getMessagesForCategory(category)
+        val message = messages[Random.nextInt(messages.size)]
 
         val openAppIntent = Intent(appContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP

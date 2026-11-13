@@ -1049,7 +1049,8 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
 ) {
     val currentTier = playerStatus.currentTier
     val nextTier = playerStatus.nextTier
-    val totalXp = playerStatus.currentXp
+    val streakDays = playerStatus.streakDays
+    val bestStreak = maxOf(playerStatus.bestStreakDays, streakDays)
 
     Column(
         modifier = Modifier
@@ -1089,7 +1090,7 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "Auto-assigned by XP • Boosted early XP, slower elite XP",
+                        text = "Promoted by Daily Productive Streaks • XP Level climbs forever",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary
                     )
@@ -1102,7 +1103,7 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                 border = BorderStroke(1.dp, HunterCyan.copy(alpha = 0.6f))
             ) {
                 Text(
-                    text = "TIER ${currentTier.tierLevel}/7",
+                    text = "CLASS LV ${currentTier.tierLevel}/7",
                     style = MaterialTheme.typography.labelMedium,
                     color = HunterCyan,
                     fontWeight = FontWeight.Bold,
@@ -1152,7 +1153,7 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            text = currentTier.classTitle.uppercase(),
+                            text = "LV ${currentTier.tierLevel} ${currentTier.classTitle.uppercase()}",
                             style = MaterialTheme.typography.labelMedium,
                             color = HunterGold,
                             fontWeight = FontWeight.ExtraBold,
@@ -1169,10 +1170,17 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Total XP: $totalXp XP (${currentTier.xpRangeLabel})",
+                    text = "${streakDays}D Active Streak (Best: ${bestStreak}D) • ${currentTier.streakRangeLabel}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextPrimary,
                     fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "XP Level ${playerStatus.level} (${playerStatus.lifetimeXp} Total XP • ${playerStatus.currentXp} Spendable)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = HunterCyan,
+                    fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1184,7 +1192,7 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "${currentTier.xpPaceLabel} • Daily Check-In: +${currentTier.dailyCompletionXp} XP",
+                        text = "${currentTier.xpPaceLabel} • Check-In: +${currentTier.dailyCompletionXp} XP",
                         style = MaterialTheme.typography.labelSmall,
                         color = HunterEmerald
                     )
@@ -1200,8 +1208,8 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Progress to Next Class Bar
-        val progressFraction = (playerStatus.progressPercent / 100.0).toFloat().coerceIn(0f, 1f)
+        // Progress to Next Class Bar (Driven strictly by verified Streak Days!)
+        val progressFraction = (playerStatus.streakClassProgressPercent / 100.0).toFloat().coerceIn(0f, 1f)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1209,7 +1217,7 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
         ) {
             Text(
                 text = if (nextTier != null) {
-                    "NEXT CLASS: ${nextTier.classTitle.uppercase()} (${nextTier.pokemonName})"
+                    "NEXT CLASS: LV ${nextTier.tierLevel} ${nextTier.classTitle.uppercase()} (${nextTier.pokemonName})"
                 } else {
                     "APEX CLASS REACHED: CHAMPION (ARCEUS)"
                 },
@@ -1223,9 +1231,9 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = if (nextTier != null) {
-                    "${(nextTier.minXp - totalXp).coerceAtLeast(0)} XP TO PROMOTION"
+                    "${(nextTier.requiredStreakDays - streakDays).coerceAtLeast(0)} STREAK DAYS TO PROMOTION"
                 } else {
-                    "$totalXp / 10,000+ XP"
+                    "$streakDays / 500+ DAYS"
                 },
                 style = MaterialTheme.typography.labelMedium,
                 color = HunterGold,
@@ -1247,7 +1255,7 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
 
         Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = "Dynamic XP Curve: Beginner (1.6x) & Challenger (1.3x) award boosted XP for daily completions to build momentum, then gradually slow down in Elite I–III & Champion (0.80x → 0.40x) to test true consistency!",
+            text = "Continuous XP Leveling vs. Streak Classes: Your XP Level (${playerStatus.level}) always rises with earned XP (${TrainerRankProgression.xpPerLevel} XP/lvl), while Pokémon Class Promotions (Lv 0 → Lv 7) strictly require consecutive productive streak days. Miss 1 day? Spend ${TrainerRankProgression.streakRestoreCostXp} XP in the Streaks tab to restore your lost streak!",
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary
         )
@@ -1256,9 +1264,9 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
         HorizontalDivider(color = BorderSubtle)
         Spacer(modifier = Modifier.height(12.dp))
 
-        // All 7 Pokémon Class Tiers Roadmap
+        // All 8 Pokémon Class Tiers Roadmap (Lv 0 .. Lv 7)
         Text(
-            text = "7-TIER POKÉMON CLASS PROGRESSION ROADMAP",
+            text = "STREAK-BASED POKÉMON CLASS LADDER (LV 0 – LV 7)",
             style = MaterialTheme.typography.labelLarge,
             color = HunterCyan,
             fontWeight = FontWeight.Bold
@@ -1267,7 +1275,7 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             TrainerRankProgression.tiers.forEach { tier ->
-                val isUnlocked = totalXp >= tier.minXp
+                val isUnlocked = streakDays >= tier.requiredStreakDays
                 val isCurrent = tier.tierLevel == currentTier.tierLevel
                 PokemonTierRoadmapRow(
                     tier = tier,
@@ -1416,7 +1424,7 @@ private fun PokemonTierRoadmapRow(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${tier.classTitle} • ${tier.pokemonName}",
+                    text = "Lv ${tier.tierLevel} • ${tier.classTitle} (${tier.pokemonName})",
                     style = MaterialTheme.typography.titleSmall,
                     color = if (isUnlocked) TextPrimary else TextMuted,
                     fontWeight = FontWeight.Bold,
@@ -1474,7 +1482,7 @@ private fun PokemonTierRoadmapRow(
 
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "${tier.xpRangeLabel}  •  ${tier.xpPaceLabel} (Daily +${tier.dailyCompletionXp} XP)",
+                text = "Requires ${tier.streakRangeLabel}  •  Daily Check-In +${tier.dailyCompletionXp} XP (${tier.xpMultiplier}x)",
                 style = MaterialTheme.typography.labelSmall,
                 color = if (isUnlocked) HunterCyan else TextMuted
             )
