@@ -509,8 +509,7 @@ fun DailyProductiveStreakCard(
                         text = "DAILY PRODUCTIVE STREAK",
                         style = MaterialTheme.typography.labelMedium,
                         color = accentColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        maxLines = 2
                     )
                     Text(
                         text = if (isCheckedIn) {
@@ -518,11 +517,10 @@ fun DailyProductiveStreakCard(
                         } else {
                             "${ps.streakDays}D STREAK • PENDING"
                         },
-                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
                         color = TextPrimary,
                         fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        maxLines = 2,
                         modifier = Modifier.testTag("streak_days_headline")
                     )
                 }
@@ -1933,8 +1931,7 @@ private fun RechartsBiometricVisualizerCard(
                         text = "RECHARTS BIOMETRIC TELEMETRY",
                         style = MaterialTheme.typography.titleSmall,
                         color = HunterCyan,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        maxLines = 2
                     )
                     Text(
                         text = "Weight, Body Fat % & Muscle Mass Over Time • ${entries.size} Firestore Points",

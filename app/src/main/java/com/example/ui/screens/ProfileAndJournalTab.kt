@@ -21,6 +21,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -1144,9 +1146,10 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
             Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Surface(
                         color = HunterGold.copy(alpha = 0.2f),
@@ -1157,6 +1160,8 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                             style = MaterialTheme.typography.labelMedium,
                             color = HunterGold,
                             fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
@@ -1164,7 +1169,10 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                         text = "• ${currentTier.pokemonName}",
                         style = MaterialTheme.typography.titleSmall,
                         color = HunterCyan,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.padding(vertical = 2.dp)
                     )
                 }
 
@@ -1299,14 +1307,26 @@ internal fun PokemonClassHierarchyAndAchievementsCard(
                 text = "ACHIEVEMENTS & CLASS REWARDS VAULT",
                 style = MaterialTheme.typography.labelLarge,
                 color = HunterGold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
             )
-            Text(
-                text = "${unlockedAchievements.size} UNLOCKED",
-                style = MaterialTheme.typography.labelMedium,
-                color = HunterEmerald,
-                fontWeight = FontWeight.Bold
-            )
+            Surface(
+                color = HunterEmerald.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(1.dp, HunterEmerald.copy(alpha = 0.5f))
+            ) {
+                Text(
+                    text = "${unlockedAchievements.size} UNLOCKED",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = HunterEmerald,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                )
+            }
         }
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -1428,11 +1448,11 @@ private fun PokemonTierRoadmapRow(
                     style = MaterialTheme.typography.titleSmall,
                     color = if (isUnlocked) TextPrimary else TextMuted,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
+                    maxLines = 2,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
                 Surface(
                     color = when {
                         isCurrent -> HunterGold.copy(alpha = 0.2f)

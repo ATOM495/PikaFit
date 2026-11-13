@@ -199,10 +199,10 @@ class HunterViewModel(
             initialValue = PatchUpdateManager.defaultBuiltInManifest()
         )
 
-    private val _installedVersionName = MutableStateFlow("1.0.2")
+    private val _installedVersionName = MutableStateFlow("1.0.3")
     val installedVersionName: StateFlow<String> = _installedVersionName.asStateFlow()
 
-    private val _installedVersionCode = MutableStateFlow(2L)
+    private val _installedVersionCode = MutableStateFlow(3L)
     val installedVersionCode: StateFlow<Long> = _installedVersionCode.asStateFlow()
 
     private val _dismissedUpdateVersion = MutableStateFlow<Long?>(null)

@@ -334,12 +334,12 @@ fun SettingsAndFeedbackScreen(
         1 -> "Edit Profile"
         2 -> "Feedback"
         3 -> "App Data"
-        4 -> "Achievements & Classes"
+        4 -> "Achievements"
         5 -> "Appearance"
         6 -> "Analytics"
-        7 -> "FAQ & Help Articles"
+        7 -> "FAQ & Help"
         8 -> "About Us"
-        9 -> "Software Updates"
+        9 -> "OTA Updates"
         else -> "Settings"
     }
 
@@ -369,7 +369,7 @@ fun SettingsAndFeedbackScreen(
                             activePage = 0
                         }
                     },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                     modifier = Modifier.testTag("settings_back_button")
                 ) {
                     if (activePage != 0) {
@@ -383,13 +383,17 @@ fun SettingsAndFeedbackScreen(
                         Text(
                             text = "Settings",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = HunterCrimson
+                            color = HunterCrimson,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     } else {
                         Text(
                             text = "Close",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = HunterCrimson
+                            color = HunterCrimson,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -397,7 +401,7 @@ fun SettingsAndFeedbackScreen(
                 Text(
                     text = pageTitle,
                     style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 19.sp,
+                        fontSize = 17.5.sp,
                         fontWeight = FontWeight.ExtraBold
                     ),
                     color = TextPrimary,
@@ -406,11 +410,11 @@ fun SettingsAndFeedbackScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 6.dp)
+                        .padding(horizontal = 4.dp)
                 )
 
-                // Balance spacer so title stays centered
-                Spacer(modifier = Modifier.width(48.dp))
+                // Balance spacer so title stays centered without squeezing
+                Spacer(modifier = Modifier.width(24.dp))
             }
         }
 
@@ -740,34 +744,32 @@ fun SettingsAndFeedbackScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Codename & App-Assigned Class
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = nameInput,
-                            onValueChange = { nameInput = it },
-                            label = { Text("Trainer Codename") },
-                            placeholder = { Text(bio.hunterName) },
-                            singleLine = true,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("settings_name_input"),
-                            colors = settingsTextFieldColors(HunterGold)
-                        )
-                        OutlinedTextField(
-                            value = "${state.playerStatus.currentTier.classTitle} • ${state.playerStatus.currentTier.pokemonName}",
-                            onValueChange = { },
-                            readOnly = true,
-                            label = { Text("App-Assigned Class") },
-                            singleLine = true,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("settings_title_input"),
-                            colors = settingsTextFieldColors(HunterGold)
-                        )
-                    }
+                    // Codename & Full-Width App-Assigned Class (no mid-word clipping)
+                    OutlinedTextField(
+                        value = nameInput,
+                        onValueChange = { nameInput = it },
+                        label = { Text("Trainer Codename") },
+                        placeholder = { Text(bio.hunterName) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_name_input"),
+                        colors = settingsTextFieldColors(HunterGold)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = "Lv ${state.playerStatus.classLevel} • ${state.playerStatus.currentTier.classTitle} (${state.playerStatus.currentTier.pokemonName})",
+                        onValueChange = { },
+                        readOnly = true,
+                        label = { Text("App-Assigned Class") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_title_input"),
+                        colors = settingsTextFieldColors(HunterGold)
+                    )
 
                     Spacer(modifier = Modifier.height(10.dp))
 

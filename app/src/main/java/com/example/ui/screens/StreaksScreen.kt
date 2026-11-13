@@ -330,7 +330,8 @@ fun StreaksTab(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = if (nextTier != null) {
@@ -340,7 +341,10 @@ fun StreaksTab(
                             },
                             style = MaterialTheme.typography.labelMedium,
                             color = TextPrimary,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 10.dp)
                         )
                         Text(
                             text = if (nextTier != null) {
@@ -350,7 +354,9 @@ fun StreaksTab(
                             },
                             style = MaterialTheme.typography.labelMedium,
                             color = HunterGold,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                     LinearProgressIndicator(
@@ -370,19 +376,25 @@ fun StreaksTab(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Continuous XP Level Progress (Level ${ps.level} → ${ps.level + 1})",
+                            text = "XP Level Progress (Lv ${ps.level} → ${ps.level + 1})",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 10.dp)
                         )
                         Text(
                             text = "${ps.lifetimeXp} / ${ps.nextLevelXp} XP",
                             style = MaterialTheme.typography.labelSmall,
                             color = HunterEmerald,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                     LinearProgressIndicator(
@@ -635,32 +647,58 @@ private fun StreakHeatmapGridCard(
             }
         }
 
-        // Intensity Legend Row ("Less [][][][][] More")
+        // Intensity Legend Row ("Gold dot = Restored" + "Less [][][][][] More")
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Restored days marked with Gold dot",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextMuted
-            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 10.dp)
             ) {
-                Text("Less", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(HunterGold)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Gold dot = Restored day",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = "Less",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                    maxLines = 1,
+                    softWrap = false
+                )
                 shadePalette.forEach { shade ->
                     Box(
                         modifier = Modifier
-                            .size(12.dp)
-                            .clip(RoundedCornerShape(3.5.dp))
+                            .size(11.dp)
+                            .clip(RoundedCornerShape(3.dp))
                             .background(shade)
-                            .border(0.5.dp, BorderSubtle, RoundedCornerShape(3.5.dp))
+                            .border(0.5.dp, BorderSubtle, RoundedCornerShape(3.dp))
                     )
                 }
-                Text("More", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                Text(
+                    text = "More",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
 
@@ -820,9 +858,10 @@ private fun StreakClassPromotionLadderCard(
                             style = MaterialTheme.typography.titleSmall,
                             color = if (isUnlocked) TextPrimary else TextMuted,
                             fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
+                            maxLines = 2,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
                         )
                         Surface(
                             color = when {

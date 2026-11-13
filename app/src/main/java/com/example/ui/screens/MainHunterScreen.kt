@@ -126,7 +126,7 @@ fun PikachuTutorialDialog(
         TutorialStep(
             title = "Pika-Pika! Hi, $trainerName!",
             subtitle = "Welcome to PikaFit! Pikachu is your personal strength, nutrition, and progressive overload companion.",
-            badge = "STEP 1 // PIKAFIT COMPANION",
+            badge = "STEP 1 • PIKAFIT",
             drawableRes = R.drawable.pika_logo_hi,
             icon = Icons.Filled.Bolt,
             accentColor = if (isDark) PikaVoltYellow else PikaCheekCrimson
@@ -134,7 +134,7 @@ fun PikachuTutorialDialog(
         TutorialStep(
             title = "Daily Productive Overload",
             subtitle = "Opening the app alone won't keep your streak. Log your workout sets or caloric meals to verify your day with 100,000 Volts of discipline!",
-            badge = "STEP 2 // WORKOUT & DIET",
+            badge = "STEP 2 • WORKOUT & DIET",
             drawableRes = R.drawable.pika_orange_wave,
             icon = Icons.Filled.FitnessCenter,
             accentColor = PikaCheekCrimson
@@ -142,7 +142,7 @@ fun PikachuTutorialDialog(
         TutorialStep(
             title = "Telemetry & Biometric Journal",
             subtitle = "Track lean mass, BMI, body fat percentage, and progress photos over time across Pikachu-themed charts and archives.",
-            badge = "STEP 3 // ARCHIVE & CHARTS",
+            badge = "STEP 3 • CHARTS & LOG",
             drawableRes = R.drawable.pika_pokeball_bg,
             icon = Icons.Filled.MenuBook,
             accentColor = PikaVoltAmber
@@ -188,14 +188,14 @@ fun PikachuTutorialDialog(
                     ) {
                         Text(
                             text = step.badge,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
                             style = MaterialTheme.typography.labelMedium.copy(
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 12.5.sp
+                                fontSize = 11.sp
                             ),
                             color = step.accentColor,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            softWrap = false
                         )
                     }
 
@@ -285,10 +285,10 @@ fun PikachuTutorialDialog(
                         OutlinedButton(
                             onClick = { currentStep-- },
                             modifier = Modifier
-                                .widthIn(min = 94.dp)
-                                .height(54.dp),
+                                .widthIn(min = 82.dp)
+                                .height(50.dp),
                             shape = RoundedCornerShape(16.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                         ) {
                             Text(
                                 text = "BACK",
@@ -296,7 +296,7 @@ fun PikachuTutorialDialog(
                                 softWrap = false,
                                 style = MaterialTheme.typography.labelLarge.copy(
                                     fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 14.sp
+                                    fontSize = 13.sp
                                 ),
                                 color = TextPrimary
                             )
@@ -313,22 +313,25 @@ fun PikachuTutorialDialog(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(54.dp),
+                            .height(50.dp),
                         shape = RoundedCornerShape(16.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = step.accentColor,
                             contentColor = if (step.accentColor == PikaVoltYellow) Color(0xFF0F172A) else Color.White
                         )
                     ) {
                         Text(
-                            text = if (currentStep == steps.size - 1) "START TRAINING (PIKA!)" else "NEXT (${currentStep + 1}/${steps.size})",
+                            text = if (currentStep == steps.size - 1) "START TRAINING" else "NEXT (${currentStep + 1}/${steps.size})",
+                            maxLines = 1,
+                            softWrap = false,
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 17.sp
+                                fontSize = 14.5.sp
                             )
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(Icons.Filled.ChevronRight, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
                 }
 
@@ -339,7 +342,12 @@ fun PikachuTutorialDialog(
                 }) {
                     Text(
                         text = "Redo Trainer Setup Questions →",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        softWrap = false,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        ),
                         color = if (isDark) PikaVoltYellow else PikaCheekCrimson
                     )
                 }
@@ -2060,7 +2068,7 @@ fun MainHunterScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
-                                        .size(42.dp)
+                                        .size(38.dp)
                                         .clip(CircleShape)
                                         .background(Color(0xFF6792A4))
                                         .border(2.dp, PikaVoltYellow, CircleShape)
@@ -2072,12 +2080,12 @@ fun MainHunterScreen(
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Column {
                                     Text(
                                         text = "PikaFit • ${state.biometrics.hunterName}",
                                         style = MaterialTheme.typography.titleLarge.copy(
-                                            fontSize = 18.sp,
+                                            fontSize = 17.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
                                         maxLines = 1,
@@ -2087,17 +2095,15 @@ fun MainHunterScreen(
                                     val streakLabel = when {
                                         state.playerStatus.restorableStreakDays > 0 ->
                                             "⚡ Restore ${state.playerStatus.restorableStreakDays}D"
-                                        state.playerStatus.checkedInToday ->
-                                            "🔥 ${state.playerStatus.streakDays}D Streak"
                                         else ->
-                                            "🔥 ${state.playerStatus.streakDays}D Streak"
+                                            "🔥 ${state.playerStatus.streakDays}D"
                                     }
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                                     ) {
                                         Text(
-                                            text = "XP Lvl ${state.playerStatus.level} • C${state.playerStatus.classLevel} ${state.playerStatus.currentTier.classTitle}",
+                                            text = "XP Lv ${state.playerStatus.level} • ${state.playerStatus.currentTier.classTitle}",
                                             style = MaterialTheme.typography.labelLarge.copy(
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
@@ -2131,7 +2137,7 @@ fun MainHunterScreen(
                                         ) {
                                             Text(
                                                 text = streakLabel,
-                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                                 style = MaterialTheme.typography.labelSmall.copy(
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.ExtraBold
@@ -2154,8 +2160,8 @@ fun MainHunterScreen(
                             IconButton(
                                 onClick = { wallpaperMode = (wallpaperMode + 1) % 4 },
                                 modifier = Modifier
-                                    .padding(end = 4.dp)
-                                    .size(36.dp)
+                                    .padding(end = 3.dp)
+                                    .size(32.dp)
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
                             ) {
@@ -2163,15 +2169,15 @@ fun MainHunterScreen(
                                     imageVector = Icons.Filled.Wallpaper,
                                     contentDescription = "Cycle Pikachu Wallpaper",
                                     tint = topBarAccent,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
                             IconButton(
                                 onClick = onToggleTheme,
                                 modifier = Modifier
-                                    .padding(end = 4.dp)
-                                    .size(36.dp)
+                                    .padding(end = 3.dp)
+                                    .size(32.dp)
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
                             ) {
@@ -2179,7 +2185,7 @@ fun MainHunterScreen(
                                     imageVector = if (isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
                                     contentDescription = "Toggle Light/Dark Theme",
                                     tint = topBarAccent,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
@@ -2193,8 +2199,8 @@ fun MainHunterScreen(
                                     )
                                 },
                                 modifier = Modifier
-                                    .padding(end = 6.dp)
-                                    .size(36.dp)
+                                    .padding(end = 4.dp)
+                                    .size(32.dp)
                                     .clip(CircleShape)
                                     .background(PikaCheekCrimson.copy(alpha = 0.16f))
                                     .testTag("sign_out_top_button")
@@ -2203,7 +2209,7 @@ fun MainHunterScreen(
                                     imageVector = Icons.AutoMirrored.Filled.Logout,
                                     contentDescription = "Sign Out of Google Account",
                                     tint = PikaCheekCrimson,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -2800,10 +2806,10 @@ fun StatsBreakdownTab(
                             Spacer(modifier = Modifier.height(10.dp))
 
                             // INPUT MODE TOGGLE: Quantity vs Grams (g) vs Milliliters (ml)
-                            val qtyUnitLabel = if (smartFoodQuery.isNotBlank()) {
-                                "🍽 Qty (${predictedUnit.quantityUnitSingular})"
+                            val qtyUnitLabel = if (smartFoodQuery.isNotBlank() && predictedUnit.quantityUnitSingular.length <= 7) {
+                                "Qty (${predictedUnit.quantityUnitSingular})"
                             } else {
-                                "🍽 Quantity"
+                                "Quantity"
                             }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -2832,9 +2838,10 @@ fun StatsBreakdownTab(
                                         modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
                                         textAlign = TextAlign.Center,
                                         maxLines = 1,
+                                        softWrap = false,
                                         overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.labelMedium.copy(
-                                            fontSize = 12.sp,
+                                            fontSize = 11.5.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
                                         color = if (isQtySelected) Color(0xFF0F172A) else TextPrimary
@@ -2860,12 +2867,13 @@ fun StatsBreakdownTab(
                                     )
                                 ) {
                                     Text(
-                                        text = "⚖️ Grams (g)",
+                                        text = "Grams (g)",
                                         modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
                                         textAlign = TextAlign.Center,
                                         maxLines = 1,
+                                        softWrap = false,
                                         style = MaterialTheme.typography.labelMedium.copy(
-                                            fontSize = 12.sp,
+                                            fontSize = 11.5.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         ),
                                         color = if (isGramsSelected) Color(0xFF0F172A) else TextPrimary
@@ -2891,11 +2899,11 @@ fun StatsBreakdownTab(
                                     )
                                 ) {
                                     Text(
-                                        text = "💧 Milliliters (ml)",
+                                        text = "Liquid (ml)",
                                         modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
                                         textAlign = TextAlign.Center,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
+                                        softWrap = false,
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.ExtraBold

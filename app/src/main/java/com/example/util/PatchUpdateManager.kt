@@ -334,13 +334,13 @@ object PatchUpdateManager {
     }
 
     fun defaultBuiltInManifest(): OtaPatchManifest = OtaPatchManifest(
-        patchNumber = 10301L,
-        patchVersion = "1.0.3-patch.1",
-        baseAppVersion = "1.0.2",
-        minNativeVersionCode = 2L,
-        releaseTitle = "PikaFit • Streak Classes & Heatmap Patch",
-        patchNotes = "Streak-oriented Pokémon Classes (0–500 days), continuous XP Leveling, 1,000 XP 1-day Streak Restore, dedicated Streaks Heatmap tab, and zero-redirect GitHub OTA patching.",
-        announcementBanner = "PikaFit OTA Patcher Active — Automatic GitHub JSON patch delivery enabled.",
+        patchNumber = 10302L,
+        patchVersion = "1.0.3-patch.2",
+        baseAppVersion = "1.0.3",
+        minNativeVersionCode = 3L,
+        releaseTitle = "PikaFit v1.0.3 • UI Polish & OTA Release Patch",
+        patchNotes = "Streak-oriented Pokémon Classes (0–500 days), continuous XP Leveling, 1,000 XP 1-day Streak Restore, dedicated Streaks Heatmap tab, clean zero-truncation layout, and automatic GitHub OTA patch delivery.",
+        announcementBanner = "PikaFit v1.0.3 (OTA Patch #10302) Active — Automatic GitHub JSON patch delivery enabled.",
         xpPerLevel = TrainerRankProgression.xpPerLevel,
         streakRestoreCostXp = TrainerRankProgression.streakRestoreCostXp,
         patchedFoodCount = SmartFoodNutritionEngine.getPatchedFoodCount(),

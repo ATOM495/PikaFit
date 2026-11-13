@@ -731,11 +731,11 @@ class HunterRepository(
             )
         }
 
-        // If the remote release only represents an OTA patch (or same native binary / applied patch),
-        // keep isUpdateAvailable = false and surface patchAppliedAutomatically = true so no APK prompt interrupts!
-        val isNativeMajorBump = rawResolved.latestVersionCode > installedCode &&
+        // If the remote release is an OTA-only patch (tag contains "patch" or no native bump),
+        // keep isUpdateAvailable = false and let the silent OTA patch engine handle it!
+        val isNativeMajorBump = rawResolved.isUpdateAvailable &&
             !rawResolved.latestVersionName.contains("patch", ignoreCase = true) &&
-            !patchResult.appliedFromRemote
+            rawResolved.latestVersionCode > installedCode
         val resolved = rawResolved.copy(
             patchNumber = patchManifest.patchNumber,
             patchVersion = patchManifest.patchVersion,
@@ -797,6 +797,7 @@ class HunterRepository(
                             val htmlUrl = releaseObj.optString("html_url", "https://github.com/ATOM495/PikaFit/releases")
                             val publishedAt = releaseObj.optString("published_at", "")
 
+                            var apkAssetUrl = ""
                             var patchJsonAssetUrl = ""
                             val assetsArr = releaseObj.optJSONArray("assets")
                             if (assetsArr != null) {
@@ -804,21 +805,22 @@ class HunterRepository(
                                     val asset = assetsArr.optJSONObject(i) ?: continue
                                     val assetName = asset.optString("name", "").lowercase()
                                     val dlUrl = asset.optString("browser_download_url", "")
-                                    if (dlUrl.isNotBlank() && assetName.endsWith(".json")) {
-                                        patchJsonAssetUrl = dlUrl
-                                        break
+                                    if (dlUrl.isNotBlank()) {
+                                        if (assetName.endsWith(".apk") && apkAssetUrl.isBlank()) {
+                                            apkAssetUrl = dlUrl
+                                        } else if (assetName.endsWith(".json") && patchJsonAssetUrl.isBlank()) {
+                                            patchJsonAssetUrl = dlUrl
+                                        }
                                     }
                                 }
                             }
 
                             val semCompare = compareVersionStrings(cleanTag, installedVer)
-                            val isNewerTimestamp = publishedAt.isNotBlank() &&
-                                lastAckPublishedAt.isNotBlank() &&
-                                publishedAt > lastAckPublishedAt
-                            val isDifferentUnacknowledgedTag = cleanTag != installedVer &&
-                                (lastAckPublishedAt.isBlank() || lastAckPublishedAt != publishedAt)
-                            val updateAvailable = (semCompare > 0 || isNewerTimestamp || isDifferentUnacknowledgedTag) &&
-                                patchJsonAssetUrl.isBlank()
+                            val isPatchOnlyRelease = cleanTag.contains("patch", ignoreCase = true) ||
+                                (patchJsonAssetUrl.isNotBlank() && apkAssetUrl.isBlank())
+                            val updateAvailable = semCompare > 0 &&
+                                !isPatchOnlyRelease &&
+                                (lastAckPublishedAt.isBlank() || publishedAt != lastAckPublishedAt)
                             val computedCode = if (updateAvailable) {
                                 maxOf(installedCode + 1L, deriveVersionCode(cleanTag, installedCode + 1L))
                             } else {
@@ -830,7 +832,11 @@ class HunterRepository(
                                 latestVersionName = cleanTag,
                                 releaseTitle = title,
                                 releaseNotes = notes.take(1500),
-                                downloadUrl = patchJsonAssetUrl.ifBlank { htmlUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" } },
+                                downloadUrl = apkAssetUrl.ifBlank {
+                                    patchJsonAssetUrl.ifBlank {
+                                        htmlUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
+                                    }
+                                },
                                 isMandatory = false,
                                 publishedAt = publishedAt,
                                 isUpdateAvailable = updateAvailable
