@@ -199,10 +199,10 @@ class HunterViewModel(
             initialValue = PatchUpdateManager.defaultBuiltInManifest()
         )
 
-    private val _installedVersionName = MutableStateFlow("1.0.3")
+    private val _installedVersionName = MutableStateFlow(repository.getInstalledVersionName())
     val installedVersionName: StateFlow<String> = _installedVersionName.asStateFlow()
 
-    private val _installedVersionCode = MutableStateFlow(3L)
+    private val _installedVersionCode = MutableStateFlow(repository.getInstalledVersionCode())
     val installedVersionCode: StateFlow<Long> = _installedVersionCode.asStateFlow()
 
     private val _dismissedUpdateVersion = MutableStateFlow<Long?>(null)
@@ -268,12 +268,12 @@ class HunterViewModel(
         restoreCostXp: Int = TrainerRankProgression.streakRestoreCostXp
     ) {
         viewModelScope.launch {
-            val cleanVer = patchVersion.trim().ifBlank { "1.0.3-patch.2" }
+            val cleanVer = patchVersion.trim().ifBlank { "1.1.2-patch.2" }
             val json = JSONObject().apply {
                 put("patch_number", patchNumber)
                 put("patch_version", cleanVer)
-                put("base_app_version", "1.0.2")
-                put("min_native_version_code", 2)
+                put("base_app_version", "1.1.2")
+                put("min_native_version_code", 112)
                 put("release_title", "PikaFit OTA Patch v$cleanVer")
                 put("patch_notes", patchNotes.ifBlank { "Live OTA patch applied automatically without APK reinstall." })
                 put("announcement_banner", announcementBanner.ifBlank { "OTA Patch v$cleanVer active!" })

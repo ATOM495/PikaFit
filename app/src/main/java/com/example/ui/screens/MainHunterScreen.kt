@@ -2571,14 +2571,27 @@ private fun AiSyncStatusBanner(aiSyncState: AiSyncState, onDismiss: () -> Unit) 
                 } else {
                     Icon(imageVector = Icons.Filled.Bolt, contentDescription = null, tint = borderColor, modifier = Modifier.size(20.dp))
                 }
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(text = text, style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp), color = TextPrimary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    color = TextPrimary
+                )
             }
             Text(
                 text = "DISMISS",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold
+                ),
+                maxLines = 1,
+                softWrap = false,
                 color = borderColor,
-                modifier = Modifier.padding(start = 8.dp)
+                modifier = Modifier.padding(start = 10.dp)
             )
         }
     }

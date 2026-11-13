@@ -2214,26 +2214,26 @@ data class FeedbackEntry(
 
 @IgnoreExtraProperties
 data class AppReleaseInfo(
-    val latestVersionCode: Long = 2L,
-    val latestVersionName: String = "1.0.3-patch.1",
+    val latestVersionCode: Long = 112L,
+    val latestVersionName: String = "1.1.2-patch.1",
     val releaseTitle: String = "PikaFit OTA Patch",
     val releaseNotes: String = "Streak-oriented Pokémon classes (0–500 days), continuous XP levels, 1,000 XP 1-day streak restore, Streaks heatmap tab, and automatic GitHub OTA patch installation.",
     val downloadUrl: String = "https://raw.githubusercontent.com/ATOM495/PikaFit/main/patch_manifest.json",
     val isMandatory: Boolean = false,
     val publishedAt: String = "",
     val isUpdateAvailable: Boolean = false,
-    val patchNumber: Long = 10301L,
-    val patchVersion: String = "1.0.3-patch.1",
+    val patchNumber: Long = 11201L,
+    val patchVersion: String = "1.1.2-patch.1",
     val patchAppliedAutomatically: Boolean = false,
     val announcementBanner: String = "",
     val patchedFoodsCount: Int = 0
 )
 
 data class OtaPatchManifest(
-    val patchNumber: Long = 10301L,
-    val patchVersion: String = "1.0.3-patch.1",
-    val baseAppVersion: String = "1.0.2",
-    val minNativeVersionCode: Long = 2L,
+    val patchNumber: Long = 11201L,
+    val patchVersion: String = "1.1.2-patch.1",
+    val baseAppVersion: String = "1.1.2",
+    val minNativeVersionCode: Long = 112L,
     val releaseTitle: String = "PikaFit OTA Patch",
     val patchNotes: String = "",
     val announcementBanner: String = "",

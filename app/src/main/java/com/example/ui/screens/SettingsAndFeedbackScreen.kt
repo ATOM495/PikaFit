@@ -151,8 +151,8 @@ fun SettingsAndFeedbackScreen(
     initialFocusSection: Int = 0,
     releaseInfo: com.example.data.model.AppReleaseInfo = com.example.data.model.AppReleaseInfo(),
     otaPatchManifest: OtaPatchManifest = OtaPatchManifest(),
-    installedVersionName: String = "1.0.2",
-    installedVersionCode: Long = 2L,
+    installedVersionName: String = "1.1.2",
+    installedVersionCode: Long = 112L,
     isDark: Boolean = AppThemeIsDark,
     onToggleTheme: () -> Unit = {},
     onBack: () -> Unit,
@@ -1711,7 +1711,7 @@ fun SettingsAndFeedbackScreen(
                                 )
                             }
                             Text(
-                                text = releaseInfo.releaseNotes.ifBlank { otaPatchManifest.patchNotes }.ifBlank {
+                                text = otaPatchManifest.patchNotes.ifBlank { releaseInfo.releaseNotes }.ifBlank {
                                     "Automatic declarative OTA patching active. Food database, XP curve, streak rules, and reminders update directly inside PikaFit."
                                 },
                                 style = MaterialTheme.typography.bodySmall,
@@ -1783,7 +1783,7 @@ fun SettingsAndFeedbackScreen(
                         OutlinedTextField(
                             value = pubPatchVersion,
                             onValueChange = { pubPatchVersion = it },
-                            label = { Text("Patch Version (e.g. 1.0.3-patch.2)", fontSize = 11.sp) },
+                            label = { Text("Patch Version (e.g. 1.1.2-patch.2)", fontSize = 11.sp) },
                             singleLine = true,
                             modifier = Modifier.weight(1.2f),
                             colors = settingsTextFieldColors(HunterGold)
@@ -1791,7 +1791,7 @@ fun SettingsAndFeedbackScreen(
                         OutlinedTextField(
                             value = pubPatchNumber,
                             onValueChange = { pubPatchNumber = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Patch # (e.g. 10302)", fontSize = 11.sp) },
+                            label = { Text("Patch # (e.g. 11202)", fontSize = 11.sp) },
                             singleLine = true,
                             modifier = Modifier.weight(0.8f),
                             colors = settingsTextFieldColors(HunterGold)
@@ -1815,7 +1815,7 @@ fun SettingsAndFeedbackScreen(
                     )
                     Button(
                         onClick = {
-                            val pVer = pubPatchVersion.trim().removePrefix("v").ifBlank { "1.0.3-patch.2" }
+                            val pVer = pubPatchVersion.trim().removePrefix("v").ifBlank { "1.1.2-patch.2" }
                             val pNum = pubPatchNumber.toLongOrNull() ?: (otaPatchManifest.patchNumber + 1L)
                             onPublishOtaPatch(
                                 pVer,
@@ -1838,7 +1838,7 @@ fun SettingsAndFeedbackScreen(
                             .testTag("publish_ota_patch_button")
                     ) {
                         Text(
-                            text = "PUBLISH LIVE OTA PATCH (v${pubPatchVersion.ifBlank { "1.0.3-patch.2" }})",
+                            text = "PUBLISH LIVE OTA PATCH (v${pubPatchVersion.ifBlank { "1.1.2-patch.2" }})",
                             fontWeight = FontWeight.ExtraBold
                         )
                     }

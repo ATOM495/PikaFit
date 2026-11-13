@@ -586,25 +586,31 @@ class HunterRepository(
     }
 
     fun getInstalledVersionName(): String {
+        val buildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.1.2" }
+        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 112L }
         val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
         val savedVer = prefs?.getString(KEY_INSTALLED_VERSION_NAME, null)?.trim().orEmpty()
-        if (savedVer.isNotBlank() && savedVer != "1.1") {
-            return savedVer
+        val savedCode = prefs?.getLong(KEY_INSTALLED_VERSION_CODE, 0L) ?: 0L
+        return if (savedVer.isNotBlank() && savedCode > buildCode && compareVersionStrings(savedVer, buildVer) > 0) {
+            savedVer
+        } else {
+            buildVer
         }
-        val rawBuildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.0.2" }
-        return if (rawBuildVer == "1.1" || rawBuildVer == "1.0") "1.0.2" else rawBuildVer
     }
 
     fun getInstalledVersionCode(): Long {
-        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 2L }
+        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 112L }
         val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
         val savedCode = prefs?.getLong(KEY_INSTALLED_VERSION_CODE, 0L) ?: 0L
-        return if (savedCode > 0L) savedCode else buildCode
+        return maxOf(buildCode, savedCode)
     }
 
     fun markVersionInstalled(versionName: String, versionCode: Long, publishedAt: String = "") {
-        val cleanVer = versionName.trim().removePrefix("v").removePrefix("V").ifBlank { getInstalledVersionName() }
-        val cleanCode = deriveVersionCode(cleanVer, maxOf(versionCode, getInstalledVersionCode()))
+        val buildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.1.2" }
+        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 112L }
+        val candidateVer = versionName.trim().removePrefix("v").removePrefix("V").ifBlank { buildVer }
+        val cleanVer = if (compareVersionStrings(candidateVer, buildVer) >= 0) candidateVer else buildVer
+        val cleanCode = maxOf(buildCode, deriveVersionCode(cleanVer, maxOf(versionCode, getInstalledVersionCode())))
         val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
         prefs?.edit()?.apply {
             putString(KEY_INSTALLED_VERSION_NAME, cleanVer)
@@ -747,7 +753,7 @@ class HunterRepository(
             } else {
                 rawResolved.releaseTitle
             },
-            releaseNotes = if (patchResult.newlyApplied && patchManifest.patchNotes.isNotBlank()) {
+            releaseNotes = if (!isNativeMajorBump && patchManifest.patchNotes.isNotBlank()) {
                 patchManifest.patchNotes
             } else {
                 rawResolved.releaseNotes
@@ -792,7 +798,18 @@ class HunterRepository(
                         val cleanTag = rawTag.removePrefix("v").removePrefix("V").trim()
                         if (cleanTag.isNotBlank()) {
                             val title = releaseObj.optString("name", "").trim().ifBlank { "PikaFit Release $rawTag" }
-                            val notes = releaseObj.optString("body", "").trim()
+                            val rawNotes = releaseObj.optString("body", "").trim()
+                            val cleanNotes = rawNotes
+                                .lineSequence()
+                                .map { it.trim() }
+                                .filterNot {
+                                    it.contains("Full Changelog", ignoreCase = true) ||
+                                        it.startsWith("https://github.com/", ignoreCase = true)
+                                }
+                                .distinct()
+                                .joinToString("\n") { line ->
+                                    line.replace("**", "").trim()
+                                }
                                 .ifBlank { "GitHub OTA patch $rawTag is synced automatically." }
                             val htmlUrl = releaseObj.optString("html_url", "https://github.com/ATOM495/PikaFit/releases")
                             val publishedAt = releaseObj.optString("published_at", "")
@@ -831,7 +848,7 @@ class HunterRepository(
                                 latestVersionCode = computedCode,
                                 latestVersionName = cleanTag,
                                 releaseTitle = title,
-                                releaseNotes = notes.take(1500),
+                                releaseNotes = cleanNotes.take(1500),
                                 downloadUrl = apkAssetUrl.ifBlank {
                                     patchJsonAssetUrl.ifBlank {
                                         htmlUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }

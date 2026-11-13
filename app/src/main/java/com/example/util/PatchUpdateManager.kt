@@ -53,10 +53,10 @@ object PatchUpdateManager {
         if (!trimmed.startsWith("{")) return null
         return try {
             val root = JSONObject(trimmed)
-            val patchNum = root.optLong("patch_number", 10301L).coerceAtLeast(1L)
-            val patchVer = root.optString("patch_version", "1.0.3-patch.1").trim().ifBlank { "1.0.3-patch.1" }
-            val baseAppVer = root.optString("base_app_version", "1.0.2").trim().ifBlank { "1.0.2" }
-            val minNativeCode = root.optLong("min_native_version_code", 2L).coerceAtLeast(1L)
+            val patchNum = root.optLong("patch_number", 11201L).coerceAtLeast(1L)
+            val patchVer = root.optString("patch_version", "1.1.2-patch.1").trim().ifBlank { "1.1.2-patch.1" }
+            val baseAppVer = root.optString("base_app_version", "1.1.2").trim().ifBlank { "1.1.2" }
+            val minNativeCode = root.optLong("min_native_version_code", 112L).coerceAtLeast(1L)
             val releaseTitle = root.optString("release_title", "PikaFit OTA Patch").trim()
             val patchNotes = root.optString("patch_notes", "").trim()
             val announcement = root.optString("announcement_banner", "").trim()
@@ -334,13 +334,13 @@ object PatchUpdateManager {
     }
 
     fun defaultBuiltInManifest(): OtaPatchManifest = OtaPatchManifest(
-        patchNumber = 10302L,
-        patchVersion = "1.0.3-patch.2",
-        baseAppVersion = "1.0.3",
-        minNativeVersionCode = 3L,
-        releaseTitle = "PikaFit v1.0.3 • UI Polish & OTA Release Patch",
+        patchNumber = 11201L,
+        patchVersion = "1.1.2-patch.1",
+        baseAppVersion = "1.1.2",
+        minNativeVersionCode = 112L,
+        releaseTitle = "PikaFit v1.1.2 • UI Polish & OTA Release Patch",
         patchNotes = "Streak-oriented Pokémon Classes (0–500 days), continuous XP Leveling, 1,000 XP 1-day Streak Restore, dedicated Streaks Heatmap tab, clean zero-truncation layout, and automatic GitHub OTA patch delivery.",
-        announcementBanner = "PikaFit v1.0.3 (OTA Patch #10302) Active — Automatic GitHub JSON patch delivery enabled.",
+        announcementBanner = "PikaFit v1.1.2 (OTA Patch #11201) Active — Automatic GitHub JSON patch delivery enabled.",
         xpPerLevel = TrainerRankProgression.xpPerLevel,
         streakRestoreCostXp = TrainerRankProgression.streakRestoreCostXp,
         patchedFoodCount = SmartFoodNutritionEngine.getPatchedFoodCount(),
