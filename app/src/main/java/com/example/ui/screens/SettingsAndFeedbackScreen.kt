@@ -38,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.AddAPhoto
@@ -347,7 +348,7 @@ fun SettingsAndFeedbackScreen(
         6 -> "Analytics"
         7 -> "FAQ & Help"
         8 -> "About Us"
-        9 -> "OTA Updates"
+        9 -> "App & OTA Updates"
         else -> "Settings"
     }
 
@@ -626,17 +627,21 @@ fun SettingsAndFeedbackScreen(
                         onClick = { activePage = 2 }
                     )
                     HorizontalDivider(color = BorderSubtle.copy(alpha = 0.6f), modifier = Modifier.padding(start = 52.dp))
-                    val hasUpdate = releaseInfo.isUpdateAvailable ||
-                        releaseInfo.latestVersionCode > installedVersionCode ||
-                        releaseInfo.patchNumber > otaPatchManifest.patchNumber
+                    val hasApkUpdate = releaseInfo.hasNativeApkUpdate(installedVersionCode)
+                    val hasPatchUpdate = releaseInfo.patchNumber > otaPatchManifest.patchNumber
+                    val hasAnyUpdate = hasApkUpdate || hasPatchUpdate
                     SettingsClickToGoRow(
-                        icon = Icons.Filled.SystemUpdate,
-                        iconTint = if (hasUpdate) HunterGold else HunterEmerald,
-                        title = if (hasUpdate) "OTA Patch Updates • NEW!" else "OTA Patch Updates",
-                        subtitle = if (hasUpdate) {
-                            "⚡ Auto-Patch v${releaseInfo.latestVersionName} Ready (Active v${otaPatchManifest.patchVersion})"
-                        } else {
-                            "Active Patch v${otaPatchManifest.patchVersion} (#${otaPatchManifest.patchNumber}) • Auto-Synced"
+                        icon = if (hasApkUpdate) Icons.Filled.CloudDownload else Icons.Filled.SystemUpdate,
+                        iconTint = if (hasAnyUpdate) HunterGold else HunterEmerald,
+                        title = when {
+                            hasApkUpdate -> "App & OTA Updates • APK NEW!"
+                            hasPatchUpdate -> "App & OTA Updates • PATCH!"
+                            else -> "App & OTA Updates"
+                        },
+                        subtitle = when {
+                            hasApkUpdate -> "APK v${releaseInfo.latestVersionName} ready to install • Installed v$installedVersionName"
+                            hasPatchUpdate -> "OTA Patch v${releaseInfo.patchVersion} ready • App v$installedVersionName"
+                            else -> "App v$installedVersionName • OTA Patch v${otaPatchManifest.patchVersion}"
                         },
                         testTag = "settings_nav_check_updates",
                         onClick = {
@@ -1659,217 +1664,358 @@ fun SettingsAndFeedbackScreen(
         }
 
         // =====================================================================
-        // SUB-PAGE 9: AUTOMATIC GITHUB OTA PATCH UPDATER (NO APK REINSTALL NEEDED)
+        // SUB-PAGE 9: APP APK RELEASES & AUTOMATIC GITHUB OTA PATCH UPDATER
         // =====================================================================
         if (activePage == 9) {
             item {
-                val hasUpdate = releaseInfo.isUpdateAvailable ||
-                    releaseInfo.latestVersionCode > installedVersionCode ||
-                    releaseInfo.patchNumber > otaPatchManifest.patchNumber
+                val hasApkUpdate = releaseInfo.hasNativeApkUpdate(installedVersionCode)
+                val hasPatchUpdate = releaseInfo.patchNumber > otaPatchManifest.patchNumber
+                val apkTargetUrl = releaseInfo.preferredApkInstallUrl()
+                val releasesPageUrl = releaseInfo.releasePageUrl.ifBlank {
+                    "https://github.com/ATOM495/PikaFit/releases/latest"
+                }
+                val openExternalUrl: (String) -> Unit = { url ->
+                    runCatching {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    }
+                }
+
                 var pubPatchVersion by rememberSaveable { mutableStateOf("") }
                 var pubPatchNumber by rememberSaveable { mutableStateOf("") }
                 var pubAnnouncement by rememberSaveable { mutableStateOf("") }
                 var pubNotes by rememberSaveable { mutableStateOf("") }
 
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(ObsidianCard)
-                        .border(
-                            1.5.dp,
-                            if (hasUpdate) HunterGold else HunterEmerald.copy(alpha = 0.6f),
-                            RoundedCornerShape(18.dp)
-                        )
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    // ---------------------------------------------------------
+                    // SECTION A: NATIVE APP APK UPDATES (GITHUB RELEASES)
+                    // ---------------------------------------------------------
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(ObsidianCard)
+                            .border(
+                                1.5.dp,
+                                if (hasApkUpdate) HunterGold else HunterCyan.copy(alpha = 0.55f),
+                                RoundedCornerShape(18.dp)
+                            )
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Icon(
-                                imageVector = Icons.Filled.SystemUpdate,
+                                imageVector = Icons.Filled.CloudDownload,
                                 contentDescription = null,
-                                tint = if (hasUpdate) HunterGold else HunterEmerald,
+                                tint = if (hasApkUpdate) HunterGold else HunterCyan,
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (hasUpdate) {
-                                        "⚡ IN-APP OTA PATCH READY"
+                                    text = if (hasApkUpdate) {
+                                        "NEW APK UPDATE AVAILABLE"
                                     } else {
-                                        "✔ LIVE PATCH APPLIED AUTOMATICALLY"
+                                        "APP APK UP TO DATE"
                                     },
                                     style = MaterialTheme.typography.titleMedium,
-                                    color = if (hasUpdate) HunterGold else HunterEmerald,
+                                    color = if (hasApkUpdate) HunterGold else HunterEmerald,
                                     fontWeight = FontWeight.ExtraBold
                                 )
                                 Text(
-                                    text = "App v$installedVersionName • Active Patch: v${otaPatchManifest.patchVersion} (#${otaPatchManifest.patchNumber})",
+                                    text = "Installed: v$installedVersionName (Build $installedVersionCode) • Latest: v${releaseInfo.latestVersionName}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = TextSecondary
                                 )
                             }
                         }
-                    }
 
-                    // Active OTA Patch Telemetry Card
-                    Surface(
-                        color = ObsidianBg,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, BorderSubtle),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = "Patch v${otaPatchManifest.patchVersion} • Source: ${otaPatchManifest.sourceLabel}",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = HunterCyan,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (otaPatchManifest.announcementBanner.isNotBlank()) {
+                        Surface(
+                            color = ObsidianBg,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, BorderSubtle),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
                                 Text(
-                                    text = "⚡ ${otaPatchManifest.announcementBanner}",
+                                    text = releaseInfo.releaseTitle.ifBlank { "PikaFit v${releaseInfo.latestVersionName}" },
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = if (hasApkUpdate) HunterGold else HunterCyan,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = releaseInfo.releaseNotes.ifBlank {
+                                        "Install full APK releases from GitHub when new native features, UI upgrades, or sync fixes ship."
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = HunterGold,
-                                    fontWeight = FontWeight.SemiBold
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = if (releaseInfo.apkDownloadUrl.isNotBlank()) {
+                                        "Direct GitHub Release APK detected — opens in browser to download & install."
+                                    } else {
+                                        "Opens official ATOM495/PikaFit GitHub Releases to download & install the latest APK."
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
                                 )
                             }
-                            Text(
-                                text = otaPatchManifest.patchNotes.ifBlank { releaseInfo.releaseNotes }.ifBlank {
-                                    "Automatic declarative OTA patching active. Food database, XP curve, streak rules, and reminders update directly inside PikaFit."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "Patched Foods: +${otaPatchManifest.patchedFoodCount} • XP/Level: ${otaPatchManifest.xpPerLevel} • Streak Restore: ${otaPatchManifest.streakRestoreCostXp} XP",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = HunterEmerald,
-                                fontWeight = FontWeight.Bold
-                            )
                         }
-                    }
 
-                    // 1. Live Check & Auto-Apply GitHub Patch Now (In-App, No Browser Redirect!)
-                    Button(
-                        onClick = onCheckForUpdates,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = HunterCyan,
-                            contentColor = ObsidianBg
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("check_github_updates_now_button")
-                    ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("AUTO-SYNC GITHUB PATCH NOW", fontWeight = FontWeight.ExtraBold)
-                    }
-
-                    // 2. Apply & Mark Latest Patch Installed In-App (No GitHub Redirect / No APK Reinstall!)
-                    if (hasUpdate) {
+                        // Primary APK Download / Install Action (always accessible!)
                         Button(
-                            onClick = onMarkUpdateInstalled,
+                            onClick = { openExternalUrl(apkTargetUrl) },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = HunterGold,
+                                containerColor = if (hasApkUpdate) HunterGold else HunterEmerald,
                                 contentColor = ObsidianBg
                             ),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .testTag("apply_in_app_ota_patch_button")
+                                .testTag("download_install_apk_button")
                         ) {
-                            Icon(Icons.Filled.VerifiedUser, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "APPLY PATCH v${releaseInfo.latestVersionName} IN-APP NOW",
+                                text = if (hasApkUpdate) {
+                                    "DOWNLOAD & INSTALL APK v${releaseInfo.latestVersionName}"
+                                } else {
+                                    "DOWNLOAD / REINSTALL LATEST APK (v${releaseInfo.latestVersionName})"
+                                },
                                 fontWeight = FontWeight.ExtraBold
                             )
                         }
-                    }
 
-                    HorizontalDivider(color = BorderSubtle)
-
-                    // 3. Push / Broadcast Live OTA Patch to Existing Installs (Zero APK Reinstall!)
-                    Text(
-                        text = "PUSH LIVE OTA PATCH TO EXISTING PHONES",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = HunterGold,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = "Any patch pushed to GitHub (ATOM495/PikaFit/patch_manifest.json or GitHub Release patch JSON) is automatically downloaded and hot-applied inside existing phone installations on launch—no GitHub redirect or APK reinstall needed. You can also broadcast a live patch manifest here:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = pubPatchVersion,
-                            onValueChange = { pubPatchVersion = it },
-                            label = { Text("Patch Version (e.g. 1.1.3-patch.2)", fontSize = 11.sp) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1.2f),
-                            colors = settingsTextFieldColors(HunterGold)
-                        )
-                        OutlinedTextField(
-                            value = pubPatchNumber,
-                            onValueChange = { pubPatchNumber = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Patch # (e.g. 11302)", fontSize = 11.sp) },
-                            singleLine = true,
-                            modifier = Modifier.weight(0.8f),
-                            colors = settingsTextFieldColors(HunterGold)
-                        )
-                    }
-                    OutlinedTextField(
-                        value = pubAnnouncement,
-                        onValueChange = { pubAnnouncement = it },
-                        label = { Text("Live Announcement Banner (Optional)", fontSize = 11.sp) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = settingsTextFieldColors(HunterCyan)
-                    )
-                    OutlinedTextField(
-                        value = pubNotes,
-                        onValueChange = { pubNotes = it },
-                        label = { Text("Patch Notes", fontSize = 11.sp) },
-                        placeholder = { Text("Describe rules, foods, or fixes in this OTA patch...") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = settingsTextFieldColors(HunterGold)
-                    )
-                    Button(
-                        onClick = {
-                            val pVer = pubPatchVersion.trim().removePrefix("v").ifBlank { "1.1.3-patch.2" }
-                            val pNum = pubPatchNumber.toLongOrNull() ?: (otaPatchManifest.patchNumber + 1L)
-                            onPublishOtaPatch(
-                                pVer,
-                                pNum,
-                                pubAnnouncement.trim().ifBlank { "PikaFit OTA Patch v$pVer live-synced!" },
-                                pubNotes.trim().ifBlank { "Automatic in-app OTA patch v$pVer applied seamlessly." }
+                        // Secondary direct link to GitHub Releases page
+                        OutlinedButton(
+                            onClick = { openExternalUrl(releasesPageUrl) },
+                            border = BorderStroke(1.dp, HunterCyan.copy(alpha = 0.7f)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("open_github_releases_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = null,
+                                tint = HunterCyan,
+                                modifier = Modifier.size(18.dp)
                             )
-                            pubPatchVersion = ""
-                            pubPatchNumber = ""
-                            pubAnnouncement = ""
-                            pubNotes = ""
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = HunterEmerald,
-                            contentColor = ObsidianBg
-                        ),
-                        shape = RoundedCornerShape(12.dp),
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "OPEN GITHUB RELEASES PAGE",
+                                color = HunterCyan,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Unified check for both GitHub APK Releases & OTA JSON Patch
+                        Button(
+                            onClick = onCheckForUpdates,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = HunterCyan,
+                                contentColor = ObsidianBg
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("check_github_updates_now_button")
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("CHECK FOR APK & OTA UPDATES", fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+
+                    // ---------------------------------------------------------
+                    // SECTION B: LIVE OTA DATA PATCHES (NO APK REINSTALL NEEDED)
+                    // ---------------------------------------------------------
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("publish_ota_patch_button")
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(ObsidianCard)
+                            .border(
+                                1.5.dp,
+                                if (hasPatchUpdate) HunterGold else HunterEmerald.copy(alpha = 0.6f),
+                                RoundedCornerShape(18.dp)
+                            )
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.SystemUpdate,
+                                contentDescription = null,
+                                tint = if (hasPatchUpdate) HunterGold else HunterEmerald,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (hasPatchUpdate) {
+                                        "LIVE OTA DATA PATCH READY"
+                                    } else {
+                                        "LIVE OTA DATA PATCH ACTIVE"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = if (hasPatchUpdate) HunterGold else HunterEmerald,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    text = "Patch v${otaPatchManifest.patchVersion} (#${otaPatchManifest.patchNumber}) • Source: ${otaPatchManifest.sourceLabel}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+
+                        Surface(
+                            color = ObsidianBg,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, BorderSubtle),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (otaPatchManifest.announcementBanner.isNotBlank()) {
+                                    Text(
+                                        text = otaPatchManifest.announcementBanner,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = HunterGold,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                Text(
+                                    text = otaPatchManifest.patchNotes.ifBlank {
+                                        "OTA data patches automatically update food profiles, XP leveling curves, class thresholds, streak restore cost, and announcements without reinstalling an APK."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Patched Foods: +${otaPatchManifest.patchedFoodCount} • XP/Level: ${otaPatchManifest.xpPerLevel} • Streak Restore: ${otaPatchManifest.streakRestoreCostXp} XP",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = HunterEmerald,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        if (hasPatchUpdate) {
+                            Button(
+                                onClick = onMarkUpdateInstalled,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = HunterGold,
+                                    contentColor = ObsidianBg
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("apply_in_app_ota_patch_button")
+                            ) {
+                                Icon(Icons.Filled.VerifiedUser, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "APPLY OTA PATCH v${releaseInfo.patchVersion} IN-APP",
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = BorderSubtle)
+
+                        // Broadcast Live OTA Data Patch
                         Text(
-                            text = "PUBLISH LIVE OTA PATCH (v${pubPatchVersion.ifBlank { "1.1.3-patch.2" }})",
+                            text = "BROADCAST LIVE OTA DATA PATCH",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = HunterGold,
                             fontWeight = FontWeight.ExtraBold
                         )
+                        Text(
+                            text = "Push food, XP/streak rules, or banner updates to existing phones instantly via patch_manifest.json or cloud broadcast (native Kotlin fixes still require a GitHub APK release above):",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = pubPatchVersion,
+                                onValueChange = { pubPatchVersion = it },
+                                label = { Text("Patch Version (e.g. 1.1.3-patch.2)", fontSize = 11.sp) },
+                                singleLine = true,
+                                modifier = Modifier.weight(1.2f),
+                                colors = settingsTextFieldColors(HunterGold)
+                            )
+                            OutlinedTextField(
+                                value = pubPatchNumber,
+                                onValueChange = { pubPatchNumber = it.filter { ch -> ch.isDigit() } },
+                                label = { Text("Patch # (e.g. 11302)", fontSize = 11.sp) },
+                                singleLine = true,
+                                modifier = Modifier.weight(0.8f),
+                                colors = settingsTextFieldColors(HunterGold)
+                            )
+                        }
+                        OutlinedTextField(
+                            value = pubAnnouncement,
+                            onValueChange = { pubAnnouncement = it },
+                            label = { Text("Live Announcement Banner (Optional)", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = settingsTextFieldColors(HunterCyan)
+                        )
+                        OutlinedTextField(
+                            value = pubNotes,
+                            onValueChange = { pubNotes = it },
+                            label = { Text("Patch Notes", fontSize = 11.sp) },
+                            placeholder = { Text("Describe rules, foods, or banners in this OTA patch...") },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = settingsTextFieldColors(HunterGold)
+                        )
+                        Button(
+                            onClick = {
+                                val pVer = pubPatchVersion.trim().removePrefix("v").ifBlank { "1.1.3-patch.2" }
+                                val pNum = pubPatchNumber.toLongOrNull() ?: (otaPatchManifest.patchNumber + 1L)
+                                onPublishOtaPatch(
+                                    pVer,
+                                    pNum,
+                                    pubAnnouncement.trim().ifBlank { "PikaFit OTA Patch v$pVer live-synced!" },
+                                    pubNotes.trim().ifBlank { "Automatic in-app OTA patch v$pVer applied seamlessly." }
+                                )
+                                pubPatchVersion = ""
+                                pubPatchNumber = ""
+                                pubAnnouncement = ""
+                                pubNotes = ""
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = HunterEmerald,
+                                contentColor = ObsidianBg
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("publish_ota_patch_button")
+                        ) {
+                            Text(
+                                text = "PUBLISH LIVE OTA PATCH (v${pubPatchVersion.ifBlank { "1.1.3-patch.2" }})",
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
                     }
                 }
             }

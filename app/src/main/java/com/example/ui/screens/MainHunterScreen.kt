@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -362,6 +364,7 @@ fun PikachuTutorialDialog(
 @Composable
 fun AppUpdateDialog(
     releaseInfo: AppReleaseInfo,
+    isNativeApkUpdate: Boolean,
     isDark: Boolean,
     onDismiss: () -> Unit,
     onDownload: () -> Unit
@@ -407,17 +410,17 @@ fun AppUpdateDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.Bolt,
+                                imageVector = if (isNativeApkUpdate) Icons.Filled.CloudDownload else Icons.Filled.Bolt,
                                 contentDescription = null,
                                 tint = PikaVoltYellow,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "IN-APP OTA PATCH READY",
+                                text = if (isNativeApkUpdate) "NEW APK UPDATE AVAILABLE" else "IN-APP OTA PATCH READY",
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = 0.8.sp
+                                    letterSpacing = 0.6.sp
                                 ),
                                 color = if (isDark) Color.White else Color(0xFF0F172A)
                             )
@@ -457,7 +460,11 @@ fun AppUpdateDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "${releaseInfo.releaseTitle} (v${releaseInfo.patchVersion.ifBlank { releaseInfo.latestVersionName }})",
+                    text = if (isNativeApkUpdate) {
+                        "${releaseInfo.releaseTitle.ifBlank { "PikaFit Update" }} (v${releaseInfo.latestVersionName})"
+                    } else {
+                        "${releaseInfo.releaseTitle} (v${releaseInfo.patchVersion.ifBlank { releaseInfo.latestVersionName }})"
+                    },
                     style = MaterialTheme.typography.headlineSmall.copy(
                         fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold
@@ -470,7 +477,11 @@ fun AppUpdateDialog(
 
                 Text(
                     text = releaseInfo.releaseNotes.ifBlank {
-                        "A new live OTA patch is ready for PikaFit! Tap Apply Patch Now to install updates in-app with zero APK reinstall."
+                        if (isNativeApkUpdate) {
+                            "A new native PikaFit APK is available on GitHub Releases. Download and install it to get the latest app fixes and features."
+                        } else {
+                            "A new live OTA patch is ready for PikaFit! Tap Apply Patch Now to install updates in-app with zero APK reinstall."
+                        }
                     },
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontSize = 14.sp,
@@ -494,16 +505,20 @@ fun AppUpdateDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.VerifiedUser,
+                            imageVector = if (isNativeApkUpdate) Icons.Filled.SystemUpdate else Icons.Filled.VerifiedUser,
                             contentDescription = null,
-                            tint = HunterDoneGreen,
+                            tint = if (isNativeApkUpdate) PikaVoltAmber else HunterDoneGreen,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "Automatic In-App GitHub Patch • No APK Reinstall Required",
+                            text = if (isNativeApkUpdate) {
+                                "Opens Official GitHub Release APK Download in Browser"
+                            } else {
+                                "Automatic In-App GitHub Patch • No APK Reinstall Required"
+                            },
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                             color = TextSecondary,
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
@@ -542,13 +557,13 @@ fun AppUpdateDialog(
                         )
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.SystemUpdate,
+                            imageVector = if (isNativeApkUpdate) Icons.Filled.CloudDownload else Icons.Filled.SystemUpdate,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Apply Patch Now",
+                            text = if (isNativeApkUpdate) "Download APK" else "Apply Patch Now",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.ExtraBold
@@ -2544,9 +2559,9 @@ fun MainHunterScreen(
             )
         }
 
+        val isNativeApkUpdateAvailable = releaseInfo.hasNativeApkUpdate(installedVersionCode)
         val isNewVersionAvailable = (
-            releaseInfo.isUpdateAvailable ||
-                releaseInfo.latestVersionCode > installedVersionCode ||
+            isNativeApkUpdateAvailable ||
                 releaseInfo.patchNumber > otaPatch.patchNumber
             ) &&
             dismissedUpdateVersion != releaseInfo.latestVersionCode &&
@@ -2555,15 +2570,26 @@ fun MainHunterScreen(
         if (isNewVersionAvailable) {
             AppUpdateDialog(
                 releaseInfo = releaseInfo,
+                isNativeApkUpdate = isNativeApkUpdateAvailable,
                 isDark = isDark,
                 onDismiss = {
                     val dismissKey = maxOf(releaseInfo.latestVersionCode, releaseInfo.patchNumber)
                     viewModel.dismissUpdatePrompt(dismissKey)
                 },
                 onDownload = {
-                    // Apply OTA patch silently in-app without any GitHub browser redirect or APK reinstall
-                    viewModel.markLatestUpdateInstalled(releaseInfo)
-                    viewModel.checkForAppUpdates(manualUserTrigger = false)
+                    if (isNativeApkUpdateAvailable) {
+                        val targetUrl = releaseInfo.preferredApkInstallUrl()
+                        runCatching {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        }
+                        viewModel.dismissUpdatePrompt(maxOf(releaseInfo.latestVersionCode, releaseInfo.patchNumber))
+                    } else {
+                        viewModel.markLatestUpdateInstalled(releaseInfo)
+                        viewModel.checkForAppUpdates(manualUserTrigger = false)
+                    }
                 }
             )
         }

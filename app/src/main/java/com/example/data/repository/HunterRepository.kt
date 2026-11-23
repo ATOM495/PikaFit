@@ -890,45 +890,31 @@ class HunterRepository(
     }
 
     fun getInstalledVersionName(): String {
-        val buildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.1.3" }
-        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 113L }
-        val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
-        val savedVer = prefs?.getString(KEY_INSTALLED_VERSION_NAME, null)?.trim().orEmpty()
-        val savedCode = prefs?.getLong(KEY_INSTALLED_VERSION_CODE, 0L) ?: 0L
-        return if (savedVer.isNotBlank() && savedCode > buildCode && compareVersionStrings(savedVer, buildVer) > 0) {
-            savedVer
-        } else {
-            buildVer
+        return try {
+            com.example.BuildConfig.VERSION_NAME
+        } catch (_: Exception) {
+            "1.1.3"
         }
     }
 
     fun getInstalledVersionCode(): Long {
-        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 113L }
-        val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
-        val savedCode = prefs?.getLong(KEY_INSTALLED_VERSION_CODE, 0L) ?: 0L
-        return maxOf(buildCode, savedCode)
+        return try {
+            com.example.BuildConfig.VERSION_CODE.toLong()
+        } catch (_: Exception) {
+            113L
+        }
     }
 
     fun markVersionInstalled(versionName: String, versionCode: Long, publishedAt: String = "") {
-        val buildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.1.3" }
-        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 113L }
-        val candidateVer = versionName.trim().removePrefix("v").removePrefix("V").ifBlank { buildVer }
-        val cleanVer = if (compareVersionStrings(candidateVer, buildVer) >= 0) candidateVer else buildVer
-        val cleanCode = maxOf(buildCode, deriveVersionCode(cleanVer, maxOf(versionCode, getInstalledVersionCode())))
         val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
-        prefs?.edit()?.apply {
-            putString(KEY_INSTALLED_VERSION_NAME, cleanVer)
-            putLong(KEY_INSTALLED_VERSION_CODE, cleanCode)
-            if (publishedAt.isNotBlank()) {
-                putString(KEY_ACK_PUBLISHED_AT, publishedAt)
-            }
-            apply()
+        if (publishedAt.isNotBlank()) {
+            prefs?.edit()?.putString(KEY_ACK_PUBLISHED_AT, publishedAt)?.apply()
         }
         val current = localReleaseInfoFlow.value
+        val actualInstalledCode = getInstalledVersionCode()
         localReleaseInfoFlow.value = current.copy(
-            latestVersionName = cleanVer,
-            latestVersionCode = cleanCode,
-            isUpdateAvailable = false
+            isUpdateAvailable = current.latestVersionCode > actualInstalledCode ||
+                current.minNativeVersionCode > actualInstalledCode
         )
     }
 
@@ -1030,39 +1016,66 @@ class HunterRepository(
                 )
             }
             else -> AppReleaseInfo(
-                latestVersionCode = installedCode,
-                latestVersionName = installedVer,
-                releaseTitle = "PikaFit v$installedVer",
+                latestVersionCode = maxOf(installedCode, patchManifest.minNativeVersionCode),
+                latestVersionName = if (patchManifest.minNativeVersionCode > installedCode) {
+                    patchManifest.baseAppVersion.ifBlank { installedVer }
+                } else {
+                    installedVer
+                },
+                releaseTitle = if (patchManifest.minNativeVersionCode > installedCode) {
+                    patchManifest.releaseTitle.ifBlank { "PikaFit v${patchManifest.baseAppVersion}" }
+                } else {
+                    "PikaFit v$installedVer"
+                },
                 releaseNotes = patchManifest.patchNotes.ifBlank {
                     "You are running PikaFit v$installedVer with auto-patch v${patchManifest.patchVersion}."
                 },
-                downloadUrl = "https://raw.githubusercontent.com/ATOM495/PikaFit/main/patch_manifest.json",
-                isUpdateAvailable = false
+                downloadUrl = "https://github.com/ATOM495/PikaFit/releases/latest",
+                apkDownloadUrl = "",
+                releasePageUrl = "https://github.com/ATOM495/PikaFit/releases/latest",
+                minNativeVersionCode = patchManifest.minNativeVersionCode,
+                isUpdateAvailable = patchManifest.minNativeVersionCode > installedCode
             )
         }
 
-        // If the remote release is an OTA-only patch (tag contains "patch" or no native bump),
-        // keep isUpdateAvailable = false and let the silent OTA patch engine handle it!
-        val isNativeMajorBump = rawResolved.isUpdateAvailable &&
-            !rawResolved.latestVersionName.contains("patch", ignoreCase = true) &&
-            rawResolved.latestVersionCode > installedCode
+        val effectiveLatestCode = maxOf(rawResolved.latestVersionCode, patchManifest.minNativeVersionCode)
+        val effectiveLatestName = if (patchManifest.minNativeVersionCode > rawResolved.latestVersionCode &&
+            patchManifest.baseAppVersion.isNotBlank()
+        ) {
+            patchManifest.baseAppVersion
+        } else {
+            rawResolved.latestVersionName
+        }
+
+        // Detect genuine native APK updates via GitHub Releases, Firestore, or patchManifest.minNativeVersionCode
+        val isNativeApkUpdate = (rawResolved.isUpdateAvailable &&
+            !rawResolved.latestVersionName.contains("patch", ignoreCase = true)) ||
+            effectiveLatestCode > installedCode ||
+            compareVersionStrings(effectiveLatestName, installedVer) > 0
+
         val resolved = rawResolved.copy(
+            latestVersionCode = effectiveLatestCode,
+            latestVersionName = effectiveLatestName,
+            minNativeVersionCode = patchManifest.minNativeVersionCode,
+            releasePageUrl = rawResolved.releasePageUrl.ifBlank {
+                "https://github.com/ATOM495/PikaFit/releases/latest"
+            },
             patchNumber = patchManifest.patchNumber,
             patchVersion = patchManifest.patchVersion,
             patchAppliedAutomatically = patchResult.appliedFromRemote,
             announcementBanner = patchManifest.announcementBanner,
             patchedFoodsCount = SmartFoodNutritionEngine.getPatchedFoodCount(),
-            releaseTitle = if (patchResult.appliedFromRemote && rawResolved.releaseTitle.isBlank()) {
-                patchManifest.releaseTitle
+            releaseTitle = if (rawResolved.releaseTitle.isBlank()) {
+                patchManifest.releaseTitle.ifBlank { "PikaFit v$effectiveLatestName" }
             } else {
                 rawResolved.releaseTitle
             },
-            releaseNotes = if (!isNativeMajorBump && patchManifest.patchNotes.isNotBlank()) {
+            releaseNotes = if (!isNativeApkUpdate && patchManifest.patchNotes.isNotBlank()) {
                 patchManifest.patchNotes
             } else {
-                rawResolved.releaseNotes
+                rawResolved.releaseNotes.ifBlank { patchManifest.patchNotes }
             },
-            isUpdateAvailable = isNativeMajorBump
+            isUpdateAvailable = isNativeApkUpdate
         )
 
         localReleaseInfoFlow.value = resolved
@@ -1139,13 +1152,14 @@ class HunterRepository(
                             val semCompare = compareVersionStrings(cleanTag, installedVer)
                             val isPatchOnlyRelease = cleanTag.contains("patch", ignoreCase = true) ||
                                 (patchJsonAssetUrl.isNotBlank() && apkAssetUrl.isBlank())
-                            val updateAvailable = semCompare > 0 &&
-                                !isPatchOnlyRelease &&
-                                (lastAckPublishedAt.isBlank() || publishedAt != lastAckPublishedAt)
+                            val updateAvailable = semCompare > 0 && !isPatchOnlyRelease
                             val computedCode = if (updateAvailable) {
                                 maxOf(installedCode + 1L, deriveVersionCode(cleanTag, installedCode + 1L))
                             } else {
                                 deriveVersionCode(cleanTag, installedCode)
+                            }
+                            val resolvedReleasePage = htmlUrl.ifBlank {
+                                "https://github.com/ATOM495/PikaFit/releases/latest"
                             }
 
                             return AppReleaseInfo(
@@ -1153,11 +1167,9 @@ class HunterRepository(
                                 latestVersionName = cleanTag,
                                 releaseTitle = title,
                                 releaseNotes = cleanNotes.take(1500),
-                                downloadUrl = apkAssetUrl.ifBlank {
-                                    patchJsonAssetUrl.ifBlank {
-                                        htmlUrl.ifBlank { "https://github.com/ATOM495/PikaFit/releases" }
-                                    }
-                                },
+                                downloadUrl = apkAssetUrl.ifBlank { resolvedReleasePage },
+                                apkDownloadUrl = apkAssetUrl,
+                                releasePageUrl = resolvedReleasePage,
                                 isMandatory = false,
                                 publishedAt = publishedAt,
                                 isUpdateAvailable = updateAvailable

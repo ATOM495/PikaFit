@@ -244,28 +244,29 @@ class HunterViewModel(
     fun checkForAppUpdates(manualUserTrigger: Boolean = true) {
         viewModelScope.launch {
             if (manualUserTrigger) {
-                _aiSyncState.value = AiSyncState.Analyzing("Syncing GitHub OTA patch_manifest.json in-app")
+                _aiSyncState.value = AiSyncState.Analyzing("Checking GitHub APK Releases & OTA Patch...")
             }
             val patchResult = repository.syncAndApplyOtaPatch()
             val checkedInfo = repository.checkGitHubAndFirestoreForUpdates()
             _installedVersionName.value = repository.getInstalledVersionName()
             _installedVersionCode.value = repository.getInstalledVersionCode()
             val manifest = patchResult.manifest
+            val hasApkUpdate = checkedInfo.hasNativeApkUpdate(_installedVersionCode.value)
 
-            if (patchResult.newlyApplied && patchResult.appliedFromRemote) {
-                _aiSyncState.value = AiSyncState.Success(
-                    "Auto-installed GitHub OTA Patch v${manifest.patchVersion} (#${manifest.patchNumber}) in-app! Zero APK download required."
-                )
-            } else if (checkedInfo.isUpdateAvailable || checkedInfo.latestVersionCode > _installedVersionCode.value) {
+            if (hasApkUpdate) {
                 _dismissedUpdateVersion.value = null
                 if (manualUserTrigger) {
                     _aiSyncState.value = AiSyncState.Success(
-                        "Update v${checkedInfo.latestVersionName} ready • Patch v${manifest.patchVersion} already active!"
+                        "New APK v${checkedInfo.latestVersionName} available on GitHub! Tap Download & Install APK to update."
                     )
                 }
+            } else if (patchResult.newlyApplied && patchResult.appliedFromRemote) {
+                _aiSyncState.value = AiSyncState.Success(
+                    "Auto-installed GitHub OTA Patch v${manifest.patchVersion} (#${manifest.patchNumber}) in-app!"
+                )
             } else if (manualUserTrigger) {
                 _aiSyncState.value = AiSyncState.Success(
-                    "PikaFit v${_installedVersionName.value} is synced (OTA Patch v${manifest.patchVersion} • #${manifest.patchNumber})."
+                    "App APK v${_installedVersionName.value} & OTA Patch v${manifest.patchVersion} are up to date."
                 )
             }
         }
@@ -281,9 +282,9 @@ class HunterViewModel(
             )
             _installedVersionName.value = repository.getInstalledVersionName()
             _installedVersionCode.value = repository.getInstalledVersionCode()
-            _dismissedUpdateVersion.value = info.latestVersionCode
+            _dismissedUpdateVersion.value = maxOf(info.latestVersionCode, info.patchNumber)
             _aiSyncState.value = AiSyncState.Success(
-                "In-App OTA Patch v${patchResult.manifest.patchVersion} active — synced to v${_installedVersionName.value}!"
+                "OTA Patch v${patchResult.manifest.patchVersion} synced on App v${_installedVersionName.value}!"
             )
         }
     }

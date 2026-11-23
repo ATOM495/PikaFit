@@ -2589,10 +2589,13 @@ data class CloudSyncStatus(
 @IgnoreExtraProperties
 data class AppReleaseInfo(
     val latestVersionCode: Long = 113L,
-    val latestVersionName: String = "1.1.3-patch.1",
-    val releaseTitle: String = "PikaFit OTA Patch",
+    val latestVersionName: String = "1.1.3",
+    val releaseTitle: String = "PikaFit v1.1.3",
     val releaseNotes: String = "Real-time multi-device Google Cloud sync & automatic streak/food reconciliation across phones, plus OTA patch delivery.",
-    val downloadUrl: String = "https://raw.githubusercontent.com/ATOM495/PikaFit/main/patch_manifest.json",
+    val downloadUrl: String = "https://github.com/ATOM495/PikaFit/releases/latest",
+    val apkDownloadUrl: String = "",
+    val releasePageUrl: String = "https://github.com/ATOM495/PikaFit/releases/latest",
+    val minNativeVersionCode: Long = 113L,
     val isMandatory: Boolean = false,
     val publishedAt: String = "",
     val isUpdateAvailable: Boolean = false,
@@ -2601,7 +2604,23 @@ data class AppReleaseInfo(
     val patchAppliedAutomatically: Boolean = false,
     val announcementBanner: String = "",
     val patchedFoodsCount: Int = 0
-)
+) {
+    fun hasNativeApkUpdate(installedVersionCode: Long): Boolean {
+        return isUpdateAvailable ||
+            latestVersionCode > installedVersionCode ||
+            minNativeVersionCode > installedVersionCode
+    }
+
+    fun preferredApkInstallUrl(): String {
+        return when {
+            apkDownloadUrl.isNotBlank() -> apkDownloadUrl
+            downloadUrl.endsWith(".apk", ignoreCase = true) -> downloadUrl
+            releasePageUrl.isNotBlank() -> releasePageUrl
+            downloadUrl.startsWith("https://github.com/", ignoreCase = true) -> downloadUrl
+            else -> "https://github.com/ATOM495/PikaFit/releases/latest"
+        }
+    }
+}
 
 data class OtaPatchManifest(
     val patchNumber: Long = 11301L,
