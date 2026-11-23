@@ -42,7 +42,11 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
@@ -101,6 +105,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.CloudSyncState
+import com.example.data.model.CloudSyncStatus
 import com.example.data.model.FeedbackEntry
 import com.example.data.model.HunterBiometrics
 import com.example.data.model.HunterSystemState
@@ -151,11 +157,13 @@ fun SettingsAndFeedbackScreen(
     initialFocusSection: Int = 0,
     releaseInfo: com.example.data.model.AppReleaseInfo = com.example.data.model.AppReleaseInfo(),
     otaPatchManifest: OtaPatchManifest = OtaPatchManifest(),
-    installedVersionName: String = "1.1.2",
-    installedVersionCode: Long = 112L,
+    cloudSyncStatus: CloudSyncStatus = CloudSyncStatus(),
+    installedVersionName: String = "1.1.3",
+    installedVersionCode: Long = 113L,
     isDark: Boolean = AppThemeIsDark,
     onToggleTheme: () -> Unit = {},
     onBack: () -> Unit,
+    onSyncCloudNow: () -> Unit = {},
     onCheckForUpdates: () -> Unit = {},
     onMarkUpdateInstalled: () -> Unit = {},
     onPublishOtaPatch: (patchVersion: String, patchNumber: Long, announcement: String, notes: String) -> Unit = { _, _, _, _ -> },
@@ -508,6 +516,27 @@ fun SettingsAndFeedbackScreen(
                             modifier = Modifier.size(22.dp)
                         )
                     }
+                }
+            }
+
+            // 1.5 Google Cloud Multi-Device Sync Status & Manual Sync Card
+            item {
+                val (syncIcon, syncTint, syncTitle) = when (cloudSyncStatus.state) {
+                    CloudSyncState.SYNCED -> Triple(Icons.Filled.CloudDone, HunterEmerald, "Google Cloud Synced")
+                    CloudSyncState.SYNCING -> Triple(Icons.Filled.CloudSync, HunterCyan, "Syncing with Google Cloud...")
+                    CloudSyncState.OFFLINE_PENDING -> Triple(Icons.Filled.CloudQueue, HunterGold, "Offline • Pending Cloud Sync")
+                    CloudSyncState.LOCAL_ONLY -> Triple(Icons.Filled.CloudOff, HunterCrimson, "Local-Only (Not Synced)")
+                    CloudSyncState.ERROR -> Triple(Icons.Filled.CloudOff, HunterCrimson, "Cloud Sync Issue")
+                }
+                SettingsMenuGroupCard {
+                    SettingsClickToGoRow(
+                        icon = syncIcon,
+                        iconTint = syncTint,
+                        title = syncTitle,
+                        subtitle = "${cloudSyncStatus.detailMessage} • Tap to Sync Now",
+                        testTag = "settings_sync_cloud_now_row",
+                        onClick = onSyncCloudNow
+                    )
                 }
             }
 
@@ -1783,7 +1812,7 @@ fun SettingsAndFeedbackScreen(
                         OutlinedTextField(
                             value = pubPatchVersion,
                             onValueChange = { pubPatchVersion = it },
-                            label = { Text("Patch Version (e.g. 1.1.2-patch.2)", fontSize = 11.sp) },
+                            label = { Text("Patch Version (e.g. 1.1.3-patch.2)", fontSize = 11.sp) },
                             singleLine = true,
                             modifier = Modifier.weight(1.2f),
                             colors = settingsTextFieldColors(HunterGold)
@@ -1791,7 +1820,7 @@ fun SettingsAndFeedbackScreen(
                         OutlinedTextField(
                             value = pubPatchNumber,
                             onValueChange = { pubPatchNumber = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Patch # (e.g. 11202)", fontSize = 11.sp) },
+                            label = { Text("Patch # (e.g. 11302)", fontSize = 11.sp) },
                             singleLine = true,
                             modifier = Modifier.weight(0.8f),
                             colors = settingsTextFieldColors(HunterGold)
@@ -1815,7 +1844,7 @@ fun SettingsAndFeedbackScreen(
                     )
                     Button(
                         onClick = {
-                            val pVer = pubPatchVersion.trim().removePrefix("v").ifBlank { "1.1.2-patch.2" }
+                            val pVer = pubPatchVersion.trim().removePrefix("v").ifBlank { "1.1.3-patch.2" }
                             val pNum = pubPatchNumber.toLongOrNull() ?: (otaPatchManifest.patchNumber + 1L)
                             onPublishOtaPatch(
                                 pVer,
@@ -1838,7 +1867,7 @@ fun SettingsAndFeedbackScreen(
                             .testTag("publish_ota_patch_button")
                     ) {
                         Text(
-                            text = "PUBLISH LIVE OTA PATCH (v${pubPatchVersion.ifBlank { "1.1.2-patch.2" }})",
+                            text = "PUBLISH LIVE OTA PATCH (v${pubPatchVersion.ifBlank { "1.1.3-patch.2" }})",
                             fontWeight = FontWeight.ExtraBold
                         )
                     }

@@ -53,10 +53,10 @@ object PatchUpdateManager {
         if (!trimmed.startsWith("{")) return null
         return try {
             val root = JSONObject(trimmed)
-            val patchNum = root.optLong("patch_number", 11201L).coerceAtLeast(1L)
-            val patchVer = root.optString("patch_version", "1.1.2-patch.1").trim().ifBlank { "1.1.2-patch.1" }
-            val baseAppVer = root.optString("base_app_version", "1.1.2").trim().ifBlank { "1.1.2" }
-            val minNativeCode = root.optLong("min_native_version_code", 112L).coerceAtLeast(1L)
+            val patchNum = root.optLong("patch_number", 11301L).coerceAtLeast(1L)
+            val patchVer = root.optString("patch_version", "1.1.3-patch.1").trim().ifBlank { "1.1.3-patch.1" }
+            val baseAppVer = root.optString("base_app_version", "1.1.3").trim().ifBlank { "1.1.3" }
+            val minNativeCode = root.optLong("min_native_version_code", 113L).coerceAtLeast(1L)
             val releaseTitle = root.optString("release_title", "PikaFit OTA Patch").trim()
             val patchNotes = root.optString("patch_notes", "").trim()
             val announcement = root.optString("announcement_banner", "").trim()
@@ -334,13 +334,13 @@ object PatchUpdateManager {
     }
 
     fun defaultBuiltInManifest(): OtaPatchManifest = OtaPatchManifest(
-        patchNumber = 11201L,
-        patchVersion = "1.1.2-patch.1",
-        baseAppVersion = "1.1.2",
-        minNativeVersionCode = 112L,
-        releaseTitle = "PikaFit v1.1.2 • UI Polish & OTA Release Patch",
-        patchNotes = "Streak-oriented Pokémon Classes (0–500 days), continuous XP Leveling, 1,000 XP 1-day Streak Restore, dedicated Streaks Heatmap tab, clean zero-truncation layout, and automatic GitHub OTA patch delivery.",
-        announcementBanner = "PikaFit v1.1.2 (OTA Patch #11201) Active — Automatic GitHub JSON patch delivery enabled.",
+        patchNumber = 11301L,
+        patchVersion = "1.1.3-patch.1",
+        baseAppVersion = "1.1.3",
+        minNativeVersionCode = 113L,
+        releaseTitle = "PikaFit v1.1.3 • Live Multi-Device Cloud Sync Fix",
+        patchNotes = "Real-time multi-device Firestore sync & divergence auto-merge, streak-oriented Pokémon Classes (0–500 days), continuous XP Leveling, 1,000 XP 1-day Streak Restore, dedicated Streaks Heatmap tab, and automatic GitHub OTA patch delivery.",
+        announcementBanner = "PikaFit v1.1.3 (OTA Patch #11301) Active — Live multi-device Google Cloud Sync enabled.",
         xpPerLevel = TrainerRankProgression.xpPerLevel,
         streakRestoreCostXp = TrainerRankProgression.streakRestoreCostXp,
         patchedFoodCount = SmartFoodNutritionEngine.getPatchedFoodCount(),

@@ -1,5 +1,6 @@
 package com.example
 
+import com.example.data.model.DailyDateLog
 import com.example.data.model.HunterSystemState
 import com.example.data.model.PlayerStatus
 import com.example.data.model.StreakDateUtils
@@ -8,6 +9,7 @@ import com.example.util.PatchUpdateManager
 import com.example.util.SmartFoodNutritionEngine
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -188,5 +190,120 @@ class StreakAndPatchUnitTest {
         val ragiProfile = SmartFoodNutritionEngine.findProfile("ragi malt drink")
         assertEquals("Ragi Malt Drink", ragiProfile.displayName)
         assertTrue(ragiProfile.isLiquidMl)
+    }
+
+    @Test
+    fun reconcileWithRemote_mergesDivergedPhonesAndClearsFalseMissedStreakAlert() {
+        val today = "2026-11-23"
+        val yesterday = "2026-11-22" // Sunday
+
+        val sharedHistory = listOf(
+            "2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14",
+            "2026-11-15", "2026-11-16", "2026-11-17", "2026-11-18",
+            "2026-11-19", "2026-11-20", "2026-11-21"
+        )
+
+        // Phone 1 has Sunday (1847 kcal) verified and 12D streak, but lower Friday (288) and missing Saturday
+        val phone1State = HunterSystemState.createResetState().copy(
+            playerStatus = PlayerStatus(
+                level = 9,
+                classLevel = 1,
+                rank = "Beginner",
+                currentXp = 4135,
+                lifetimeXp = 4135,
+                streakDays = 12,
+                bestStreakDays = 12,
+                checkedInToday = false,
+                lastProductiveDate = yesterday,
+                lastDailyResetDate = today,
+                productiveHistoryDates = sharedHistory + yesterday,
+                dailyLogsByDate = mapOf(
+                    "2026-11-20" to DailyDateLog(date = "2026-11-20", calories = 288, proteinG = 14.0),
+                    "2026-11-22" to DailyDateLog(date = "2026-11-22", calories = 1847, proteinG = 92.0)
+                ),
+                stateUpdatedAtMillis = 1795365000000L
+            )
+        )
+
+        // Phone 2 has higher Friday (1000) & Saturday (2245), higher XP (4349), but missed Sunday and tripped false 1-day missed alert
+        val phone2State = HunterSystemState.createResetState().copy(
+            playerStatus = PlayerStatus(
+                level = 9,
+                classLevel = 0,
+                rank = "Unranked",
+                currentXp = 4349,
+                lifetimeXp = 4349,
+                streakDays = 0,
+                bestStreakDays = 12,
+                restorableStreakDays = 12,
+                missedStreakDate = yesterday,
+                checkedInToday = false,
+                lastProductiveDate = "2026-11-21",
+                lastDailyResetDate = today,
+                productiveHistoryDates = sharedHistory,
+                dailyLogsByDate = mapOf(
+                    "2026-11-20" to DailyDateLog(date = "2026-11-20", calories = 1000, proteinG = 54.0),
+                    "2026-11-21" to DailyDateLog(date = "2026-11-21", calories = 2245, proteinG = 112.0)
+                ),
+                stateUpdatedAtMillis = 1795391700000L
+            )
+        )
+
+        val merged = HunterSystemState.reconcileWithRemote(
+            remote = phone1State,
+            local = phone2State,
+            todayDate = today,
+            yesterdayDate = yesterday
+        )
+
+        // All diverged logs preserved at their fuller values
+        assertEquals(1000, merged.playerStatus.dailyLogsByDate["2026-11-20"]?.calories)
+        assertEquals(2245, merged.playerStatus.dailyLogsByDate["2026-11-21"]?.calories)
+        assertEquals(1847, merged.playerStatus.dailyLogsByDate["2026-11-22"]?.calories)
+
+        // Unbroken 12-day streak restored, false missed-streak alert cleared, XP & class intact
+        assertEquals(12, merged.playerStatus.streakDays)
+        assertEquals(1, merged.playerStatus.classLevel)
+        assertEquals("Beginner", merged.playerStatus.rank)
+        assertEquals(4349, merged.playerStatus.lifetimeXp)
+        assertEquals(0, merged.playerStatus.restorableStreakDays)
+        assertFalse(merged.playerStatus.canRestoreMissedStreak)
+    }
+
+    @Test
+    fun reconcileWithRemote_honorsNewerExplicitResetOverStaleDeviceCache() {
+        val resetRemote = HunterSystemState.createResetState().copy(
+            playerStatus = PlayerStatus(
+                level = 1,
+                classLevel = 0,
+                currentXp = 0,
+                lifetimeXp = 0,
+                streakDays = 0,
+                lastResetAtMillis = 2000L,
+                stateUpdatedAtMillis = 2000L
+            )
+        )
+        val staleLocal = HunterSystemState.createResetState().copy(
+            playerStatus = PlayerStatus(
+                level = 5,
+                classLevel = 1,
+                currentXp = 2100,
+                lifetimeXp = 2100,
+                streakDays = 10,
+                lastResetAtMillis = 0L,
+                stateUpdatedAtMillis = 1500L
+            )
+        )
+
+        val merged = HunterSystemState.reconcileWithRemote(
+            remote = resetRemote,
+            local = staleLocal,
+            todayDate = "2026-11-23",
+            yesterdayDate = "2026-11-22"
+        )
+
+        assertEquals(0, merged.playerStatus.streakDays)
+        assertEquals(0, merged.playerStatus.lifetimeXp)
+        assertEquals(2000L, merged.playerStatus.lastResetAtMillis)
     }
 }

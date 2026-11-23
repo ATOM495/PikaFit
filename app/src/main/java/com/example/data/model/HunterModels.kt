@@ -585,6 +585,25 @@ object StreakDateUtils {
         return sdf.format(cal.time)
     }
 
+    fun daysAgoFromDateString(daysAgo: Int, referenceDateStr: String): String {
+        if (referenceDateStr.isBlank()) return daysAgoDateString(daysAgo)
+        return try {
+            val sdf = SimpleDateFormat(DATE_PATTERN, Locale.US).apply { isLenient = false }
+            val refDate = sdf.parse(referenceDateStr.trim()) ?: return daysAgoDateString(daysAgo)
+            val cal = Calendar.getInstance().apply {
+                time = refDate
+                set(Calendar.HOUR_OF_DAY, 12)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                add(Calendar.DAY_OF_YEAR, -daysAgo)
+            }
+            sdf.format(cal.time)
+        } catch (_: Exception) {
+            daysAgoDateString(daysAgo)
+        }
+    }
+
     fun daysBetween(earlierDateStr: String, laterDateStr: String): Int {
         if (earlierDateStr.isBlank() || laterDateStr.isBlank()) return -1
         return try {
@@ -980,7 +999,9 @@ data class PlayerStatus(
     val productiveHistoryDates: List<String> = emptyList(),
     val dailyLogsByDate: Map<String, DailyDateLog> = emptyMap(),
     val activeBuffs: List<String> = listOf("Spark Egg (0D)"),
-    val activeDebuffs: List<String> = emptyList()
+    val activeDebuffs: List<String> = emptyList(),
+    val stateUpdatedAtMillis: Long = 0L,
+    val lastResetAtMillis: Long = 0L
 ) {
     val currentTier: TrainerRankTier
         get() = TrainerRankProgression.tierForStreakDays(streakDays)
@@ -1555,6 +1576,8 @@ data class HunterSystemState(
         root.put("best_streak_days", maxOf(playerStatus.bestStreakDays, playerStatus.streakDays))
         root.put("restorable_streak_days", playerStatus.restorableStreakDays)
         root.put("missed_streak_date", playerStatus.missedStreakDate)
+        root.put("state_updated_at_millis", playerStatus.stateUpdatedAtMillis)
+        root.put("last_reset_at_millis", playerStatus.lastResetAtMillis)
 
         val dailyLogsArr = JSONArray()
         playerStatus.dailyLogsByDate.values.forEach { dl ->
@@ -1897,6 +1920,335 @@ data class HunterSystemState(
                 biometrics = existingBiometrics.copy(hunterTitle = autoTitle)
             )
         }
+        fun computeConsecutiveStreakDays(
+            historyDates: Set<String>,
+            todayDate: String = StreakDateUtils.todayDateString(),
+            yesterdayDate: String = StreakDateUtils.daysAgoDateString(1)
+        ): Int {
+            if (historyDates.isEmpty()) return 0
+            val startOffset = when {
+                historyDates.contains(todayDate) -> 0
+                historyDates.contains(yesterdayDate) -> 1
+                else -> return 0
+            }
+            var count = 0
+            var offset = startOffset
+            while (count < 3650) {
+                val expected = StreakDateUtils.daysAgoFromDateString(offset, todayDate)
+                if (historyDates.contains(expected)) {
+                    count++
+                    offset++
+                } else {
+                    break
+                }
+            }
+            return count
+        }
+
+        private fun mergeDailyDateLog(
+            remoteLog: DailyDateLog?,
+            localLog: DailyDateLog?,
+            preferRemoteOnTie: Boolean
+        ): DailyDateLog? {
+            if (remoteLog == null) return localLog
+            if (localLog == null) return remoteLog
+
+            val remoteHasData = remoteLog.calories > 0 || remoteLog.waterLiters > 0.0 ||
+                remoteLog.foodItems.isNotEmpty() || remoteLog.tasksCompleted.isNotEmpty() ||
+                remoteLog.foodSummary.isNotBlank()
+            val localHasData = localLog.calories > 0 || localLog.waterLiters > 0.0 ||
+                localLog.foodItems.isNotEmpty() || localLog.tasksCompleted.isNotEmpty() ||
+                localLog.foodSummary.isNotBlank()
+
+            if (remoteHasData && !localHasData) return remoteLog
+            if (localHasData && !remoteHasData) return localLog
+
+            val primary = when {
+                remoteLog.calories > localLog.calories -> remoteLog
+                localLog.calories > remoteLog.calories -> localLog
+                remoteLog.foodItems.size > localLog.foodItems.size -> remoteLog
+                localLog.foodItems.size > remoteLog.foodItems.size -> localLog
+                preferRemoteOnTie -> remoteLog
+                else -> localLog
+            }
+            val secondary = if (primary === remoteLog) localLog else remoteLog
+
+            val mergedTasks = (primary.tasksCompleted + secondary.tasksCompleted)
+                .distinctBy { it.id.ifBlank { it.title.lowercase() } }
+
+            return primary.copy(
+                waterLiters = maxOf(remoteLog.waterLiters, localLog.waterLiters),
+                tasksCompleted = mergedTasks,
+                foodSummary = primary.foodSummary.ifBlank { secondary.foodSummary }
+            )
+        }
+
+        /**
+         * Reconciles a remote Firestore state with a local cached state when two devices
+         * have diverged (e.g., offline edits or upgrading from a local-only cache).
+         * Respects explicit user resets via [PlayerStatus.lastResetAtMillis].
+         */
+        fun reconcileWithRemote(
+            remote: HunterSystemState,
+            local: HunterSystemState,
+            todayDate: String = StreakDateUtils.todayDateString(),
+            yesterdayDate: String = StreakDateUtils.daysAgoDateString(1)
+        ): HunterSystemState {
+            val remotePs = remote.playerStatus
+            val localPs = local.playerStatus
+
+            // 1. Honor explicit progress resets if one side was reset more recently than the other was edited
+            if (remotePs.lastResetAtMillis > localPs.lastResetAtMillis &&
+                remotePs.lastResetAtMillis >= localPs.stateUpdatedAtMillis
+            ) {
+                return remote
+            }
+            if (localPs.lastResetAtMillis > remotePs.lastResetAtMillis &&
+                localPs.lastResetAtMillis >= remotePs.stateUpdatedAtMillis
+            ) {
+                return local
+            }
+
+            val remoteIsNewer = when {
+                remotePs.stateUpdatedAtMillis != localPs.stateUpdatedAtMillis ->
+                    remotePs.stateUpdatedAtMillis > localPs.stateUpdatedAtMillis
+                remotePs.lastProductiveDate != localPs.lastProductiveDate ->
+                    remotePs.lastProductiveDate > localPs.lastProductiveDate
+                else -> true
+            }
+            val primary = if (remoteIsNewer) remote else local
+            val secondary = if (remoteIsNewer) local else remote
+
+            // 2. Merge daily logs across all dates so neither device loses logged days
+            val allDates = (remotePs.dailyLogsByDate.keys + localPs.dailyLogsByDate.keys).distinct().sorted()
+            val mergedDailyLogs = allDates.mapNotNull { date ->
+                val merged = mergeDailyDateLog(
+                    remoteLog = remotePs.dailyLogsByDate[date],
+                    localLog = localPs.dailyLogsByDate[date],
+                    preferRemoteOnTie = remoteIsNewer
+                )
+                if (merged != null) date to merged else null
+            }.takeLast(45).toMap()
+
+            // 3. Union productive dates & restored dates (also derive from any non-empty daily logs)
+            val mergedRestoredDates = (remotePs.restoredDates + localPs.restoredDates)
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
+                .takeLast(365)
+
+            val datesFromLogs = mergedDailyLogs.values
+                .filter { it.calories > 0 || it.foodItems.isNotEmpty() || it.tasksCompleted.isNotEmpty() }
+                .map { it.date }
+
+            val mergedHistoryDates = (
+                remotePs.productiveHistoryDates +
+                    localPs.productiveHistoryDates +
+                    mergedRestoredDates +
+                    datesFromLogs
+                )
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
+                .takeLast(365)
+
+            val mergedHistorySet = mergedHistoryDates.toSet()
+            val mergedLastProductiveDate = listOf(
+                mergedHistoryDates.maxOrNull().orEmpty(),
+                remotePs.lastProductiveDate,
+                localPs.lastProductiveDate
+            ).filter { it.isNotBlank() }.maxOrNull().orEmpty()
+
+            val checkedInToday = mergedHistorySet.contains(todayDate) ||
+                (remotePs.lastProductiveDate == todayDate && remotePs.checkedInToday) ||
+                (localPs.lastProductiveDate == todayDate && localPs.checkedInToday)
+
+            // 4. Recompute accurate consecutive streak & resolve any false 1-day missed alert
+            val computedConsecutive = computeConsecutiveStreakDays(mergedHistorySet, todayDate, yesterdayDate)
+            val hasUnbrokenRecentDay = mergedHistorySet.contains(todayDate) ||
+                mergedHistorySet.contains(yesterdayDate) ||
+                mergedLastProductiveDate == todayDate ||
+                mergedLastProductiveDate == yesterdayDate
+
+            val maxActiveStreakFromEither = maxOf(
+                if (remotePs.lastProductiveDate == todayDate || remotePs.lastProductiveDate == yesterdayDate) remotePs.streakDays else 0,
+                if (localPs.lastProductiveDate == todayDate || localPs.lastProductiveDate == yesterdayDate) localPs.streakDays else 0
+            )
+            val mergedStreakDays = if (hasUnbrokenRecentDay) {
+                maxOf(computedConsecutive, maxActiveStreakFromEither, 1)
+            } else {
+                0
+            }
+
+            val mergedBestStreak = maxOf(
+                remotePs.bestStreakDays,
+                localPs.bestStreakDays,
+                remotePs.streakDays,
+                localPs.streakDays,
+                mergedStreakDays
+            )
+
+            val mergedRestorableStreakDays = if (hasUnbrokenRecentDay) {
+                0
+            } else {
+                maxOf(remotePs.restorableStreakDays, localPs.restorableStreakDays)
+            }
+            val mergedMissedDate = if (hasUnbrokenRecentDay) {
+                ""
+            } else {
+                primary.playerStatus.missedStreakDate.ifBlank { secondary.playerStatus.missedStreakDate }
+            }
+
+            // 5. Merge XP & continuous leveling
+            val mergedLifetimeXp = maxOf(remotePs.lifetimeXp, localPs.lifetimeXp, remotePs.currentXp, localPs.currentXp)
+            val mergedCurrentXp = maxOf(remotePs.currentXp, localPs.currentXp).coerceAtMost(mergedLifetimeXp)
+            val xpLevel = TrainerRankProgression.xpLevelForLifetimeXp(mergedLifetimeXp)
+            val nextXp = TrainerRankProgression.nextXpLevelThreshold(mergedLifetimeXp)
+            val xpProgress = TrainerRankProgression.xpLevelProgressPercent(mergedLifetimeXp)
+            val mergedTier = TrainerRankProgression.tierForStreakDays(mergedStreakDays)
+
+            // 6. Merge today's live intake stats
+            val todayLog = mergedDailyLogs[todayDate]
+            val remoteVit = remote.statBreakdown.vitality
+            val localVit = local.statBreakdown.vitality
+            val primaryVit = primary.statBreakdown.vitality
+            val remoteTodayActive = remotePs.lastDailyResetDate == todayDate || remotePs.lastProductiveDate == todayDate
+            val localTodayActive = localPs.lastDailyResetDate == todayDate || localPs.lastProductiveDate == todayDate
+
+            val mergedTodayCals = maxOf(
+                todayLog?.calories ?: 0,
+                if (remoteTodayActive) remoteVit.caloriesLogged else 0,
+                if (localTodayActive) localVit.caloriesLogged else 0
+            )
+            val mergedTodayPro = maxOf(
+                todayLog?.proteinG ?: 0.0,
+                if (remoteTodayActive) remoteVit.proteinG else 0.0,
+                if (localTodayActive) localVit.proteinG else 0.0
+            )
+            val mergedTodayCarbs = maxOf(
+                todayLog?.carbsG ?: 0.0,
+                if (remoteTodayActive) remoteVit.carbsG else 0.0,
+                if (localTodayActive) localVit.carbsG else 0.0
+            )
+            val mergedTodayFats = maxOf(
+                todayLog?.fatsG ?: 0.0,
+                if (remoteTodayActive) remoteVit.fatsG else 0.0,
+                if (localTodayActive) localVit.fatsG else 0.0
+            )
+            val mergedTodayWater = maxOf(
+                todayLog?.waterLiters ?: 0.0,
+                if (remoteTodayActive) remote.statBreakdown.stamina.waterLiters else 0.0,
+                if (localTodayActive) local.statBreakdown.stamina.waterLiters else 0.0
+            )
+            val mergedExercises = (
+                (if (remoteTodayActive) remote.statBreakdown.strength.exercisesLogged else emptyList()) +
+                    (if (localTodayActive) local.statBreakdown.strength.exercisesLogged else emptyList())
+                ).distinctBy { "${it.exerciseName.lowercase()}_${it.setsCompleted}_${it.repsPerSet}" }
+
+            // 7. Merge achievements & buffs/debuffs
+            val combinedAchievements = (remote.unlockedAchievements + local.unlockedAchievements)
+                .distinctBy { it.title }
+            val mergedAchievements = TrainerRankProgression.unlockedClassAchievementsForStreak(
+                mergedStreakDays,
+                combinedAchievements
+            )
+
+            val cleanedDebuffs = (primary.playerStatus.activeDebuffs + secondary.playerStatus.activeDebuffs)
+                .distinct()
+                .filterNot {
+                    hasUnbrokenRecentDay && (
+                        it.contains("Missed 1 Day", ignoreCase = true) ||
+                            it.contains("Streak Reset", ignoreCase = true)
+                        )
+                }
+
+            val mergedBio = primary.biometrics.copy(
+                onboardingCompleted = remote.biometrics.onboardingCompleted || local.biometrics.onboardingCompleted,
+                hunterName = primary.biometrics.hunterName.takeIf { it.isNotBlank() && it != "Trainer" }
+                    ?: secondary.biometrics.hunterName,
+                hunterTitle = "${mergedTier.classTitle} • ${mergedTier.pokemonName}",
+                avatarBase64 = primary.biometrics.avatarBase64.ifBlank { secondary.biometrics.avatarBase64 }
+            )
+
+            val mergedUpdatedAt = maxOf(
+                remotePs.stateUpdatedAtMillis,
+                localPs.stateUpdatedAtMillis,
+                System.currentTimeMillis()
+            )
+            val mergedResetAt = maxOf(remotePs.lastResetAtMillis, localPs.lastResetAtMillis)
+
+            val calTarget = primaryVit.caloriesTarget.coerceIn(500, 50000)
+            val waterTarget = primary.statBreakdown.stamina.targetLiters.coerceIn(0.5, 50.0)
+
+            return primary.copy(
+                playerStatus = primary.playerStatus.copy(
+                    level = xpLevel,
+                    classLevel = mergedTier.tierLevel,
+                    rank = mergedTier.classTitle,
+                    currentXp = mergedCurrentXp,
+                    lifetimeXp = mergedLifetimeXp,
+                    nextLevelXp = nextXp,
+                    progressPercent = xpProgress,
+                    streakDays = mergedStreakDays,
+                    bestStreakDays = mergedBestStreak,
+                    restorableStreakDays = mergedRestorableStreakDays,
+                    missedStreakDate = mergedMissedDate,
+                    restoredDates = mergedRestoredDates,
+                    checkedInToday = checkedInToday,
+                    lastProductiveDate = mergedLastProductiveDate,
+                    lastDailyResetDate = todayDate,
+                    todayFoodInputs = maxOf(
+                        todayLog?.foodItems?.size ?: 0,
+                        if (remoteTodayActive) remotePs.todayFoodInputs else 0,
+                        if (localTodayActive) localPs.todayFoodInputs else 0
+                    ),
+                    todayExerciseInputs = maxOf(
+                        mergedExercises.size,
+                        if (remoteTodayActive) remotePs.todayExerciseInputs else 0,
+                        if (localTodayActive) localPs.todayExerciseInputs else 0
+                    ),
+                    todayTaskInputs = maxOf(
+                        todayLog?.tasksCompleted?.size ?: 0,
+                        if (remoteTodayActive) remotePs.todayTaskInputs else 0,
+                        if (localTodayActive) localPs.todayTaskInputs else 0
+                    ),
+                    productiveHistoryDates = mergedHistoryDates,
+                    dailyLogsByDate = mergedDailyLogs,
+                    activeDebuffs = cleanedDebuffs,
+                    stateUpdatedAtMillis = mergedUpdatedAt,
+                    lastResetAtMillis = mergedResetAt
+                ),
+                statBreakdown = StatBreakdown(
+                    vitality = primaryVit.copy(
+                        caloriesLogged = mergedTodayCals,
+                        caloriesTarget = calTarget,
+                        proteinG = mergedTodayPro,
+                        carbsG = mergedTodayCarbs,
+                        fatsG = mergedTodayFats,
+                        fiberG = maxOf(
+                            if (remoteTodayActive) remoteVit.fiberG else 0.0,
+                            if (localTodayActive) localVit.fiberG else 0.0
+                        ),
+                        omega3Mg = maxOf(
+                            if (remoteTodayActive) remoteVit.omega3Mg else 0.0,
+                            if (localTodayActive) localVit.omega3Mg else 0.0
+                        ),
+                        targetMet = mergedTodayCals >= calTarget && mergedTodayPro >= 110.0
+                    ),
+                    stamina = primary.statBreakdown.stamina.copy(
+                        waterLiters = mergedTodayWater,
+                        targetLiters = waterTarget,
+                        targetMet = mergedTodayWater >= waterTarget
+                    ),
+                    strength = primary.statBreakdown.strength.copy(
+                        workoutCompleted = mergedExercises.isNotEmpty(),
+                        exercisesLogged = mergedExercises
+                    )
+                ),
+                unlockedAchievements = mergedAchievements,
+                biometrics = mergedBio
+            )
+        }
     }
 }
 
@@ -2097,6 +2449,11 @@ data class HunterSession(
         val syncedAchievements = TrainerRankProgression.unlockedClassAchievementsForStreak(cleanStreak, cleanAchievements)
         val autoTitle = "${classTier.classTitle} • ${classTier.pokemonName}"
 
+        val savedStateUpdatedAt = parsedJson.optLong("state_updated_at_millis", 0L).coerceAtLeast(0L)
+        val savedLastResetAt = parsedJson.optLong("last_reset_at_millis", 0L).coerceAtLeast(0L)
+        val serverUpdatedAt = updatedAt?.toDate()?.time ?: 0L
+        val effectiveUpdatedAt = maxOf(savedStateUpdatedAt, serverUpdatedAt)
+
         return HunterSystemState(
             playerStatus = PlayerStatus(
                 level = xpLevel,
@@ -2122,7 +2479,9 @@ data class HunterSession(
                 productiveHistoryDates = if (cleanStreak == 0 && !checkedInToday && parsedDailyLogs.isEmpty() && restorableStreakSaved == 0) emptyList() else historyDates,
                 dailyLogsByDate = parsedDailyLogs,
                 activeBuffs = buffs,
-                activeDebuffs = debuffs
+                activeDebuffs = debuffs,
+                stateUpdatedAtMillis = effectiveUpdatedAt,
+                lastResetAtMillis = savedLastResetAt
             ),
             statBreakdown = StatBreakdown(
                 vitality = VitalityStats(
@@ -2212,28 +2571,43 @@ data class FeedbackEntry(
     @ServerTimestamp val createdAt: Timestamp? = null
 )
 
+enum class CloudSyncState {
+    SYNCING,
+    SYNCED,
+    OFFLINE_PENDING,
+    LOCAL_ONLY,
+    ERROR
+}
+
+data class CloudSyncStatus(
+    val state: CloudSyncState = CloudSyncState.SYNCING,
+    val lastSyncedAtMillis: Long = 0L,
+    val accountEmail: String = "",
+    val detailMessage: String = "Connecting to Google Cloud..."
+)
+
 @IgnoreExtraProperties
 data class AppReleaseInfo(
-    val latestVersionCode: Long = 112L,
-    val latestVersionName: String = "1.1.2-patch.1",
+    val latestVersionCode: Long = 113L,
+    val latestVersionName: String = "1.1.3-patch.1",
     val releaseTitle: String = "PikaFit OTA Patch",
-    val releaseNotes: String = "Streak-oriented Pokémon classes (0–500 days), continuous XP levels, 1,000 XP 1-day streak restore, Streaks heatmap tab, and automatic GitHub OTA patch installation.",
+    val releaseNotes: String = "Real-time multi-device Google Cloud sync & automatic streak/food reconciliation across phones, plus OTA patch delivery.",
     val downloadUrl: String = "https://raw.githubusercontent.com/ATOM495/PikaFit/main/patch_manifest.json",
     val isMandatory: Boolean = false,
     val publishedAt: String = "",
     val isUpdateAvailable: Boolean = false,
-    val patchNumber: Long = 11201L,
-    val patchVersion: String = "1.1.2-patch.1",
+    val patchNumber: Long = 11301L,
+    val patchVersion: String = "1.1.3-patch.1",
     val patchAppliedAutomatically: Boolean = false,
     val announcementBanner: String = "",
     val patchedFoodsCount: Int = 0
 )
 
 data class OtaPatchManifest(
-    val patchNumber: Long = 11201L,
-    val patchVersion: String = "1.1.2-patch.1",
-    val baseAppVersion: String = "1.1.2",
-    val minNativeVersionCode: Long = 112L,
+    val patchNumber: Long = 11301L,
+    val patchVersion: String = "1.1.3-patch.1",
+    val baseAppVersion: String = "1.1.3",
+    val minNativeVersionCode: Long = 113L,
     val releaseTitle: String = "PikaFit OTA Patch",
     val patchNotes: String = "",
     val announcementBanner: String = "",

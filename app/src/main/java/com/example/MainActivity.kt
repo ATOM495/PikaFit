@@ -155,21 +155,24 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     } else {
-                        MainHunterScreen(
-                            currentUserId = activeAccountId!!,
-                            isDark = isDarkMode,
-                            onToggleTheme = { isDarkMode = !isDarkMode },
-                            onSignedOut = {
-                                activeAccountId = null
-                                scope.launch(Dispatchers.IO) {
-                                    applicationContext
-                                        .getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
-                                        .edit()
-                                        .remove("active_account_id")
-                                        .apply()
+                        val uid = activeAccountId!!
+                        key(uid) {
+                            MainHunterScreen(
+                                currentUserId = uid,
+                                isDark = isDarkMode,
+                                onToggleTheme = { isDarkMode = !isDarkMode },
+                                onSignedOut = {
+                                    activeAccountId = null
+                                    scope.launch(Dispatchers.IO) {
+                                        applicationContext
+                                            .getSharedPreferences("pikafit_auth_session_prefs", MODE_PRIVATE)
+                                            .edit()
+                                            .remove("active_account_id")
+                                            .apply()
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }

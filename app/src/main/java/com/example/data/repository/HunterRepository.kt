@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.example.R
 import com.example.data.model.AppReleaseInfo
+import com.example.data.model.CloudSyncState
+import com.example.data.model.CloudSyncStatus
 import com.example.data.model.FeedbackEntry
 import com.example.data.model.HunterBiometrics
 import com.example.data.model.HunterSession
@@ -19,21 +21,27 @@ import com.google.firebase.Timestamp
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -77,10 +85,47 @@ class HunterRepository(
 
     fun observeOtaPatchManifest(): Flow<OtaPatchManifest> = localOtaPatchFlow
 
+    fun observeCloudSyncStatus(): StateFlow<CloudSyncStatus> = cloudSyncStatusFlow.asStateFlow()
+
+    fun isFirebaseAuthenticated(): Boolean = auth.currentUser != null
+
     private fun currentUserIdOrNull(): String? = auth.currentUser?.uid
 
     private fun effectiveUserId(): String =
         auth.currentUser?.uid ?: activeAccountId.ifBlank { LOCAL_DEV_USER_ID }
+
+    private fun updateCloudSyncStatus(
+        state: CloudSyncState,
+        detail: String,
+        syncedNow: Boolean = false
+    ) {
+        val email = auth.currentUser?.email ?: getSavedAccountEmail().orEmpty()
+        val prev = cloudSyncStatusFlow.value
+        cloudSyncStatusFlow.value = CloudSyncStatus(
+            state = state,
+            lastSyncedAtMillis = if (syncedNow) System.currentTimeMillis() else prev.lastSyncedAtMillis,
+            accountEmail = email,
+            detailMessage = detail
+        )
+    }
+
+    private fun hasUnsyncedLocalChanges(uid: String): Boolean {
+        if (uid.isBlank()) return false
+        if (unsyncedLocalUids.contains(uid)) return true
+        val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
+        val flag = prefs?.getBoolean("unsynced_local_$uid", false) == true
+        if (flag) unsyncedLocalUids.add(uid)
+        return flag
+    }
+
+    private fun setHasUnsyncedLocalChanges(uid: String, unsynced: Boolean) {
+        if (uid.isBlank()) return
+        if (unsynced) unsyncedLocalUids.add(uid) else unsyncedLocalUids.remove(uid)
+        context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putBoolean("unsynced_local_$uid", unsynced)
+            ?.apply()
+    }
 
     private fun getSessionFlowForUid(uid: String): MutableStateFlow<HunterSession?> {
         return localSessionsByUid.getOrPut(uid) {
@@ -90,8 +135,8 @@ class HunterRepository(
                     id = DEFAULT_SESSION_ID,
                     userId = uid,
                     stateJson = cachedJson,
-                    createdAt = Timestamp(Date()),
-                    updatedAt = Timestamp(Date())
+                    createdAt = null,
+                    updatedAt = null
                 )
             } else {
                 null
@@ -160,34 +205,259 @@ class HunterRepository(
             ?.getString("user_account_email", null)
     }
 
-    fun observeActiveSession(sessionId: String = DEFAULT_SESSION_ID): Flow<HunterSession?> = flow {
+    private fun hasLocalDivergedDataNotInRemote(
+        local: HunterSystemState,
+        remote: HunterSystemState
+    ): Boolean {
+        val localPs = local.playerStatus
+        val remotePs = remote.playerStatus
+        if (remotePs.lastResetAtMillis > localPs.lastResetAtMillis &&
+            remotePs.lastResetAtMillis >= localPs.stateUpdatedAtMillis
+        ) {
+            return false
+        }
+        val remoteHistory = remotePs.productiveHistoryDates.toSet()
+        val hasExtraProductiveDate = localPs.productiveHistoryDates.any { it.isNotBlank() && it !in remoteHistory }
+        if (hasExtraProductiveDate) return true
+
+        val hasRicherDailyLog = localPs.dailyLogsByDate.any { (date, localLog) ->
+            val remoteLog = remotePs.dailyLogsByDate[date]
+            val localHasActivity = localLog.calories > 0 || localLog.waterLiters > 0.0 ||
+                localLog.foodItems.isNotEmpty() || localLog.tasksCompleted.isNotEmpty()
+            if (!localHasActivity) {
+                false
+            } else if (remoteLog == null) {
+                true
+            } else {
+                localLog.calories > remoteLog.calories ||
+                    localLog.foodItems.size > remoteLog.foodItems.size ||
+                    localLog.waterLiters > remoteLog.waterLiters + 0.05 ||
+                    localLog.tasksCompleted.size > remoteLog.tasksCompleted.size
+            }
+        }
+        if (hasRicherDailyLog) return true
+
+        if (localPs.lifetimeXp > remotePs.lifetimeXp) return true
+        if (localPs.restoredDates.any { it !in remotePs.restoredDates }) return true
+        return false
+    }
+
+    private suspend fun reconcileRemoteSnapshot(
+        firebaseUid: String,
+        sessionId: String,
+        remoteSnap: DocumentSnapshot?,
+        localFlow: MutableStateFlow<HunterSession?>,
+        isInitialOrForcedSync: Boolean
+    ) {
+        val localSession = localFlow.value
+        if (remoteSnap == null || !remoteSnap.exists()) {
+            // Remote session does not exist yet — if this device has local data, push it to cloud immediately
+            if (localSession != null && localSession.stateJson.isNotBlank()) {
+                val localState = localSession.toHunterSystemState()
+                if (localState.biometrics.onboardingCompleted || localState.playerStatus.dailyLogsByDate.isNotEmpty()) {
+                    saveOrUpdateSession(localState, sessionId)
+                    return
+                }
+            }
+            updateCloudSyncStatus(CloudSyncState.SYNCED, "Google Cloud ready", syncedNow = true)
+            return
+        }
+
+        val remoteSession = remoteSnap.toObject(
+            HunterSession::class.java,
+            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+        ) ?: return
+        if (remoteSession.stateJson.isBlank()) return
+
+        val remoteState = remoteSession.toHunterSystemState()
+        val localState = localSession?.toHunterSystemState()
+        val unsyncedLocal = hasUnsyncedLocalChanges(firebaseUid)
+
+        val shouldMergeLocalIntoRemote = localState != null && (
+            unsyncedLocal ||
+                (
+                    isInitialOrForcedSync &&
+                        (localState.playerStatus.stateUpdatedAtMillis == 0L ||
+                            localState.playerStatus.stateUpdatedAtMillis > remoteState.playerStatus.stateUpdatedAtMillis) &&
+                        hasLocalDivergedDataNotInRemote(localState, remoteState)
+                    )
+            )
+
+        if (shouldMergeLocalIntoRemote && localState != null) {
+            val mergedState = HunterSystemState.reconcileWithRemote(
+                remote = remoteState,
+                local = localState
+            )
+            val mergedJson = mergedState.toStateJson()
+            val mergedSession = HunterSession.fromSystemState(
+                id = sessionId,
+                userId = firebaseUid,
+                state = mergedState,
+                existingCreatedAt = remoteSession.createdAt
+            ).copy(updatedAt = Timestamp(Date()))
+            localFlow.value = mergedSession
+            setOnboardingCompletedForUser(firebaseUid, true, mergedJson)
+            saveOrUpdateSession(mergedState, sessionId)
+            return
+        }
+
+        // Standard real-time cloud adoption: if remote is newer or different, adopt cloud as source of truth
+        val remoteUpdatedAt = remoteState.playerStatus.stateUpdatedAtMillis
+        val localUpdatedAt = localState?.playerStatus?.stateUpdatedAtMillis ?: 0L
+        val remoteResetNewer = remoteState.playerStatus.lastResetAtMillis > (localState?.playerStatus?.lastResetAtMillis ?: 0L)
+        val shouldAdoptRemote = localSession == null ||
+            isInitialOrForcedSync ||
+            remoteResetNewer ||
+            remoteUpdatedAt >= localUpdatedAt ||
+            localUpdatedAt == 0L
+
+        if (shouldAdoptRemote) {
+            if (localFlow.value?.stateJson != remoteSession.stateJson) {
+                localFlow.value = remoteSession
+            }
+            setOnboardingCompletedForUser(firebaseUid, true, remoteSession.stateJson)
+            setHasUnsyncedLocalChanges(firebaseUid, false)
+        }
+        updateCloudSyncStatus(CloudSyncState.SYNCED, "Synced with Google Cloud", syncedNow = true)
+    }
+
+    suspend fun forceCloudSyncNow(sessionId: String = DEFAULT_SESSION_ID): Result<HunterSession?> =
+        withContext(Dispatchers.IO) {
+            val user = auth.currentUser
+            if (user == null) {
+                updateCloudSyncStatus(
+                    CloudSyncState.LOCAL_ONLY,
+                    "Local-only mode — sign in with Google to sync across phones"
+                )
+                return@withContext Result.failure(IllegalStateException("Not signed in with Google"))
+            }
+            val firebaseUid = user.uid
+            val localFlow = getSessionFlowForUid(firebaseUid)
+            updateCloudSyncStatus(CloudSyncState.SYNCING, "Syncing with Google Cloud...")
+            val docRef = db.collection("users").document(firebaseUid).collection("sessions").document(sessionId)
+            try {
+                user.getIdToken(false).await()
+                val serverSnap = try {
+                    docRef.get(Source.SERVER).await()
+                } catch (_: Exception) {
+                    docRef.get(Source.DEFAULT).await()
+                }
+                reconcileRemoteSnapshot(
+                    firebaseUid = firebaseUid,
+                    sessionId = sessionId,
+                    remoteSnap = serverSnap,
+                    localFlow = localFlow,
+                    isInitialOrForcedSync = true
+                )
+                Result.success(localFlow.value)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                handleFirestoreError(e, OperationType.GET, docRef.path)
+                updateCloudSyncStatus(CloudSyncState.OFFLINE_PENDING, "Offline — changes saved locally & will sync")
+                Result.failure(e)
+            }
+        }
+
+    fun observeActiveSession(sessionId: String = DEFAULT_SESSION_ID): Flow<HunterSession?> = callbackFlow {
         val user = auth.currentUser
         val effUid = effectiveUserId()
         val localFlow = getSessionFlowForUid(effUid)
-        if (user == null) {
-            emitAll(localFlow)
-            return@flow
+
+        // Emit local cache immediately if available for instant startup, while cloud syncs in parallel
+        val localJob = launch(Dispatchers.IO) {
+            localFlow.collect { session ->
+                trySend(session)
+            }
         }
-        try {
-            user.getIdToken(false).await()
-            val firebaseUid = user.uid
-            if (localFlow.value == null) {
-                val docRef = db.collection("users").document(firebaseUid).collection("sessions").document(sessionId)
-                val snap = docRef.get().await()
-                if (snap.exists()) {
-                    snap.toObject(HunterSession::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                        ?.also { session ->
-                            if (session.stateJson.isNotBlank()) {
-                                setOnboardingCompletedForUser(firebaseUid, true, session.stateJson)
-                                localFlow.value = session
-                            }
+
+        if (user == null) {
+            updateCloudSyncStatus(
+                CloudSyncState.LOCAL_ONLY,
+                "Local-only mode — sign in with Google to sync across phones"
+            )
+            awaitClose { localJob.cancel() }
+            return@callbackFlow
+        }
+
+        val firebaseUid = user.uid
+        val docRef = db.collection("users").document(firebaseUid).collection("sessions").document(sessionId)
+        updateCloudSyncStatus(CloudSyncState.SYNCING, "Syncing with Google Cloud...")
+
+        var registration: com.google.firebase.firestore.ListenerRegistration? = null
+        val cloudInitJob = launch(Dispatchers.IO) {
+            try {
+                user.getIdToken(false).await()
+                // 1. Force an immediate authoritative server read & reconcile diverged/offline state
+                val initialSnap = try {
+                    docRef.get(Source.SERVER).await()
+                } catch (_: Exception) {
+                    try {
+                        docRef.get(Source.DEFAULT).await()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                if (initialSnap != null) {
+                    reconcileRemoteSnapshot(
+                        firebaseUid = firebaseUid,
+                        sessionId = sessionId,
+                        remoteSnap = initialSnap,
+                        localFlow = localFlow,
+                        isInitialOrForcedSync = true
+                    )
+                }
+
+                // 2. Attach real-time Firestore snapshot listener so changes on Phone 1 appear live on Phone 2
+                registration = docRef.addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        if (auth.currentUser != null) {
+                            handleFirestoreError(error, OperationType.GET, docRef.path)
+                            updateCloudSyncStatus(
+                                CloudSyncState.OFFLINE_PENDING,
+                                "Cloud sync paused — retrying automatically"
+                            )
                         }
+                        return@addSnapshotListener
+                    }
+                    if (snapshot == null) return@addSnapshotListener
+                    // Skip optimistic local-write echoes; process confirmed remote/server snapshots
+                    if (snapshot.metadata.hasPendingWrites()) return@addSnapshotListener
+
+                    launch(Dispatchers.IO) {
+                        try {
+                            reconcileRemoteSnapshot(
+                                firebaseUid = firebaseUid,
+                                sessionId = sessionId,
+                                remoteSnap = snapshot,
+                                localFlow = localFlow,
+                                isInitialOrForcedSync = false
+                            )
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w("HunterRepository", "Snapshot reconcile error: ${e.message}")
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (auth.currentUser != null) {
+                    handleFirestoreError(e, OperationType.GET, docRef.path)
+                    updateCloudSyncStatus(
+                        CloudSyncState.OFFLINE_PENDING,
+                        "Offline — showing local cache until reconnected"
+                    )
                 }
             }
-        } catch (_: Exception) {
-            // Fall through to localFlow
         }
-        emitAll(localFlow)
+
+        awaitClose {
+            registration?.remove()
+            cloudInitJob.cancel()
+            localJob.cancel()
+        }
     }.flowOn(Dispatchers.IO)
 
     fun observeLogs(): Flow<List<TacticalLog>> = flow {
@@ -292,74 +562,101 @@ class HunterRepository(
     suspend fun saveOrUpdateSession(
         state: HunterSystemState,
         sessionId: String = DEFAULT_SESSION_ID
-    ): Result<HunterSession> {
-        val effUid = effectiveUserId()
-        val localFlow = getSessionFlowForUid(effUid)
-        val nowTs = Timestamp(Date())
-        val existingCreatedAt = localFlow.value?.createdAt ?: nowTs
-        val localModel = HunterSession.fromSystemState(
-            id = sessionId,
-            userId = effUid,
-            state = state,
-            existingCreatedAt = existingCreatedAt
-        ).copy(updatedAt = nowTs)
-        localFlow.value = localModel
-        setOnboardingCompletedForUser(effUid, true, localModel.stateJson)
+    ): Result<HunterSession> = withContext(Dispatchers.IO) {
+        sessionWriteMutex.withLock {
+            val effUid = effectiveUserId()
+            val localFlow = getSessionFlowForUid(effUid)
+            val nowMillis = System.currentTimeMillis()
+            val stampedState = state.copy(
+                playerStatus = state.playerStatus.copy(
+                    stateUpdatedAtMillis = maxOf(nowMillis, state.playerStatus.stateUpdatedAtMillis)
+                )
+            )
+            val nowTs = Timestamp(Date(nowMillis))
+            val existingCreatedAt = localFlow.value?.createdAt ?: nowTs
+            val localModel = HunterSession.fromSystemState(
+                id = sessionId,
+                userId = effUid,
+                state = stampedState,
+                existingCreatedAt = existingCreatedAt
+            ).copy(updatedAt = nowTs)
+            localFlow.value = localModel
+            setOnboardingCompletedForUser(effUid, true, localModel.stateJson)
 
-        val firebaseUid = currentUserIdOrNull() ?: return Result.success(localModel)
-        val docRef = db.collection("users").document(firebaseUid).collection("sessions").document(sessionId)
-        return try {
-            val existingSnap = docRef.get().await()
-            if (existingSnap.exists()) {
-                val remoteCreatedAt = existingSnap.getTimestamp(
-                    "createdAt",
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+            val firebaseUid = currentUserIdOrNull()
+            if (firebaseUid == null) {
+                setHasUnsyncedLocalChanges(effUid, true)
+                updateCloudSyncStatus(
+                    CloudSyncState.LOCAL_ONLY,
+                    "Saved locally — sign in with Google to sync across devices"
                 )
-                val updatedModel = HunterSession.fromSystemState(
-                    id = sessionId,
-                    userId = firebaseUid,
-                    state = state,
-                    existingCreatedAt = remoteCreatedAt
-                )
-                val updateFields = mapOf(
-                    "level" to updatedModel.level,
-                    "rank" to updatedModel.rank,
-                    "currentXp" to updatedModel.currentXp,
-                    "nextLevelXp" to updatedModel.nextLevelXp,
-                    "progressPercent" to updatedModel.progressPercent,
-                    "hpPercent" to updatedModel.hpPercent,
-                    "streakDays" to updatedModel.streakDays,
-                    "caloriesLogged" to updatedModel.caloriesLogged,
-                    "caloriesTarget" to updatedModel.caloriesTarget,
-                    "proteinG" to updatedModel.proteinG,
-                    "carbsG" to updatedModel.carbsG,
-                    "fatsG" to updatedModel.fatsG,
-                    "fiberG" to updatedModel.fiberG,
-                    "omega3Mg" to updatedModel.omega3Mg,
-                    "waterLiters" to updatedModel.waterLiters,
-                    "targetLiters" to updatedModel.targetLiters,
-                    "workoutCompleted" to updatedModel.workoutCompleted,
-                    "tacticalBriefing" to updatedModel.tacticalBriefing,
-                    "stateJson" to updatedModel.stateJson,
-                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-                )
-                docRef.update(updateFields).await()
-                Result.success(updatedModel)
-            } else {
-                val newModel = HunterSession.fromSystemState(
-                    id = sessionId,
-                    userId = firebaseUid,
-                    state = state,
-                    existingCreatedAt = null
-                )
-                docRef.set(newModel).await()
-                Result.success(newModel)
+                return@withLock Result.success(localModel)
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, docRef.path)
-            Result.success(localModel)
+
+            val docRef = db.collection("users").document(firebaseUid).collection("sessions").document(sessionId)
+            val updatedModel = HunterSession.fromSystemState(
+                id = sessionId,
+                userId = firebaseUid,
+                state = stampedState,
+                existingCreatedAt = existingCreatedAt
+            )
+            val updateFields = mapOf(
+                "level" to updatedModel.level,
+                "rank" to updatedModel.rank,
+                "currentXp" to updatedModel.currentXp,
+                "nextLevelXp" to updatedModel.nextLevelXp,
+                "progressPercent" to updatedModel.progressPercent,
+                "hpPercent" to updatedModel.hpPercent,
+                "streakDays" to updatedModel.streakDays,
+                "caloriesLogged" to updatedModel.caloriesLogged,
+                "caloriesTarget" to updatedModel.caloriesTarget,
+                "proteinG" to updatedModel.proteinG,
+                "carbsG" to updatedModel.carbsG,
+                "fatsG" to updatedModel.fatsG,
+                "fiberG" to updatedModel.fiberG,
+                "omega3Mg" to updatedModel.omega3Mg,
+                "waterLiters" to updatedModel.waterLiters,
+                "targetLiters" to updatedModel.targetLiters,
+                "workoutCompleted" to updatedModel.workoutCompleted,
+                "tacticalBriefing" to updatedModel.tacticalBriefing,
+                "stateJson" to updatedModel.stateJson,
+                "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+            )
+
+            try {
+                // Fast single-round-trip update; preserves existing server createdAt & avoids stale cache mismatch
+                try {
+                    docRef.update(updateFields).await()
+                    setHasUnsyncedLocalChanges(firebaseUid, false)
+                    updateCloudSyncStatus(CloudSyncState.SYNCED, "Synced with Google Cloud", syncedNow = true)
+                    Result.success(updatedModel)
+                } catch (updateEx: FirebaseFirestoreException) {
+                    if (updateEx.code == FirebaseFirestoreException.Code.NOT_FOUND) {
+                        val newModel = HunterSession.fromSystemState(
+                            id = sessionId,
+                            userId = firebaseUid,
+                            state = stampedState,
+                            existingCreatedAt = null
+                        )
+                        docRef.set(newModel).await()
+                        setHasUnsyncedLocalChanges(firebaseUid, false)
+                        updateCloudSyncStatus(CloudSyncState.SYNCED, "Synced with Google Cloud", syncedNow = true)
+                        Result.success(newModel)
+                    } else {
+                        throw updateEx
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                handleFirestoreError(e, OperationType.WRITE, docRef.path)
+                setHasUnsyncedLocalChanges(firebaseUid, true)
+                updateCloudSyncStatus(
+                    CloudSyncState.OFFLINE_PENDING,
+                    "Saved locally — pending cloud sync"
+                )
+                Result.success(localModel)
+            }
         }
     }
 
@@ -559,7 +856,14 @@ class HunterRepository(
         if (clearJournalEntries) {
             getJournalFlowForUid(effUid).value = emptyList()
         }
-        val sessionRes = saveOrUpdateSession(resetState, sessionId)
+        val resetNow = System.currentTimeMillis()
+        val stampedResetState = resetState.copy(
+            playerStatus = resetState.playerStatus.copy(
+                stateUpdatedAtMillis = resetNow,
+                lastResetAtMillis = resetNow
+            )
+        )
+        val sessionRes = saveOrUpdateSession(stampedResetState, sessionId)
 
         val firebaseUid = currentUserIdOrNull() ?: return sessionRes
         return try {
@@ -586,8 +890,8 @@ class HunterRepository(
     }
 
     fun getInstalledVersionName(): String {
-        val buildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.1.2" }
-        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 112L }
+        val buildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.1.3" }
+        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 113L }
         val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
         val savedVer = prefs?.getString(KEY_INSTALLED_VERSION_NAME, null)?.trim().orEmpty()
         val savedCode = prefs?.getLong(KEY_INSTALLED_VERSION_CODE, 0L) ?: 0L
@@ -599,15 +903,15 @@ class HunterRepository(
     }
 
     fun getInstalledVersionCode(): Long {
-        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 112L }
+        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 113L }
         val prefs = context?.getSharedPreferences(PREFS_ONBOARDING_NAME, Context.MODE_PRIVATE)
         val savedCode = prefs?.getLong(KEY_INSTALLED_VERSION_CODE, 0L) ?: 0L
         return maxOf(buildCode, savedCode)
     }
 
     fun markVersionInstalled(versionName: String, versionCode: Long, publishedAt: String = "") {
-        val buildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.1.2" }
-        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 112L }
+        val buildVer = try { com.example.BuildConfig.VERSION_NAME } catch (_: Exception) { "1.1.3" }
+        val buildCode = try { com.example.BuildConfig.VERSION_CODE.toLong() } catch (_: Exception) { 113L }
         val candidateVer = versionName.trim().removePrefix("v").removePrefix("V").ifBlank { buildVer }
         val cleanVer = if (compareVersionStrings(candidateVer, buildVer) >= 0) candidateVer else buildVer
         val cleanCode = maxOf(buildCode, deriveVersionCode(cleanVer, maxOf(versionCode, getInstalledVersionCode())))
@@ -960,7 +1264,9 @@ class HunterRepository(
         private const val KEY_ACK_PUBLISHED_AT = "ack_github_release_published_at"
 
         private val onboardedUidsMemoryCache = mutableSetOf<String>()
+        private val unsyncedLocalUids = mutableSetOf<String>()
         private val cachedStateJsonByUid = mutableMapOf<String, String>()
+        private val sessionWriteMutex = Mutex()
 
         private val localSessionsByUid = mutableMapOf<String, MutableStateFlow<HunterSession?>>()
         private val localLogsByUid = mutableMapOf<String, MutableStateFlow<List<TacticalLog>>>()
@@ -968,5 +1274,6 @@ class HunterRepository(
         private val localFeedbackFlow = MutableStateFlow<List<FeedbackEntry>>(emptyList())
         private val localReleaseInfoFlow = MutableStateFlow(AppReleaseInfo())
         private val localOtaPatchFlow = MutableStateFlow(PatchUpdateManager.defaultBuiltInManifest())
+        private val cloudSyncStatusFlow = MutableStateFlow(CloudSyncStatus())
     }
 }

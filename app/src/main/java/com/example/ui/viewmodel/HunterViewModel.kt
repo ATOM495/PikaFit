@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.AchievementItem
 import com.example.data.model.AppReleaseInfo
+import com.example.data.model.CloudSyncState
+import com.example.data.model.CloudSyncStatus
 import com.example.data.model.DailyDateLog
 import com.example.data.model.ExerciseLogged
 import com.example.data.model.FeedbackEntry
@@ -199,6 +201,8 @@ class HunterViewModel(
             initialValue = PatchUpdateManager.defaultBuiltInManifest()
         )
 
+    val cloudSyncStatus: StateFlow<CloudSyncStatus> = repository.observeCloudSyncStatus()
+
     private val _installedVersionName = MutableStateFlow(repository.getInstalledVersionName())
     val installedVersionName: StateFlow<String> = _installedVersionName.asStateFlow()
 
@@ -207,6 +211,31 @@ class HunterViewModel(
 
     private val _dismissedUpdateVersion = MutableStateFlow<Long?>(null)
     val dismissedUpdateVersion: StateFlow<Long?> = _dismissedUpdateVersion.asStateFlow()
+
+    fun refreshCloudSession(manualUserTrigger: Boolean = false) {
+        viewModelScope.launch {
+            if (manualUserTrigger) {
+                _aiSyncState.value = AiSyncState.Analyzing("Syncing your Google Cloud data across devices")
+            }
+            val result = repository.forceCloudSyncNow()
+            if (manualUserTrigger) {
+                result.onSuccess {
+                    val syncedEmail = cloudSyncStatus.value.accountEmail
+                    val emailSuffix = if (syncedEmail.isNotBlank()) " ($syncedEmail)" else ""
+                    _aiSyncState.value = AiSyncState.Success("Cloud data synced$emailSuffix — all streaks & food logs up to date!")
+                }.onFailure { err ->
+                    val status = cloudSyncStatus.value
+                    _aiSyncState.value = AiSyncState.Error(
+                        if (status.state == CloudSyncState.LOCAL_ONLY) {
+                            "Sign out & tap 'Sign in with Google' to sync data across phones."
+                        } else {
+                            err.message ?: "Could not reach Google Cloud. Check internet connection."
+                        }
+                    )
+                }
+            }
+        }
+    }
 
     fun dismissUpdatePrompt(versionCode: Long) {
         _dismissedUpdateVersion.value = versionCode
@@ -268,12 +297,12 @@ class HunterViewModel(
         restoreCostXp: Int = TrainerRankProgression.streakRestoreCostXp
     ) {
         viewModelScope.launch {
-            val cleanVer = patchVersion.trim().ifBlank { "1.1.2-patch.2" }
+            val cleanVer = patchVersion.trim().ifBlank { "1.1.3-patch.2" }
             val json = JSONObject().apply {
                 put("patch_number", patchNumber)
                 put("patch_version", cleanVer)
-                put("base_app_version", "1.1.2")
-                put("min_native_version_code", 112)
+                put("base_app_version", "1.1.3")
+                put("min_native_version_code", 113)
                 put("release_title", "PikaFit OTA Patch v$cleanVer")
                 put("patch_notes", patchNotes.ifBlank { "Live OTA patch applied automatically without APK reinstall." })
                 put("announcement_banner", announcementBanner.ifBlank { "OTA Patch v$cleanVer active!" })
@@ -537,20 +566,21 @@ class HunterViewModel(
                             eval to resolvedToday
                         }
                         _systemState.value = evaluated
-                        if (_foodHistory.value.isEmpty() && todayResolvedItems.isNotEmpty()) {
-                            _foodHistory.value = todayResolvedItems.map { item ->
-                                FoodEntryRecord(
-                                    id = item.id,
-                                    mealName = item.mealName,
-                                    calories = item.calories,
-                                    proteinG = item.proteinG,
-                                    carbsG = item.carbsG,
-                                    fatsG = item.fatsG,
-                                    fiberG = item.fiberG,
-                                    grams = item.grams,
-                                    xpAwarded = 45
-                                )
-                            }
+                        val syncedFoodHistory = todayResolvedItems.map { item ->
+                            FoodEntryRecord(
+                                id = item.id,
+                                mealName = item.mealName,
+                                calories = item.calories,
+                                proteinG = item.proteinG,
+                                carbsG = item.carbsG,
+                                fatsG = item.fatsG,
+                                fiberG = item.fiberG,
+                                grams = item.grams,
+                                xpAwarded = 45
+                            )
+                        }
+                        if (syncedFoodHistory.isNotEmpty() || evaluated.statBreakdown.vitality.caloriesLogged == 0) {
+                            _foodHistory.value = syncedFoodHistory
                         }
                         hasSeededInitialSession = true
                         _isSessionLoaded.value = true

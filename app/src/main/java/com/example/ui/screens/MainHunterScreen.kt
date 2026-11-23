@@ -52,6 +52,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.credentials.CredentialManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -1930,6 +1933,19 @@ fun MainHunterScreen(
         }
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, currentUserId) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshCloudSession(manualUserTrigger = false)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     LaunchedEffect(isSessionLoaded, state.biometrics.onboardingCompleted) {
         if (isSessionLoaded) {
             PikaFitNotificationScheduler.ensureNotificationChannel(context)
@@ -2001,6 +2017,7 @@ fun MainHunterScreen(
     val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
     val releaseInfo by viewModel.appReleaseInfo.collectAsStateWithLifecycle()
     val otaPatch by viewModel.otaPatchManifest.collectAsStateWithLifecycle()
+    val cloudSyncStatus by viewModel.cloudSyncStatus.collectAsStateWithLifecycle()
     val installedVersionName by viewModel.installedVersionName.collectAsStateWithLifecycle()
     val installedVersionCode by viewModel.installedVersionCode.collectAsStateWithLifecycle()
     val dismissedUpdateVersion by viewModel.dismissedUpdateVersion.collectAsStateWithLifecycle()
@@ -2094,7 +2111,7 @@ fun MainHunterScreen(
                                     )
                                     val streakLabel = when {
                                         state.playerStatus.restorableStreakDays > 0 ->
-                                            "⚡ Restore ${state.playerStatus.restorableStreakDays}D"
+                                            "⚡ Fix ${state.playerStatus.restorableStreakDays}D"
                                         else ->
                                             "🔥 ${state.playerStatus.streakDays}D"
                                     }
@@ -2306,6 +2323,43 @@ fun MainHunterScreen(
                         contentAlignment = Alignment.TopCenter
                     ) {
                         Column(modifier = Modifier.fillMaxSize().widthIn(max = 640.dp)) {
+                            if (cloudSyncStatus.state == CloudSyncState.LOCAL_ONLY) {
+                                Surface(
+                                    color = PikaCheekCrimson.copy(alpha = 0.16f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, PikaCheekCrimson),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                                        .clickable {
+                                            signOutHunter(
+                                                credentialManager = credentialManager,
+                                                onSignOutComplete = onSignedOut,
+                                                scope = scope
+                                            )
+                                        }
+                                        .testTag("local_only_cloud_sync_banner")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.CloudOff,
+                                            contentDescription = "Cloud Sync Off",
+                                            tint = PikaCheekCrimson,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "Local-only mode — tap to Sign in with Google & sync across phones",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = TextPrimary,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
                             AiSyncStatusBanner(aiSyncState = aiSyncState, onDismiss = viewModel::dismissAiSyncBanner)
 
                             when (selectedTab) {
@@ -2429,11 +2483,13 @@ fun MainHunterScreen(
                                     initialFocusSection = settingsFocusSection,
                                     releaseInfo = releaseInfo,
                                     otaPatchManifest = otaPatch,
+                                    cloudSyncStatus = cloudSyncStatus,
                                     installedVersionName = installedVersionName,
                                     installedVersionCode = installedVersionCode,
                                     isDark = isDark,
                                     onToggleTheme = onToggleTheme,
                                     onBack = { selectedTab = 0 },
+                                    onSyncCloudNow = { viewModel.refreshCloudSession(manualUserTrigger = true) },
                                     onCheckForUpdates = { viewModel.checkForAppUpdates(manualUserTrigger = true) },
                                     onMarkUpdateInstalled = { viewModel.markLatestUpdateInstalled(releaseInfo) },
                                     onPublishOtaPatch = { pVer, pNum, banner, notes ->

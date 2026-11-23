@@ -386,12 +386,12 @@ fun AuthScreen(
                     }
                     Column {
                         Text(
-                            text = "Sign in with Google",
+                            text = "Offline Local Profile",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Continue to PikaFit",
+                            text = "Google Sign-In unavailable on this device",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -401,7 +401,7 @@ fun AuthScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Enter your Google Account email ID to sign in or sync your Trainer profile.",
+                        text = "Cloud sync between phones requires Google Sign-In via Play Services. Continuing with an email below creates a local-only profile on this device.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
